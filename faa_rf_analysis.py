@@ -362,6 +362,7 @@ tab_names = [
     "📋 Contribution Summary",
     "📚 Tutorial",
     "🤖 Contribution Analyzer",
+    "🎓 RF Training",
 ]
 selected_tab = st.sidebar.radio("Module", tab_names)
 
@@ -1598,6 +1599,989 @@ with power levels up to 50W ERP. Compatibility with aeronautical VHF communicati
 aggregate EPFD levels approaching the limits specified in RR Appendix 7. Individual satellite EIRP is 
 limited to 15 dBW per beam with a minimum elevation angle of 10 degrees."*
         """)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 9 — RF TRAINING
+# ─────────────────────────────────────────────────────────────────────────────
+elif selected_tab == "🎓 RF Training":
+    st.title("🎓 RF Fundamentals Training")
+    st.markdown("*Ground-up refresher designed for engineers returning to RF after time away — focused on what you need for ITU-R policy support.*")
+    ex("Work through these lessons in order. Each builds on the last. Every concept has a worked example and a self-check.")
+
+    lesson = st.selectbox("Select Lesson:", [
+        "Lesson 1 — The Decibel: Your Most Important Tool",
+        "Lesson 2 — Frequency, Wavelength & The EM Spectrum",
+        "Lesson 3 — Transmit Power, EIRP & Antenna Gain",
+        "Lesson 4 — Free Space Path Loss",
+        "Lesson 5 — The Link Budget: Putting It All Together",
+        "Lesson 6 — Noise, Sensitivity & the Noise Floor",
+        "Lesson 7 — Interference: I/N, C/I & Protection Criteria",
+        "Lesson 8 — Propagation Models: P.452, P.528, P.676",
+        "Lesson 9 — Monte Carlo & Aggregate Interference",
+        "Lesson 10 — From RF Math to ITU-R Policy",
+    ])
+
+    st.markdown("---")
+
+    # ── LESSON 1 ──────────────────────────────────────────────────────────────
+    if lesson.startswith("Lesson 1"):
+        st.header("📐 Lesson 1 — The Decibel: Your Most Important Tool")
+        ex("Every number in RF engineering is expressed in decibels. Master this and everything else follows.")
+
+        st.subheader("Why Decibels?")
+        st.markdown("""
+RF signals span an enormous range — a transmitter might produce 100 watts while a GPS receiver needs just 
+0.000000000000001 watts (10⁻¹⁵ W). Writing those numbers linearly is unworkable. Decibels compress 
+this range into manageable numbers by using logarithms.
+
+**The core formula:**
+""")
+        st.latex(r"\text{Value (dB)} = 10 \cdot \log_{10}\left(\frac{P_2}{P_1}\right)")
+        st.markdown("""
+This compares two power levels. When you say a signal is "30 dB stronger," you mean it is **1000× more powerful**.
+
+**The three numbers you must memorize:**
+
+| dB | Power Ratio | Memory Hook |
+|---|---|---|
+| **+3 dB** | 2× (double) | "3 dB = double the power" |
+| **+10 dB** | 10× | "10 dB = ten times the power" |
+| **−3 dB** | 0.5× (half) | "−3 dB = half the power" |
+| **−10 dB** | 0.1× | "−10 dB = one tenth the power" |
+| **+30 dB** | 1000× | Combine: 10 × 10 × 10 |
+| **−60 dB** | 0.000001× | Combine: −10 − 10 − 10 − 10 − 10 − 10 |
+
+**In RF we use two reference points:**
+- **dBm** = decibels relative to 1 milliwatt. Used for signal power.
+- **dBi** = decibels relative to an isotropic antenna. Used for antenna gain.
+- **dBW** = decibels relative to 1 watt. Used in satellite/high-power work (0 dBW = 30 dBm).
+        """)
+
+        st.subheader("Converting Between Watts and dBm")
+        st.latex(r"P_{\text{dBm}} = 10 \cdot \log_{10}(P_{\text{mW}})")
+        st.latex(r"P_{\text{mW}} = 10^{P_{\text{dBm}}/10}")
+
+        st.markdown("**Common conversions to memorize:**")
+        conv_data = {
+            "Power (Watts)": ["0.001 W (1 mW)", "0.01 W (10 mW)", "0.1 W (100 mW)", "1 W", "10 W", "20 W", "100 W"],
+            "Power (dBm)": ["0 dBm", "10 dBm", "20 dBm", "30 dBm", "40 dBm", "43 dBm", "50 dBm"],
+            "Typical Use": ["Reference level", "Low-power IoT device", "Wi-Fi access point", "Small radio", "Mobile phone max", "LTE base station typical", "FM broadcast transmitter"],
+        }
+        st.table(pd.DataFrame(conv_data))
+
+        st.subheader("🔢 Interactive dB Calculator")
+        ex("Use this to build intuition — change the inputs and watch how the dB math works.")
+        col1, col2 = st.columns(2)
+        with col1:
+            p_watts = st.number_input("Power (Watts)", value=1.0, min_value=0.000001, format="%.6f")
+            p_dbm_calc = 10 * np.log10(p_watts * 1000)
+            st.metric("In dBm", f"{p_dbm_calc:.2f} dBm")
+            st.metric("In dBW", f"{p_dbm_calc - 30:.2f} dBW")
+        with col2:
+            p_dbm_in = st.number_input("Power (dBm)", value=30.0, step=1.0)
+            p_watts_calc = 10 ** (p_dbm_in / 10) / 1000
+            st.metric("In Watts", f"{p_watts_calc:.6f} W")
+            st.metric("In milliwatts", f"{p_watts_calc*1000:.4f} mW")
+
+        st.subheader("The Golden Rule of dB Arithmetic")
+        st.markdown("""
+In dB, **multiplication becomes addition and division becomes subtraction.**
+This is why link budgets work — instead of multiplying and dividing many large/small numbers,
+you just add and subtract dB values.
+
+**Example:**
+> A transmitter puts out 43 dBm. It goes through a 3 dB cable loss, then a 15 dBi antenna.
+> What is the EIRP?
+>
+> EIRP = 43 − 3 + 15 = **55 dBm** ✓
+>
+> (In linear: 20W × 0.5 × 31.6 = 316W = 55 dBm. Same answer, harder math.)
+        """)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Try these — click to reveal answers"):
+            st.markdown("""
+**Q1:** A signal drops by 20 dB. By what factor did the power decrease?
+> **Answer:** 100× decrease (−10 dB = ÷10, twice = ÷100)
+
+**Q2:** A GPS satellite transmits at 27 dBW. What is that in dBm? In Watts?
+> **Answer:** 27 dBW = 57 dBm = 500 Watts
+
+**Q3:** You have 43 dBm Tx power, 2 dB cable loss, 17 dBi antenna gain. What is the EIRP?
+> **Answer:** 43 − 2 + 17 = **58 dBm** (631 Watts equivalent)
+
+**Q4:** A receiver needs −90 dBm to work. The received signal is −105 dBm. By how many dB is it below threshold?
+> **Answer:** −105 − (−90) = **−15 dB** below threshold (about 30× too weak)
+            """)
+
+    # ── LESSON 2 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 2"):
+        st.header("📻 Lesson 2 — Frequency, Wavelength & The EM Spectrum")
+        ex("Frequency determines how a signal behaves — how far it travels, how it's absorbed, and what it can penetrate.")
+
+        st.subheader("The Fundamental Relationship")
+        st.latex(r"c = f \cdot \lambda \quad \Rightarrow \quad \lambda = \frac{c}{f}")
+        st.markdown("""
+Where:
+- **c** = speed of light = 3 × 10⁸ m/s
+- **f** = frequency in Hz
+- **λ** = wavelength in meters
+
+**Quick rule:** λ(meters) ≈ 300 / f(MHz)
+        """)
+
+        st.subheader("🔢 Frequency ↔ Wavelength Calculator")
+        col1, col2 = st.columns(2)
+        with col1:
+            f_mhz_l2 = st.number_input("Frequency (MHz)", value=1090.0, step=10.0)
+            lam = 300 / f_mhz_l2
+            st.metric("Wavelength", f"{lam*100:.2f} cm")
+            st.metric("Half-wavelength (antenna)", f"{lam/2*100:.2f} cm")
+        with col2:
+            lam_cm = st.number_input("Wavelength (cm)", value=27.5, step=1.0)
+            f_from_lam = 300 / (lam_cm / 100)
+            st.metric("Frequency", f"{f_from_lam:.1f} MHz")
+
+        st.subheader("The Aeronautical Spectrum — Bands You Work With")
+        ex("Each band has different propagation characteristics — lower frequencies travel farther; higher frequencies carry more data but attenuate faster.")
+        band_data = pd.DataFrame([
+            ["VHF", "30–300 MHz", "~1–10 m", "Line-of-sight + some diffraction", "VOR, ILS, VHF comms"],
+            ["UHF", "300 MHz–3 GHz", "~10 cm–1 m", "Line-of-sight dominant", "DME, TACAN, ADS-B, GPS L1"],
+            ["L-band", "1–2 GHz", "~15–30 cm", "Good penetration, long range", "GPS, GLONASS, DME, Mode-S"],
+            ["C-band", "4–8 GHz", "~4–7 cm", "Line-of-sight, rain starts to matter", "Radio altimeter, en-route radar"],
+            ["X-band", "8–12 GHz", "~2.5–4 cm", "Rain attenuation significant", "Weather radar, surface radar"],
+        ], columns=["Band", "Frequency Range", "Wavelength", "Propagation Character", "FAA Systems"])
+        st.table(band_data)
+
+        st.subheader("Why Frequency Matters for Interference")
+        st.markdown("""
+**1. Path Loss scales with frequency** — higher frequency = more free-space path loss per km
+(we'll calculate this in Lesson 4). This can work in your favor — a 5 GHz interferer loses
+more power over distance than a 500 MHz one.
+
+**2. Antenna size scales with wavelength** — a half-wave dipole at 1090 MHz (ADS-B) is
+~13.7 cm. At 121.5 MHz (VHF emergency) it's ~1.23 m. This affects what fits on an aircraft.
+
+**3. Atmospheric absorption** — above ~10 GHz, oxygen and water vapor absorb RF energy.
+At 60 GHz, absorption is so high signals can barely travel a few km (used in 5G mmWave
+for this reason — natural isolation).
+
+**4. Rain attenuation** — above ~3 GHz, raindrops are comparable to the wavelength
+and scatter energy. Airborne weather radar at 9 GHz exploits this to detect storms.
+        """)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** ADS-B operates at 1090 MHz. What is its wavelength?
+> **Answer:** λ = 300/1090 = **0.275 m = 27.5 cm**
+
+**Q2:** GPS L1 is at 1575.42 MHz. GPS L5 is at 1176.45 MHz. Which has a longer wavelength?
+> **Answer:** L5 (lower frequency = longer wavelength). L5: 25.5 cm vs L1: 19.0 cm
+
+**Q3:** Why does the radio altimeter band (4200–4400 MHz) require more careful protection from nearby 5G (3700–3980 MHz) than, say, VHF comms at 121 MHz?
+> **Answer:** The 5G band is only ~220 MHz away from the radio altimeter band. At these frequencies, receiver front-ends can be overloaded by strong adjacent signals even if the 5G signal is not technically "in-band." At VHF, the fractional frequency separation would be enormous.
+            """)
+
+    # ── LESSON 3 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 3"):
+        st.header("📡 Lesson 3 — Transmit Power, EIRP & Antenna Gain")
+        ex("EIRP is the single number that characterizes how much power a transmitter effectively radiates — it's what you put into every interference calculation.")
+
+        st.subheader("Transmit Power")
+        st.markdown("""
+Transmit power (Pt) is the RF power delivered to the antenna input. It does NOT account for the antenna's directionality.
+
+Common values in ITU-R work:
+| System | Typical Tx Power |
+|---|---|
+| LTE macro base station | 43–46 dBm (20–40W) |
+| 5G NR base station | 46–53 dBm (40–200W) |
+| Mobile handset | 23–30 dBm (200mW–1W) |
+| VOR ground station | 50 dBm (100W) |
+| GPS satellite | 27 dBW = 57 dBm (500W) |
+| ADS-B transponder | 18–21 dBW = 48–51 dBm |
+        """)
+
+        st.subheader("Antenna Gain")
+        st.markdown("""
+An antenna does not amplify power — it **redirects** it. Gain (G) describes how much more power 
+is concentrated in the main beam versus an isotropic (perfectly omnidirectional) antenna.
+
+- **0 dBi** — isotropic; radiates equally in all directions (theoretical)
+- **2 dBi** — simple dipole; slight directivity
+- **15 dBi** — typical sector antenna on a cell tower
+- **30+ dBi** — high-gain dish or phased array
+
+**Key insight for interference analysis:** When assessing interference, use the antenna gain 
+**in the direction of the victim receiver** — not the peak gain. For worst-case analysis, 
+assume 0 dBi (isotropic) toward the victim unless you have a specific antenna pattern.
+        """)
+
+        st.subheader("EIRP — Effective Isotropic Radiated Power")
+        st.latex(r"\text{EIRP (dBm)} = P_t \text{(dBm)} + G_t \text{(dBi)} - L_{cable} \text{(dB)}")
+        st.markdown("""
+EIRP represents the power that would need to be fed into an isotropic antenna to produce 
+the same signal strength in the direction of maximum radiation.
+
+**It is the standard metric used in:**
+- ITU-R Radio Regulations (PFD and EIRP limits)
+- Coordination agreements between administrations
+- Interference analysis inputs
+        """)
+
+        st.subheader("🔢 Interactive EIRP Calculator")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            pt = st.number_input("Tx Power (dBm)", value=43.0, step=1.0)
+        with col2:
+            gt = st.number_input("Antenna Gain (dBi)", value=15.0, step=1.0)
+        with col3:
+            lc = st.number_input("Cable Loss (dB)", value=2.0, step=0.5)
+        eirp_val = pt + gt - lc
+        st.metric("EIRP", f"{eirp_val:.1f} dBm = {10**(eirp_val/10)/1000:.1f} W equivalent")
+        ex("This is the effective radiated power toward the victim — the starting point of every link budget and interference calculation.")
+
+        st.subheader("Power Flux Density (PFD)")
+        st.markdown("""
+PFD describes how much power arrives per unit area at a given distance. 
+ITU-R uses PFD limits in the Radio Regulations to protect Earth-based receivers from satellites.
+        """)
+        st.latex(r"\text{PFD (dBW/m}^2) = \text{EIRP (dBW)} - 10\log_{10}(4\pi d^2)")
+
+        d_km_l3 = st.slider("Distance (km)", 1, 500, 10)
+        eirp_dbw = eirp_val - 30
+        pfd_val = eirp_dbw - 10 * np.log10(4 * np.pi * (d_km_l3 * 1000) ** 2)
+        st.metric("PFD at distance", f"{pfd_val:.1f} dBW/m²")
+        ex("PFD limits in the Radio Regulations (e.g., RR Appendix 7) are what you cite to protect ground receivers from satellite interference.")
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** A 5G base station has Tx power 46 dBm, antenna gain 18 dBi, cable loss 1 dB. What is the EIRP?
+> **Answer:** 46 + 18 − 1 = **63 dBm** (2000W equivalent — this is why 5G can interfere with things far away)
+
+**Q2:** For worst-case interference analysis, should you use the base station's peak antenna gain or 0 dBi toward the victim?
+> **Answer:** Use the gain **toward the victim** — which may be a side lobe. For a worst-case bound, use 0 dBi. In a realistic analysis, model the actual antenna pattern.
+
+**Q3:** Why is EIRP used instead of just transmit power in regulatory limits?
+> **Answer:** EIRP captures both the transmitter power AND the antenna focusing effect. Two transmitters with the same Tx power but different antennas can have very different interference impacts — EIRP accounts for this in a single number.
+            """)
+
+    # ── LESSON 4 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 4"):
+        st.header("📉 Lesson 4 — Free Space Path Loss")
+        ex("Path loss is the signal power lost as it travels through space — even in a vacuum with no obstructions, power spreads out and weakens with distance.")
+
+        st.subheader("The Formula")
+        st.latex(r"FSPL \text{ (dB)} = 20\log_{10}(d_{km}) + 20\log_{10}(f_{MHz}) + 32.44")
+        st.markdown("""
+This is the **Friis free-space path loss** equation. It tells you how much signal is lost 
+between a transmitter and receiver separated by distance d, at frequency f.
+
+**Key observations:**
+- **Distance doubles → path loss increases by 6 dB** (power drops to ¼)
+- **Frequency doubles → path loss increases by 6 dB**
+- Higher frequency signals lose more power over the same distance
+- This is WHY 5G mmWave (26 GHz) has short range and GPS (1.5 GHz) needs very sensitive receivers
+        """)
+
+        st.subheader("🔢 Interactive FSPL Calculator")
+        col1, col2 = st.columns(2)
+        with col1:
+            f_l4 = st.number_input("Frequency (MHz)", value=1090.0, step=10.0, key="l4f")
+            d_l4 = st.number_input("Distance (km)", value=10.0, step=1.0, key="l4d")
+        fspl_val = 20*np.log10(d_l4) + 20*np.log10(f_l4) + 32.44
+        with col2:
+            st.metric("Free Space Path Loss", f"{fspl_val:.1f} dB")
+            st.metric("Signal reduced by factor of", f"{10**(fspl_val/10):.2e}")
+        ex("This number goes directly into your link budget as the main loss term.")
+
+        st.subheader("FSPL vs Distance — Interactive Chart")
+        freqs_to_plot = st.multiselect("Select frequencies to compare:",
+            [121.5, 328.6, 1090, 1575, 4300, 9375],
+            default=[1090, 1575, 4300],
+            format_func=lambda x: f"{x} MHz")
+
+        if freqs_to_plot:
+            d_range = np.linspace(0.1, 100, 300)
+            fig_l4, ax_l4 = plt.subplots(figsize=(10, 5))
+            fig_l4.patch.set_facecolor("#0e1117")
+            ax_l4.set_facecolor("#0e1117")
+            colors = plt.cm.plasma(np.linspace(0.1, 0.9, len(freqs_to_plot)))
+            for freq, col in zip(freqs_to_plot, colors):
+                fspl_curve = 20*np.log10(d_range) + 20*np.log10(freq) + 32.44
+                ax_l4.plot(d_range, fspl_curve, color=col, linewidth=2, label=f"{freq} MHz")
+            ax_l4.set_xlabel("Distance (km)", color='white')
+            ax_l4.set_ylabel("Path Loss (dB)", color='white')
+            ax_l4.set_title("Free Space Path Loss vs Distance", color='white')
+            ax_l4.legend(facecolor='#1a1a2e', labelcolor='white')
+            ax_l4.tick_params(colors='white')
+            ax_l4.grid(color='#333', alpha=0.5)
+            for sp in ax_l4.spines.values(): sp.set_color('#444')
+            plt.tight_layout()
+            st.pyplot(fig_l4)
+
+        st.subheader("Why FSPL is Just the Starting Point")
+        st.markdown("""
+FSPL assumes a perfect vacuum with no obstructions. Real paths add loss from:
+
+| Additional Loss Mechanism | Typical Extra Loss | When It Applies |
+|---|---|---|
+| Atmospheric gases (O₂, H₂O) | 0.01–10 dB/km | Above ~1 GHz, long paths |
+| Rain attenuation | 0.01–10 dB/km | Above ~3 GHz |
+| Building/terrain diffraction | 10–30 dB | Ground paths, urban |
+| Vegetation/foliage | 5–20 dB | Low-altitude paths |
+| Multipath fading | ±20 dB | Reflective environments |
+
+**For interference analysis:** FSPL gives you the **optimistic** interference estimate 
+(most interference at the victim). If even FSPL shows compatibility, you're safe.
+If FSPL fails, use P.452 or P.528 for a more realistic (higher loss) calculation.
+        """)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** Calculate FSPL at 4300 MHz, 5 km.
+> **Answer:** 20·log(5) + 20·log(4300) + 32.44 = 13.98 + 72.67 + 32.44 = **119.1 dB**
+
+**Q2:** If you double the distance, how much does FSPL increase?
+> **Answer:** 20·log(2) = **6 dB** increase
+
+**Q3:** GPS signal arrives at ~−130 dBm at a receiver. GPS satellites transmit at ~57 dBm EIRP. 
+What is the approximate path loss over the ~20,200 km orbital distance at 1575 MHz?
+> **Answer:** FSPL = 20·log(20200) + 20·log(1575) + 32.44 ≈ 86.1 + 63.9 + 32.4 = **182.4 dB**. 
+This is why GPS receivers are so sensitive — and why any interference is so damaging.
+            """)
+
+    # ── LESSON 5 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 5"):
+        st.header("🔗 Lesson 5 — The Link Budget: Putting It All Together")
+        ex("A link budget is a running total of every gain and loss in a signal path — it's the foundation of all RF system design and interference analysis.")
+
+        st.subheader("The Friis Transmission Equation")
+        st.latex(r"P_r = P_t + G_t - L_{cable} - FSPL + G_r \quad \text{(all in dB)}")
+        st.markdown("""
+| Term | Symbol | Typical Range | Description |
+|---|---|---|---|
+| Received power | Pr | −60 to −130 dBm | What arrives at receiver input |
+| Transmit power | Pt | 20 to 53 dBm | PA output power |
+| Tx antenna gain | Gt | 0 to 30 dBi | Toward receiver |
+| Cable/feeder loss | Lcable | 0.5 to 5 dB | Physical losses in hardware |
+| Path loss | FSPL | 60 to 200 dB | Distance + frequency dependent |
+| Rx antenna gain | Gr | 0 to 30 dBi | Toward transmitter |
+        """)
+
+        st.subheader("🔢 Build a Link Budget Step by Step")
+        ex("Adjust each parameter and watch how the received power changes — this is exactly how you assess interference in the Link Budget module.")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            lb_pt = st.number_input("① Tx Power (dBm)", value=43.0, step=1.0, key="lb1")
+            lb_gt = st.number_input("② Tx Antenna Gain (dBi)", value=15.0, step=1.0, key="lb2")
+            lb_lc = st.number_input("③ Cable Loss (dB)", value=2.0, step=0.5, key="lb3")
+            lb_f  = st.number_input("④ Frequency (MHz)", value=4300.0, step=100.0, key="lb4")
+            lb_d  = st.number_input("⑤ Distance (km)", value=10.0, step=1.0, key="lb5")
+            lb_gr = st.number_input("⑥ Rx Antenna Gain (dBi)", value=0.0, step=1.0, key="lb6")
+
+        lb_eirp = lb_pt + lb_gt - lb_lc
+        lb_fspl = 20*np.log10(lb_d) + 20*np.log10(lb_f) + 32.44
+        lb_pr = lb_eirp - lb_fspl + lb_gr
+
+        with col2:
+            st.markdown("**Running Total:**")
+            st.markdown(f"① Tx Power: **{lb_pt} dBm**")
+            st.markdown(f"② + Tx Gain: **+{lb_gt} dBi** → {lb_pt+lb_gt:.1f} dBm")
+            st.markdown(f"③ − Cable Loss: **−{lb_lc} dB** → {lb_eirp:.1f} dBm (EIRP)")
+            st.markdown(f"④⑤ − Path Loss ({lb_f:.0f}MHz, {lb_d}km): **−{lb_fspl:.1f} dB** → {lb_eirp-lb_fspl:.1f} dBm")
+            st.markdown(f"⑥ + Rx Gain: **+{lb_gr} dBi** → **{lb_pr:.1f} dBm** ← Received Power")
+            st.metric("Received Power", f"{lb_pr:.1f} dBm")
+
+        st.subheader("The Interference Link Budget")
+        st.markdown("""
+When you're assessing interference (not a wanted signal), the link budget is the same —
+but instead of comparing received power to a minimum detectable signal,
+you compare it to the **noise floor** using the I/N criterion:
+        """)
+        st.latex(r"\frac{I}{N} \text{ (dB)} = P_{interference} \text{ (dBm)} - \text{Noise Floor (dBm)}")
+        st.markdown("""
+**Protection is maintained when:** I/N < threshold (typically −6 dB or −10 dB)
+
+**Protection margin** = threshold − I/N  
+- Positive margin → protected  
+- Negative margin → interference threshold exceeded → you have grounds to object
+        """)
+
+        lb_nf_bw = st.number_input("Rx Bandwidth (MHz)", value=100.0, step=10.0)
+        lb_nf_nf = st.number_input("Rx Noise Figure (dB)", value=5.0, step=0.5)
+        lb_thresh = st.number_input("I/N Threshold (dB)", value=-6.0, step=1.0)
+        lb_noise = -174 + 10*np.log10(lb_nf_bw*1e6) + lb_nf_nf
+        lb_in = lb_pr - lb_noise
+        lb_margin = lb_thresh - lb_in
+
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("Noise Floor", f"{lb_noise:.1f} dBm")
+        col_b.metric("I/N", f"{lb_in:.1f} dB")
+        col_c.metric("Protection Margin", f"{lb_margin:.1f} dB",
+                     delta_color="normal" if lb_margin >= 0 else "inverse")
+
+        if lb_margin < 0:
+            warn(f"Threshold violated by {abs(lb_margin):.1f} dB — at {lb_d} km this interferer exceeds the protection criterion.")
+        else:
+            ok(f"Protected with {lb_margin:.1f} dB margin at {lb_d} km separation.")
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** A 5G base station (EIRP 58 dBm) is 5 km from a radio altimeter receiver (4300 MHz, noise floor −89 dBm, I/N threshold −6 dB). Is there an interference problem?
+> FSPL = 20·log(5) + 20·log(4300) + 32.44 = 14.0 + 72.7 + 32.4 = **119.1 dB**
+> Received power = 58 − 119.1 + 0 = **−61.1 dBm**
+> I/N = −61.1 − (−89) = **+27.9 dB**
+> Threshold = −6 dB. Margin = −6 − 27.9 = **−33.9 dB** ← Severely violated!
+> This is exactly the 5G/rad-alt interference problem that grounded aircraft in 2022.
+
+**Q2:** What separation distance would be needed for I/N ≤ −6 dB?
+> Need: received power ≤ noise floor + threshold = −89 + (−6) = −95 dBm
+> Need FSPL ≥ 58 − (−95) = 153 dB
+> 153 = 20·log(d) + 72.7 + 32.4 → 20·log(d) = 47.9 → d = 10^(47.9/20) = **248 km!**
+            """)
+
+    # ── LESSON 6 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 6"):
+        st.header("📊 Lesson 6 — Noise, Sensitivity & the Noise Floor")
+        ex("The noise floor sets the fundamental limit of what a receiver can detect — interference must stay well below it to be acceptable.")
+
+        st.subheader("Thermal Noise — The Unavoidable Baseline")
+        st.markdown("""
+All electronic components generate noise due to random thermal motion of electrons.
+This sets the absolute minimum noise any real receiver will experience.
+        """)
+        st.latex(r"N_{thermal} = k \cdot T \cdot B")
+        st.latex(r"N_{thermal} \text{ (dBm)} = -174 + 10\log_{10}(B_{Hz}) \quad \text{at 290K}")
+        st.markdown("""
+Where:
+- **k** = Boltzmann's constant = 1.38 × 10⁻²³ J/K
+- **T** = temperature in Kelvin (290K = room temperature standard)
+- **B** = bandwidth in Hz
+- **−174 dBm/Hz** is the thermal noise spectral density at 290K — memorize this number
+        """)
+
+        st.subheader("🔢 Noise Floor Calculator")
+        col1, col2 = st.columns(2)
+        with col1:
+            bw_l6 = st.number_input("Receiver Bandwidth (MHz)", value=100.0, min_value=0.001, step=10.0)
+            nf_l6 = st.number_input("Noise Figure (dB)", value=5.0, step=0.5,
+                help="Real receivers amplify the noise — NF captures how much")
+            temp_l6 = st.number_input("Temperature (K)", value=290.0, step=10.0)
+        kT_l6 = 10*np.log10(1.38e-23 * temp_l6) + 30
+        nf_total = kT_l6 + 10*np.log10(bw_l6*1e6) + nf_l6
+        with col2:
+            st.metric("kT noise density", f"{kT_l6:.1f} dBm/Hz")
+            st.metric("Noise floor (kTB)", f"{kT_l6 + 10*np.log10(bw_l6*1e6):.1f} dBm")
+            st.metric("Noise floor (kTBNF)", f"{nf_total:.1f} dBm")
+        ex("Every extra MHz of bandwidth raises the noise floor by 10·log(extra_BW) dB — wider receivers are inherently less sensitive.")
+
+        st.subheader("Noise Figure")
+        st.markdown("""
+No real receiver is perfect — its internal components (LNA, mixer, filters) add noise.
+The **noise figure (NF)** measures how much worse the real receiver is compared to an ideal one.
+
+| Receiver Type | Typical NF | Why |
+|---|---|---|
+| GPS/GNSS LNA | 1–2 dB | Extremely sensitive; expensive low-noise design |
+| Radio Altimeter | 4–6 dB | Aviation grade; well-designed |
+| ADS-B receiver | 4–8 dB | Varies by implementation |
+| General avionic | 5–10 dB | Depends on age and design |
+| Consumer Wi-Fi | 8–12 dB | Cost-optimized |
+
+A 1 dB increase in noise figure directly raises the noise floor by 1 dB —
+and reduces sensitivity by 1 dB. This is why avionics engineers fight hard for low NF.
+        """)
+
+        st.subheader("Sensitivity vs Selectivity")
+        st.markdown("""
+**Sensitivity** — minimum signal the receiver can detect above the noise floor.
+(Usually defined as SNR = some threshold, e.g., 10 dB above noise floor)
+
+**Selectivity** — how well the receiver rejects signals on adjacent or nearby frequencies.
+Determined by the filter characteristics (bandwidth, roll-off, out-of-band rejection).
+
+**Why this matters for interference:**
+- A strong out-of-band signal can **overload** (block/desensitize) the receiver front-end 
+  even if the filter should reject it — the amplifier saturates before the filter acts.
+- This was the exact mechanism in the 5G/radio altimeter problem:
+  5G at 3.8 GHz was outside the 4.2–4.4 GHz altimeter band, but the 5G signal was
+  strong enough to drive the altimeter's LNA into compression, raising its noise floor
+  and killing sensitivity across the whole band.
+- **In your contributions:** distinguish between **in-band interference** (signal inside 
+  the protected band) and **receiver blocking/desensitization** (out-of-band signal 
+  overloading the front end). Both are harmful; blocking is often harder to defend against.
+        """)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** Calculate the noise floor for a radio altimeter with 200 MHz bandwidth and 5 dB noise figure.
+> −174 + 10·log(200×10⁶) + 5 = −174 + 83.0 + 5 = **−86 dBm**
+
+**Q2:** If you narrow the bandwidth from 200 MHz to 20 MHz, what happens to the noise floor?
+> 10·log(20M/200M) = −10 dB. Noise floor drops to **−96 dBm**. 
+> Narrower bandwidth = lower noise floor = better sensitivity. But you also reject more of the desired signal.
+
+**Q3:** What is the difference between a receiver being "jammed" and being "desensitized"?
+> **Jamming** = an in-band interferer that directly competes with the desired signal.
+> **Desensitization/blocking** = a strong out-of-band signal overloads the front-end amplifier, 
+> raising the effective noise floor and reducing sensitivity to the desired signal. 
+> The interferer doesn't need to be in-band to cause this — it just needs to be strong enough.
+            """)
+
+    # ── LESSON 7 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 7"):
+        st.header("⚡ Lesson 7 — Interference: I/N, C/I & Protection Criteria")
+        ex("I/N is the ITU-R standard currency for interference — master it and you can read, write, and challenge any interference analysis.")
+
+        st.subheader("The Three Key Ratios")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**I/N — Interference to Noise**")
+            st.latex(r"\frac{I}{N} \text{(dB)} = I_{\text{dBm}} - N_{\text{floor dBm}}")
+            st.markdown("Used in: ITU-R protection criteria, most aeronautical compatibility studies")
+        with col2:
+            st.markdown("**C/I — Carrier to Interference**")
+            st.latex(r"\frac{C}{I} \text{(dB)} = C_{\text{dBm}} - I_{\text{dBm}}")
+            st.markdown("Used in: Communications system design, co-channel interference assessment")
+        with col3:
+            st.markdown("**C/N — Carrier to Noise**")
+            st.latex(r"\frac{C}{N} \text{(dB)} = C_{\text{dBm}} - N_{\text{floor dBm}}")
+            st.markdown("Used in: Link quality assessment, minimum SNR for operation")
+
+        st.subheader("Why I/N and Not Just 'Is the Interference Below the Noise'?")
+        st.markdown("""
+The noise floor is not a hard wall — it's a statistical level. Adding an interferer 
+**raises the effective noise floor** by:
+
+| I/N | Noise floor increase | Effect |
+|---|---|---|
+| −10 dB | +0.41 dB | Barely noticeable — standard GNSS criterion |
+| −6 dB | +0.97 dB | ~1 dB degradation — standard ARNS criterion |
+| 0 dB | +3.0 dB | Significant degradation |
+| +10 dB | +10.4 dB | Receiver largely unusable |
+
+Setting I/N ≤ −6 dB means the interference raises the noise floor by less than 1 dB —
+a small, tolerable degradation for safety-of-life systems.
+
+Setting I/N ≤ −10 dB for GNSS is more conservative because GPS signals arrive at 
+only ~−130 dBm — any noise floor increase materially degrades position accuracy.
+        """)
+
+        st.subheader("🔢 Interactive I/N Explorer")
+        col1, col2 = st.columns(2)
+        with col1:
+            i_dbm = st.number_input("Interference Power (dBm)", value=-100.0, step=1.0)
+            n_dbm = st.number_input("Noise Floor (dBm)", value=-89.0, step=1.0)
+            thresh_l7 = st.number_input("I/N Threshold (dB)", value=-6.0, step=1.0)
+        i_n_l7 = i_dbm - n_dbm
+        margin_l7 = thresh_l7 - i_n_l7
+        noise_rise = 10*np.log10(1 + 10**(i_n_l7/10))
+        with col2:
+            st.metric("I/N", f"{i_n_l7:.1f} dB")
+            st.metric("Protection Margin", f"{margin_l7:.1f} dB",
+                      delta_color="normal" if margin_l7 >= 0 else "inverse")
+            st.metric("Effective Noise Floor Rise", f"+{noise_rise:.2f} dB")
+
+        st.subheader("Protection Criteria by System")
+        ex("These are the numbers you cite in contributions — they come from RTCA standards and ITU-R Recommendations.")
+        prot_data = pd.DataFrame([
+            ["GPS/GNSS L1/L5", "−10 dB", "DO-235B / DO-253", "Satellite signal extremely weak (~−130 dBm)"],
+            ["ADS-B / Mode-S", "−10 dB", "DO-260B", "False target / missed detection consequences"],
+            ["Radio Altimeter", "−6 dB", "DO-155 / ETSO-C87", "CAT III landing; 1 dB degradation max"],
+            ["ILS Localizer/GS", "−6 dB", "DO-148", "Precision approach; safety-of-life"],
+            ["VOR", "−6 dB", "DO-196", "En-route navigation"],
+            ["DME / TACAN", "−6 dB", "DO-189", "Distance measuring, co-located with ILS"],
+            ["General ARNS", "−6 dB", "ITU-R M.1642", "Default ITU-R criterion for aeronautical"],
+        ], columns=["System", "I/N Threshold", "Reference", "Rationale"])
+        st.table(prot_data)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** An interference study shows I/N = −8 dB at a GNSS receiver. Is this acceptable?
+> **No** — the GPS threshold is −10 dB. At −8 dB, the threshold is violated by 2 dB. 
+> The US should oppose unless mitigation measures are applied.
+
+**Q2:** The same study shows I/N = −8 dB at a radio altimeter. Is this acceptable?
+> **Yes** — the radio altimeter threshold is −6 dB. At −8 dB, there is 2 dB of margin.
+> Compatible, but flag it as marginal and watch for more aggressive scenarios.
+
+**Q3:** A contribution claims "interference is 20 dB below the noise floor, so it's negligible." 
+Is that a strong argument?
+> **Yes, actually** — I/N = −20 dB is well within any protection criterion. However, you should 
+> verify the assumptions: What noise floor did they use? What propagation model? What deployment 
+> density? A −20 dB result with aggressive assumptions may be −6 dB under realistic ones.
+            """)
+
+    # ── LESSON 8 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 8"):
+        st.header("🌐 Lesson 8 — Propagation Models: P.452, P.528, P.676")
+        ex("The propagation model determines how much signal reaches the victim — the biggest single source of variation between optimistic and conservative interference studies.")
+
+        st.subheader("Why FSPL Is Just the Starting Point")
+        st.markdown("""
+Free Space Path Loss assumes a perfect vacuum. Real paths include:
+- **Atmospheric gases** — oxygen and water vapor absorb RF above ~1 GHz
+- **Terrain** — hills cause diffraction (some loss), but can also provide shielding
+- **Clutter** — buildings, trees add loss in urban/suburban areas
+- **Multipath** — reflections can add constructively or destructively
+
+Different ITU-R models capture these effects for different scenarios.
+        """)
+
+        st.subheader("ITU-R P.452 — Terrestrial Point-to-Point")
+        st.markdown("""
+**Use when:** Both transmitter and receiver are on or near the ground.
+
+**What it models:**
+- Line-of-sight propagation with atmospheric refraction
+- Diffraction over terrain obstacles
+- Tropospheric scatter (important for long paths)
+- Ducting and anomalous propagation
+
+**Key input:** Terrain profile between Tx and Rx — the full P.452 requires actual terrain 
+elevation data along the path. Our simplified version uses empirical clutter corrections.
+
+**Time percentage:** P.452 calculates loss exceeded for a given percentage of time.
+- 50% = median (use for general studies)
+- 1% = nearly worst-case propagation (use for protection studies — less path loss = more interference)
+- Always use 1% for regulatory protection work
+
+**Terrain/clutter corrections (simplified):**
+| Environment | Additional Loss vs FSPL |
+|---|---|
+| Open (flat, no obstacles) | ~0 dB |
+| Suburban | ~8 dB |
+| Urban | ~18 dB |
+| Dense urban | ~26 dB |
+        """)
+
+        st.subheader("ITU-R P.528 — Aeronautical Propagation")
+        st.markdown("""
+**Use when:** The victim receiver is airborne (aircraft, helicopter).
+
+**What it models:**
+- Slant-path geometry (ground-to-air or air-to-air)
+- Atmospheric refraction at low elevation angles
+- Tropospheric scatter
+- Radio horizon effects
+
+**Why it's different from P.452:**
+Aircraft receivers have line-of-sight to transmitters over much longer distances.
+An aircraft at 10,000 ft altitude can "see" a ground transmitter 130+ km away.
+This dramatically increases the potential number of interferers — and is why 
+airborne receivers are especially vulnerable to aggregate interference.
+
+**Key parameters:**
+- Aircraft altitude (higher = more line-of-sight, more interferers visible)
+- Ground distance (horizontal separation)
+- Time percentage (use 1% for protection studies)
+        """)
+
+        st.subheader("ITU-R P.676 — Atmospheric Gaseous Attenuation")
+        st.markdown("""
+**Use when:** Assessing attenuation on paths above ~1 GHz where atmospheric absorption matters.
+
+**What it models:**
+- Oxygen absorption (peaks at 60 GHz — used by 5G mmWave for natural isolation)
+- Water vapor absorption (peaks at 22 GHz)
+- Path length through the atmosphere
+
+**Practical relevance for FAA work:**
+- Below 3 GHz: gaseous absorption is minimal (<0.1 dB/km), not a useful protection mechanism
+- Above 6 GHz: starts to matter for longer paths
+- Above 10 GHz: significant; helps protect airborne weather radar (9–10 GHz)
+- The itur library implements P.676 directly — you can run it live in the Propagation module
+
+**Important:** Do NOT claim gaseous attenuation as a protection mechanism for ground-to-air 
+paths below 6 GHz in ITU-R submissions — reviewers will challenge it as negligible.
+        """)
+
+        st.subheader("Model Selection Decision Tree")
+        ex("Choosing the wrong model is the most common technical error in interference studies — reviewers will catch it.")
+        st.markdown("""
+```
+Is the victim airborne?
+├── YES → Use ITU-R P.528
+│         (slant path, altitude matters)
+└── NO → Is the path over open ocean or flat terrain?
+         ├── YES → Use P.452 (open, time%=1)
+         └── NO  → Use P.452 (suburban/urban, time%=1)
+
+Always run FSPL first:
+├── If FSPL shows compatibility → you're protected (FSPL is most optimistic)
+└── If FSPL shows violation → run P.452/P.528 for realistic assessment
+    ├── If realistic model still shows violation → cite harmful interference
+    └── If realistic model shows compliance → document the margin
+```
+        """)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** You're analyzing whether a new 5G base station could interfere with aircraft radio altimeters during approach. Which propagation model do you use?
+> **P.528** — the victim is airborne, so slant-path aeronautical propagation applies.
+
+**Q2:** A contribution uses FSPL and shows I/N = −8 dB. Should you be concerned?
+> **Yes** — FSPL is the most optimistic model (least path loss = most interference at victim). 
+> If FSPL only shows −8 dB margin, more realistic models (P.452/P.528) will show even less margin. 
+> The scenario is close to the protection threshold and warrants further study.
+
+**Q3:** A submitting administration uses P.452 with urban clutter correction (+18 dB) to show compatibility. What should you check?
+> Check whether the deployment scenario actually justifies "urban" clutter. If the interferers 
+> could be deployed in open or suburban areas near airports, the 18 dB clutter correction is 
+> not valid and the real interference could be 10–18 dB higher than claimed.
+            """)
+
+    # ── LESSON 9 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 9"):
+        st.header("🎲 Lesson 9 — Monte Carlo & Aggregate Interference")
+        ex("Single-scenario analysis tells you about one interferer — Monte Carlo tells you about a realistic population of interferers, which is what ITU-R protection is actually about.")
+
+        st.subheader("Why Single-Scenario Analysis Isn't Enough")
+        st.markdown("""
+A link budget with one interferer at one distance answers: "What if the worst case happens?"
+But in real deployments:
+- Thousands of base stations exist, each at different distances
+- Not all are transmitting at maximum power all the time
+- The combined (aggregate) effect of many interferers can exceed the threshold 
+  even if each individual one is below it
+
+**Aggregate interference** is the sum of all interferers' contributions at the victim receiver.
+This is what the ITU-R actually protects against, and it's what Monte Carlo quantifies.
+        """)
+
+        st.subheader("How Monte Carlo Works")
+        st.markdown("""
+**One trial:**
+1. Randomly place N interferers within the deployment area
+2. Calculate each interferer's received power at the victim (using path loss model)
+3. Sum all N interference powers linearly (in milliwatts, not dB)
+4. Convert back to dBm → compare to noise floor → compute I/N
+5. Record whether I/N > threshold (a "violation")
+
+**Many trials (typically 2,000–10,000):**
+- Repeat steps 1–5 thousands of times
+- Each trial uses different random positions
+- Result: a statistical distribution of I/N values
+
+**Key output:**
+- **Violation probability** = fraction of trials where I/N > threshold
+- **ITU-R criterion:** violation probability must be < 5% (or 1% for stringent cases)
+        """)
+
+        st.subheader("🔢 Mini Monte Carlo — Watch It Work")
+        ex("This live simulation shows you exactly what the Monte Carlo module does under the hood.")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            mc_n = st.slider("Number of interferers (N)", 1, 50, 10)
+            mc_eirp = st.number_input("Each interferer EIRP (dBm)", value=58.0, step=1.0)
+            mc_f_l9 = st.number_input("Frequency (MHz)", value=4300.0, step=100.0)
+            mc_r = st.number_input("Deployment radius (km)", value=20.0, step=1.0)
+            mc_noise_l9 = st.number_input("Noise floor (dBm)", value=-89.0, step=1.0)
+            mc_thresh_l9 = st.number_input("I/N threshold (dB)", value=-6.0, step=1.0)
+            n_trials_l9 = st.select_slider("Trials", [500, 1000, 2000], value=1000)
+
+        if st.button("▶ Run Mini Monte Carlo", key="mc_l9"):
+            trials_in = []
+            for _ in range(n_trials_l9):
+                r = np.sqrt(np.random.uniform(0.1**2, mc_r**2, mc_n))
+                pl = 20*np.log10(np.maximum(r, 0.01)) + 20*np.log10(mc_f_l9) + 32.44
+                rx_pw = mc_eirp - pl
+                agg_mw = np.sum(10**(rx_pw/10))
+                agg_dbm = 10*np.log10(max(agg_mw, 1e-30))
+                trials_in.append(agg_dbm - mc_noise_l9)
+
+            trials_in = np.array(trials_in)
+            vp = np.mean(trials_in > mc_thresh_l9) * 100
+
+            with col2:
+                st.metric("Median I/N", f"{np.percentile(trials_in,50):.1f} dB")
+                st.metric("95th pct I/N", f"{np.percentile(trials_in,95):.1f} dB")
+                st.metric("Violation Probability", f"{vp:.1f}%",
+                          delta="High Risk" if vp > 5 else "OK",
+                          delta_color="inverse" if vp > 5 else "normal")
+
+            fig_l9, ax_l9 = plt.subplots(figsize=(8, 4))
+            fig_l9.patch.set_facecolor("#0e1117")
+            ax_l9.set_facecolor("#0e1117")
+            ax_l9.hist(trials_in, bins=50, color='#4488ff', alpha=0.8, density=True)
+            ax_l9.axvline(mc_thresh_l9, color='red', lw=2, linestyle='--', label=f'Threshold ({mc_thresh_l9} dB)')
+            ax_l9.axvline(np.percentile(trials_in,95), color='orange', lw=1.5, linestyle=':', label='95th pct')
+            ax_l9.set_xlabel("I/N (dB)", color='white')
+            ax_l9.set_ylabel("Density", color='white')
+            ax_l9.set_title("Monte Carlo I/N Distribution", color='white')
+            ax_l9.legend(facecolor='#1a1a2e', labelcolor='white', fontsize=8)
+            ax_l9.tick_params(colors='white')
+            for sp in ax_l9.spines.values(): sp.set_color('#444')
+            plt.tight_layout()
+            st.pyplot(fig_l9)
+
+        st.subheader("How to Challenge a Monte Carlo Study")
+        st.markdown("""
+When reviewing another administration's Monte Carlo contribution, examine these assumptions:
+
+| Assumption | What to look for | Your challenge |
+|---|---|---|
+| **N (number of interferers)** | Is the deployment density realistic? | Cite actual deployment data; argue for higher N |
+| **Deployment area** | Did they exclude areas near airports? | Challenge exclusion zones as unrealistic |
+| **Propagation model** | Did they use urban clutter inappropriately? | Argue for open/suburban for areas near airports |
+| **Time percentage** | Did they use 50% instead of 1%? | Cite ITU-R SM.2028 — use 1% for protection studies |
+| **Tx power distribution** | Did they assume all stations at max power? | If not, challenge as non-conservative |
+| **Antenna pattern** | Did they model realistic azimuth patterns? | Check whether downtilt assumptions are valid near airports |
+        """)
+
+        st.subheader("✅ Self-Check")
+        with st.expander("Click to reveal answers"):
+            st.markdown("""
+**Q1:** A Monte Carlo study shows violation probability of 3.2%. Is this compatible?
+> **Yes** — below the ITU-R 5% criterion. However, check whether conservative assumptions were used. 
+> If they used 50% time percentage, the real 1% result could exceed 5%.
+
+**Q2:** Why do we sum interference powers linearly and then convert to dB — why not just add dBm values?
+> **Because dB values represent logarithms — you can't add logarithms to get the sum.**
+> 10 dBm + 10 dBm ≠ 20 dBm. In linear: 10mW + 10mW = 20mW = 13 dBm.
+> Always convert to mW, sum linearly, then convert back to dBm.
+
+**Q3:** What does the CCDF curve in the Monte Carlo module tell you?
+> The CCDF (Complementary CDF) shows the probability that I/N *exceeds* a given level.
+> Reading it at your I/N threshold directly gives you the violation probability — 
+> the key number for the ITU-R compatibility criterion.
+            """)
+
+    # ── LESSON 10 ──────────────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 10"):
+        st.header("🏛️ Lesson 10 — From RF Math to ITU-R Policy")
+        ex("This final lesson shows you how to translate your technical findings into policy language that influences WRC outcomes.")
+
+        st.subheader("The Translation Problem")
+        st.markdown("""
+RF engineers speak in dB, dBm, I/N, path loss, and propagation models.
+Policy officials speak in regulatory text, agenda items, resolutions, and geopolitical interests.
+
+**Your job** is to be fluent in both. A technically perfect analysis that can't be 
+communicated as policy language will not change the outcome of a Working Party session.
+        """)
+
+        st.subheader("Mapping RF Results to Policy Language")
+        ex("This table is your translation guide — use it when writing the policy sections of a US contribution.")
+        mapping = pd.DataFrame([
+            ["I/N threshold violated", "Harmful interference cannot be excluded", "Grounds to oppose"],
+            ["I/N margin < 3 dB", "Compatibility is marginal; further study required", "Request additional studies"],
+            ["I/N margin > 10 dB", "Compatible under assessed conditions", "Support with conditions documented"],
+            ["Violation probability > 5%", "The proposed use poses unacceptable interference risk", "Oppose or require mitigation"],
+            ["Violation probability < 1%", "Compatible under conservative assumptions", "Support with caveats"],
+            ["FSPL violates, P.528 complies", "Compatibility depends on deployment restrictions", "Propose coordination distance limits"],
+            ["Aggregate > single-source", "Deployment density must be limited", "Propose density or PFD limits in RR footnote"],
+            ["Receiver blocking identified", "Out-of-band OOBE limits are required", "Propose emission mask in RR or Recommendation"],
+        ], columns=["RF Finding", "Policy Translation", "US Position"])
+        st.table(mapping)
+
+        st.subheader("The Regulatory Toolkit")
+        st.markdown("""
+Once you have a finding, you need to know what regulatory mechanism to request.
+These are listed from most protective to least protective:
+
+**1. Primary allocation protection (strongest)**
+— Keep the protected band free of new allocations. Cite RR No. 4.10.
+
+**2. Radio Regulations footnote**
+— Add a footnote to the frequency table requiring coordination with aeronautical services. Negotiated at WRC.
+
+**3. WRC Resolution**
+— A formal decision requiring future studies or imposing conditions. Less binding than the RR table.
+
+**4. ITU-R Recommendation**
+— Technical guidance document with protection criteria. Not legally binding but heavily cited.
+
+**5. Coordination zone / distance (weakest)**
+— Informal agreement to coordinate around airports. Relies on national implementation.
+
+**Rule:** Always ask for the strongest mechanism you can justify technically.
+Start with footnote/Resolution language; let others negotiate you down. 
+Never start by proposing weaker protection than you actually need.
+        """)
+
+        st.subheader("Writing the US Position — A Framework")
+        st.markdown("""
+When preparing for a Working Party meeting, your position paper should follow this logic:
+
+```
+1. IDENTIFY the threat
+   "Document 5D/[X] proposes [Y] which could affect [Z FAA system] 
+    operating in [band] under [allocation]."
+
+2. QUANTIFY the risk  
+   "Our analysis using ITU-R P.528 and SM.2028 shows I/N = [X] dB,
+    exceeding the [−6/−10] dB threshold by [Y] dB under [scenario].
+    Monte Carlo results indicate [Z]% violation probability."
+
+3. STATE the consequence
+   "This would degrade [system] performance, affecting [safety 
+    consequence — e.g., CAT III approach capability, GPS accuracy]."
+
+4. INVOKE the legal basis
+   "Under RR No. 4.10, this constitutes harmful interference to a 
+    safety-of-life service. Resolution 233 requires that new 
+    allocations not degrade RNSS performance."
+
+5. PROPOSE the solution
+   "The United States proposes [specific text — PFD limit / 
+    coordination distance / OOBE mask / footnote language]."
+
+6. BUILD the coalition
+   "We note that ICAO, [Admin A], and [Admin B] share these 
+    concerns and have submitted aligned contributions."
+```
+        """)
+
+        st.subheader("Red Flags in Others' Contributions")
+        ex("These are the signs that a contribution is using overly optimistic assumptions to reach a compatibility conclusion — your job is to find them.")
+        st.markdown("""
+| Red Flag | What It Means | Your Response |
+|---|---|---|
+| Uses 50% time percentage | Should be 1% for protection studies | Cite SM.2028; request reanalysis at 1% |
+| Uses urban clutter near airports | Airports are open terrain | Challenge clutter classification |
+| Excludes area within X km of airports | No regulatory basis for exclusion | Demand coordination distance be justified |
+| Uses receiver characteristics worse than RTCA standard | Understates protection need | Cite RTCA DO-xxx; use correct receiver parameters |
+| Only analyzes single interferer | Misses aggregate effect | Request Monte Carlo analysis per SM.2028 |
+| Claims "no co-frequency operation" | Ignores OOBE/blocking | Raise receiver blocking/desensitization mechanism |
+| Analysis only at median conditions | Should use worst-case | Request 99th percentile analysis |
+        """)
+
+        st.subheader("Your 30-Day Readiness Plan")
+        ex("Follow this to get fully confident before your first Working Party meeting.")
+        st.markdown("""
+**Week 1 — Foundation**
+- Complete Lessons 1–5 in this module
+- Run the Link Budget module for the Radio Altimeter band (4200–4400 MHz) vs 5G at 4300 MHz
+- Read the FAA/NTIA C-band technical report (publicly available) — it's a complete worked example
+
+**Week 2 — Analysis**
+- Complete Lessons 6–9
+- Run Monte Carlo for Radio Altimeter, varying N from 5 to 50
+- Read ITU-R M.1642 (free at itu.int) — 20 pages, the foundation of all IMT/ARNS studies
+
+**Week 3 — Policy**
+- Complete Lesson 10
+- Use the Contribution Analyzer with the three example contributions
+- Read two real US contributions from a past WP 5D meeting (ask NTIA for access)
+
+**Week 4 — Integration**
+- Draft a mock US contribution using the Contribution Summary module
+- Present your analysis to a colleague and defend your assumptions
+- Review the WRC-27 agenda items list and identify which ones affect FAA bands
+        """)
+
+        ok("You've completed the RF Training curriculum. You now have the fundamentals to run interference analyses, interpret results, and translate findings into ITU-R policy language.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOOTER
