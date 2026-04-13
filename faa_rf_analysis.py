@@ -422,12 +422,17 @@ if selected_tab == "📡 Protected Bands":
         "#a5d6a7","#90caf9",
     ]
 
-    fig, ax = plt.subplots(figsize=(16, 5))
+    fig, ax = plt.subplots(figsize=(16, 7))
     fig.patch.set_facecolor("#0e1117")
     ax.set_facecolor("#0e1117")
 
     log_min, log_max = np.log10(100), np.log10(11000)
-    min_log_w = (log_max - log_min) * 0.022  # minimum visible width
+    min_log_w = (log_max - log_min) * 0.022
+
+    BAR_TOP   = 0.42   # top of the colored bar
+    BAR_BOT   = 0.0    # bottom of the colored bar
+    LABEL_GAP = 0.10   # gap between bar top and label start
+    FREQ_BOT  = -0.18  # where frequency label sits below bar
 
     for i, (name, b) in enumerate(FAA_BANDS.items()):
         fl, fh = b["f_low_mhz"], b["f_high_mhz"]
@@ -440,45 +445,44 @@ if selected_tab == "📡 Protected Bands":
             log_fl = log_mid - min_log_w / 2
             log_fh = log_mid + min_log_w / 2
 
-        ax.fill_betweenx([0.05, 0.75], 10**log_fl, 10**log_fh,
+        ax.fill_betweenx([BAR_BOT, BAR_TOP], 10**log_fl, 10**log_fh,
                          color=col, alpha=0.88, linewidth=0)
         ax.plot([10**log_fl, 10**log_fh, 10**log_fh, 10**log_fl, 10**log_fl],
-                [0.05, 0.05, 0.75, 0.75, 0.05],
-                color='white', linewidth=0.5, alpha=0.4)
+                [BAR_BOT, BAR_BOT, BAR_TOP, BAR_TOP, BAR_BOT],
+                color='white', linewidth=0.6, alpha=0.35)
 
-        # Label above bar — full name, rotated
         log_mid = (log_fl + log_fh) / 2
-        label = name.replace(" / ", "/").replace("Mode-S", "Mode‑S")
-        ax.text(10**log_mid, 0.82, label,
-                ha='center', va='bottom',
-                fontsize=8.5, color='white',
-                fontweight='semibold',
-                rotation=40, rotation_mode='anchor')
 
-        # Frequency range below bar
-        freq_label = f"{fl:.0f}–{fh:.0f}"
-        ax.text(10**log_mid, 0.0, freq_label,
-                ha='center', va='top',
-                fontsize=7, color='#aaaaaa', rotation=40,
-                rotation_mode='anchor')
+        # Band name — above bar with generous gap
+        ax.text(10**log_mid, BAR_TOP + LABEL_GAP, name,
+                ha='left', va='bottom',
+                fontsize=9.5, color='white', fontweight='bold',
+                rotation=45, rotation_mode='anchor')
+
+        # Frequency range — below bar
+        ax.text(10**log_mid, FREQ_BOT, f"{fl:.0f}–{fh:.0f} MHz",
+                ha='left', va='top',
+                fontsize=8, color='#cccccc',
+                rotation=45, rotation_mode='anchor')
 
     ax.set_xscale("log")
     ax.set_xlim(10**log_min, 10**log_max)
-    ax.set_ylim(-0.35, 2.1)
+    ax.set_ylim(-0.65, 1.9)
     ax.set_yticks([])
-    ax.set_xlabel("Frequency (MHz) — log scale", color='white', fontsize=10)
-    ax.tick_params(axis='x', colors='white', labelsize=9)
+    ax.set_xlabel("Frequency (MHz) — log scale", color='white', fontsize=10,
+                  labelpad=50)
+    ax.tick_params(axis='x', colors='white', labelsize=9, pad=55)
     ax.spines['bottom'].set_color('#555')
     for sp in ['top', 'left', 'right']:
         ax.spines[sp].set_visible(False)
     ax.set_title("FAA Protected Aeronautical Frequency Bands",
-                 color='white', fontsize=13, fontweight='bold', pad=6)
+                 color='white', fontsize=13, fontweight='bold', pad=12)
 
-    # Subtle vertical reference lines at key frequencies
+    # Subtle reference lines
     for kf in [108, 329, 960, 1090, 1176, 1575, 2800, 4300, 5030, 9375]:
         ax.axvline(kf, color='#2a2a2a', linewidth=0.8, linestyle='--', zorder=0)
 
-    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.30)
     st.pyplot(fig)
 
     st.subheader("Band Details")
