@@ -364,6 +364,7 @@ tab_names = [
     "🤖 Contribution Analyzer",
     "🎓 RF Training",
     "📓 Meeting Notes",
+    "🔬 Code Analyzer",
 ]
 selected_tab = st.sidebar.radio("Module", tab_names)
 
@@ -3446,6 +3447,504 @@ elif selected_tab == "📓 Meeting Notes":
             st.download_button("⬇️ Download Full Meeting Record (.txt)",
                 export_str, file_name=fname, mime="text/plain")
             ok("Export ready. This document is suitable for your FAA/NTIA trip report.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 11 — CODE ANALYZER
+# ─────────────────────────────────────────────────────────────────────────────
+elif selected_tab == "🔬 Code Analyzer":
+    st.title("🔬 Contribution Code Analyzer")
+    st.markdown("*Paste MATLAB or Python code from any ITU-R contribution and get a line-by-line FAA interference critique across WP 5D, 5B, 7C, and 7D.*")
+    ex("Code embedded in ITU-R contributions contains the assumptions that drive compatibility findings — propagation model choices, deployment densities, receiver parameters, time percentages, and aggregation methods are all buried here and almost never questioned in plenary sessions.")
+
+    # API key
+    api_key = None
+    try:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        pass
+
+    if not api_key:
+        st.warning("⚠️ Anthropic API key not configured — see the Contribution Analyzer module for setup instructions.")
+        st.stop()
+
+    st.markdown("---")
+
+    # ── Metadata ─────────────────────────────────────────────────────────────
+    st.subheader("📋 Code Context")
+    ex("Context determines which WP-specific critique framework is applied — a 5D IMT sharing study is assessed against ARNS/RNSS criteria; a 7C radar study is assessed against radio altimeter and SSR criteria.")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        code_wp = st.multiselect("Working Party (select all that apply):", [
+            "WP 5D — IMT / Mobile",
+            "WP 5B — Maritime / Radiodetermination",
+            "WP 7C — Radiolocation / Radar",
+            "WP 7D — Radio Astronomy / Passive",
+            "SG 5 — Terrestrial Services",
+            "Other",
+        ], default=["WP 5D — IMT / Mobile"])
+        code_doc = st.text_input("Document Number", placeholder="e.g., 5D/567-E")
+        code_admin = st.text_input("Submitting Administration", placeholder="e.g., China")
+
+    with col2:
+        code_lang = st.selectbox("Code Language", [
+            "MATLAB",
+            "Python",
+            "MATLAB + Python (mixed)",
+            "R",
+            "Unknown / Pseudocode",
+        ])
+        code_ai = st.text_input("WRC Agenda Item", placeholder="e.g., AI 1.2")
+        code_scenario = st.selectbox("Analysis Type in Code", [
+            "Sharing / compatibility study",
+            "Aggregate interference (Monte Carlo)",
+            "Single-entry interference",
+            "Propagation / path loss calculation",
+            "Link budget",
+            "PFD / EPFD calculation",
+            "Receiver sensitivity / selectivity model",
+            "Terrain / geographic analysis",
+            "Unknown",
+        ])
+
+    with col3:
+        faa_victim = st.multiselect("FAA Victim System(s) to Assess Against:", [
+            "GPS L1 (1559–1610 MHz)",
+            "GPS L5 / ARNS (1164–1215 MHz)",
+            "Radio Altimeter (4200–4400 MHz)",
+            "ADS-B / Mode-S (1085–1095 MHz)",
+            "DME / TACAN (960–1215 MHz)",
+            "ILS / VOR (108–335 MHz)",
+            "En-Route Radar (2700–2900 MHz)",
+            "ARNS 5 GHz (5000–5150 MHz)",
+            "Airborne Weather Radar (9000–9500 MHz)",
+            "WAAS / SBAS (1559–1610 MHz)",
+            "All FAA protected bands",
+        ], default=["Radio Altimeter (4200–4400 MHz)"])
+        critique_depth = st.selectbox("Critique Depth", [
+            "Quick scan — flag critical assumption errors",
+            "Standard — full line-by-line critique with corrections",
+            "Deep — full critique + corrected code + contribution rebuttal text",
+        ])
+
+    # ── Code input ────────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("📥 Code Input")
+    ex("Paste the complete code block. If it spans multiple files, paste all sections concatenated — the AI will identify file/function boundaries. Comments and variable names are critical context.")
+
+    code_tabs = st.tabs(["📝 Paste Code", "📎 Multiple Blocks"])
+
+    with code_tabs[0]:
+        code_input = st.text_area(
+            "Paste MATLAB / Python code here:",
+            height=350,
+            placeholder="""% Example MATLAB snippet from a WP 5D sharing study
+% ITU-R WP 5D Document 5D/XXX — Sharing study IMT vs ARNS
+
+f_MHz = 4300;           % Interferer center frequency
+Pt_dBm = 43;            % Transmit power
+Gt_dBi = 15;            % Antenna gain
+distances = 1:1:50;     % km
+
+% Free space path loss
+FSPL = 20*log10(distances) + 20*log10(f_MHz) + 32.44;
+
+% Received interference
+Pr = Pt_dBm + Gt_dBi - FSPL;
+
+% Victim noise floor (assumed)
+N_floor = -89;          % dBm
+
+% I/N check
+IN_ratio = Pr - N_floor;
+threshold = -6;         % dB
+
+compatible = all(IN_ratio < threshold);
+fprintf('Compatible: %d\\n', compatible);""",
+            key="code_main"
+        )
+
+    with code_tabs[1]:
+        st.markdown("Paste additional code blocks (e.g., separate functions, helper scripts):")
+        code_block2 = st.text_area("Block 2 (optional):", height=150, key="code_b2")
+        code_block3 = st.text_area("Block 3 (optional):", height=150, key="code_b3")
+        code_input_full = code_input
+        if code_block2.strip():
+            code_input_full += "\n\n% --- BLOCK 2 ---\n" + code_block2
+        if code_block3.strip():
+            code_input_full += "\n\n% --- BLOCK 3 ---\n" + code_block3
+
+    # combine blocks — fallback if only tab 0 used
+    if not code_block2.strip() and not code_block3.strip():
+        code_input_full = code_input
+
+    # ── Optional context ──────────────────────────────────────────────────────
+    with st.expander("➕ Additional Context (recommended)"):
+        code_summary = st.text_area(
+            "What does this code claim to show? (from the contribution text):",
+            height=80,
+            placeholder="e.g., 'This study demonstrates that IMT base stations operating at 4800 MHz are compatible with radio altimeters at separation distances > 3 km using P.452 urban clutter model.'"
+        )
+        code_conclusion = st.text_area(
+            "What conclusion does the contribution draw from this code?:",
+            height=80,
+            placeholder="e.g., 'The analysis shows compatibility at 99% of locations, supporting IMT identification at 4800–4990 MHz.'"
+        )
+        code_prior_concern = st.text_area(
+            "Specific FAA technical concern to focus on (optional):",
+            height=60,
+            placeholder="e.g., Focus on whether receiver blocking / desensitization is modeled, not just in-band interference."
+        )
+
+    # ── Run analysis ──────────────────────────────────────────────────────────
+    st.markdown("---")
+    run_col1, run_col2 = st.columns([2, 1])
+    with run_col1:
+        run_btn = st.button("🔬 Analyze Code", type="primary",
+                           disabled=not code_input.strip())
+    with run_col2:
+        st.caption("Analysis takes 20–45 seconds for deep critique")
+
+    if run_btn and code_input.strip():
+
+        # Build WP-specific context
+        wp_context = {
+            "WP 5D — IMT / Mobile": """WP 5D governs IMT (4G/5G/6G) spectrum. Key FAA concerns:
+- New IMT allocations adjacent to radio altimeter (4200-4400 MHz), ARNS 5 GHz (5000-5150 MHz), GPS L5 (1164-1215 MHz)
+- Sharing studies must use P.528 for airborne victims, not P.452 terrestrial
+- Monte Carlo must follow SM.2028; time percentage must be 1% for protection studies
+- Out-of-band emissions and receiver blocking must be analyzed, not just in-band sharing
+- Protection criteria: I/N ≤ −6 dB (ARNS), I/N ≤ −10 dB (GNSS), per M.1477/M.1642""",
+
+            "WP 5B — Maritime / Radiodetermination": """WP 5B governs maritime mobile, VDES, and radiodetermination (radar).
+Key FAA concerns:
+- VDES/AIS expansion in VHF maritime band (156-174 MHz) near aeronautical VHF (118-136 MHz)
+- Shore-based radar systems near airborne weather radar (9000-9500 MHz) and SSR (1030/1090 MHz)
+- Radiodetermination allocations near DME/TACAN (960-1215 MHz)
+- Protection criteria: I/N ≤ −6 dB for ARNS radar systems per ITU-R M.1849""",
+
+            "WP 7C — Radiolocation / Radar": """WP 7C governs radiolocation and radar systems.
+Key FAA concerns:
+- New radiolocation allocations overlapping or adjacent to: radio altimeter (4200-4400 MHz),
+  airborne weather radar (9000-9500 MHz), ATC en-route radar (2700-2900 MHz), SSR (1030/1090 MHz)
+- Aggregate interference from ground-based radars into airborne radar receivers
+- Receiver blocking from high-power ground radars into sensitive airborne LNAs
+- Radar pulse characteristics (PRF, peak power, duty cycle) must be accounted for — not just average power""",
+
+            "WP 7D — Radio Astronomy / Passive": """WP 7D governs radio astronomy and passive services.
+Key FAA concerns:
+- Passive service allocations adjacent to active aeronautical bands can create regulatory pressure
+  to constrain FAA system emissions
+- Radio astronomy protection zones near major airports can affect DME/SSR operating parameters
+- Coordination with passive services in L-band (1400-1427 MHz) near GPS (1559-1610 MHz) and
+  GNSS L2 (1215-1300 MHz) — passive allocations set precedent for strict emission limits
+  that indirectly constrain aeronautical systems in adjacent bands""",
+        }
+
+        active_wp_context = "\n\n".join([
+            wp_context.get(wp, "") for wp in code_wp if wp in wp_context
+        ])
+
+        faa_bands_str = "\n".join([
+            f"- {name}: {b['f_low_mhz']}–{b['f_high_mhz']} MHz | I/N threshold: {b['in_threshold_db']} dB | Noise floor: {b['noise_floor_dbm']} dBm"
+            for name, b in FAA_BANDS.items()
+        ])
+
+        depth_map = {
+            "Quick scan — flag critical assumption errors":
+                "Provide a QUICK SCAN: identify the 3–5 most critical assumption errors or omissions that would invalidate the compatibility finding from an FAA perspective. Be direct and specific. No need to rewrite code.",
+            "Standard — full line-by-line critique with corrections":
+                "Provide a FULL LINE-BY-LINE CRITIQUE: annotate each significant code block, identify all assumption errors, propose corrected parameter values with regulatory citations, and summarize the overall validity of the analysis.",
+            "Deep — full critique + corrected code + contribution rebuttal text":
+                "Provide a DEEP ANALYSIS: full line-by-line critique, a corrected version of the code with FAA-appropriate parameters, AND draft rebuttal text suitable for a US contribution opposing or amending the findings.",
+        }
+
+        system_prompt = f"""You are a senior RF systems engineer and ITU-R spectrum policy expert supporting the FAA and NTIA.
+Your specialty is auditing MATLAB and Python code embedded in ITU-R Working Party contributions to identify
+technical errors, unjustified assumptions, and methodology flaws that artificially produce favorable
+compatibility findings for new spectrum users at the expense of protected aeronautical services.
+
+You have deep expertise in:
+- ITU-R propagation models: P.452, P.528, P.619, P.676, P.618
+- Monte Carlo methodology per ITU-R SM.2028
+- GNSS protection methodology: M.1318, M.1477, M.1904, M.1905
+- IMT/ARNS compatibility methodology: M.1642
+- Aeronautical receiver characteristics: RTCA DO-235B, DO-260B, DO-155, DO-189
+- Radio Regulations: RR No. 4.10, RR 5.444, RR 5.328, Resolution 233, Resolution 750
+
+FAA PROTECTED BANDS (your reference for victim system parameters):
+{faa_bands_str}
+
+WORKING PARTY CONTEXT:
+{active_wp_context if active_wp_context else "General ITU-R aeronautical spectrum protection context."}
+
+FAA VICTIM SYSTEMS UNDER ASSESSMENT: {", ".join(faa_victim)}
+
+CRITIQUE PHILOSOPHY:
+Every line of code in a sharing study encodes an assumption. Your job is to find where those assumptions
+deviate from conservative, technically defensible values in ways that favor the proponent.
+
+Common flaws to check:
+1. PROPAGATION MODEL: Is P.528 used for airborne victims? Is time % = 1% for protection studies?
+   Is urban clutter applied near airports (unjustified)? Is gaseous attenuation claimed below 3 GHz?
+2. RECEIVER PARAMETERS: Is the noise floor consistent with RTCA MOPS? Is bandwidth correct?
+   Is NF realistic? Is the I/N threshold correct for the system type?
+3. EIRP / POWER: Is maximum authorized EIRP used, or median/typical? Are OOBE accounted for?
+4. AGGREGATION: If N interferers, are they summed linearly in watts? Is N realistic?
+   Is deployment density consistent with actual licensed densities?
+5. GEOMETRY: For airborne victims, is the slant distance used (not horizontal)?
+   Is aircraft altitude conservative (low altitude = shorter slant path = more interference)?
+6. GNSS SPECIFIC: Is c = a − b applied per M.1318? Is the narrowband rule (≤700 Hz) checked?
+   Is power normalized to dB(W/Hz) correctly using the right noise bandwidth?
+7. RADAR SPECIFIC: For pulsed systems, is peak power vs average power handled correctly?
+   Is the pulse duty cycle accounted for in the power density calculation?
+8. MONTE CARLO SPECIFIC: Is the spatial distribution uniform in area (not radius)?
+   Is the violation probability criterion 5%? Is 99th percentile cited?
+
+{depth_map[critique_depth]}
+
+Format your response with clear section headers. Use technical notation precisely.
+Where you cite a correction, give the specific regulatory reference (Recommendation, RR article).
+Be direct — this is an adversarial technical review, not a collaborative editorial."""
+
+        user_msg = f"""Please analyze the following {code_lang} code from ITU-R contribution {code_doc or '[unknown doc]'} 
+submitted by {code_admin or '[unknown admin]'} to {', '.join(code_wp)}.
+
+ANALYSIS TYPE: {code_scenario}
+WRC AGENDA ITEM: {code_ai or 'Not specified'}
+FAA VICTIM SYSTEMS: {', '.join(faa_victim)}
+
+{"CONTRIBUTION CLAIM: " + code_summary if code_summary else ""}
+{"CONTRIBUTION CONCLUSION: " + code_conclusion if code_conclusion else ""}
+{"SPECIFIC FAA CONCERN: " + code_prior_concern if code_prior_concern else ""}
+
+CODE TO ANALYZE:
+```{code_lang.lower().split()[0]}
+{code_input_full}
+```
+
+Please provide your critique structured as follows:
+
+## 1. CODE SUMMARY
+What this code actually does (independently of what the contribution claims).
+
+## 2. CRITICAL ASSUMPTION AUDIT
+For each significant assumption: parameter name → value used → FAA-appropriate value → impact on I/N result → regulatory citation for the correct value.
+
+## 3. PROPAGATION MODEL ASSESSMENT  
+Is the correct ITU-R model used? Is the time percentage appropriate? Are terrain/clutter corrections justified?
+
+## 4. RECEIVER CHARACTERIZATION ERRORS
+Noise floor, bandwidth, NF, I/N threshold — are these consistent with RTCA MOPS and ITU-R Recommendations?
+
+## 5. AGGREGATION / MONTE CARLO ERRORS (if applicable)
+Spatial distribution, N value, linear summation, violation criterion.
+
+## 6. GNSS-SPECIFIC ISSUES (if GNSS bands involved)
+M.1318 c=a−b framework compliance, narrowband rule, power density normalization.
+
+## 7. RADAR/PULSED SYSTEM ISSUES (if applicable)
+Peak vs average power, duty cycle, pulse characteristics.
+
+## 8. OVERALL VALIDITY ASSESSMENT
+Is the compatibility conclusion defensible? What is the likely true I/N when correct parameters are applied?
+
+## 9. RECOMMENDED US RESPONSE
+What should the US delegation say in the Working Party session? What contribution text should be prepared?
+
+{"## 10. CORRECTED CODE" if "Deep" in critique_depth else ""}
+{"Provide corrected code with FAA-appropriate parameters annotated with regulatory justifications." if "Deep" in critique_depth else ""}"""
+
+        with st.spinner(f"Running {critique_depth.split('—')[0].strip()} code analysis... 20–45 seconds"):
+            try:
+                client = anthropic.Anthropic(api_key=api_key)
+                response = client.messages.create(
+                    model="claude-opus-4-5",
+                    max_tokens=6000,
+                    messages=[{"role": "user", "content": user_msg}],
+                    system=system_prompt,
+                )
+                critique_text = response.content[0].text
+
+                st.success("✅ Code analysis complete")
+                st.markdown("---")
+
+                # Severity banner
+                critical_keywords = ["CRITICAL", "violated", "invalid", "incorrect", "wrong",
+                                     "understates", "overstates", "unjustified", "missing"]
+                n_critical = sum(critique_text.upper().count(kw.upper()) for kw in critical_keywords)
+                if n_critical > 15:
+                    warn(f"HIGH CONCERN — analysis identified multiple significant methodology errors. Recommend preparing a US rebuttal contribution.")
+                elif n_critical > 5:
+                    st.warning("⚠️ MODERATE CONCERN — some assumption errors identified. Review carefully before accepting findings.")
+                else:
+                    ok("LOW CONCERN — code appears methodologically reasonable under initial review. Verify receiver parameters independently.")
+
+                st.markdown("---")
+                st.subheader("🔬 Technical Critique")
+                st.markdown(critique_text)
+
+                # Export
+                st.markdown("---")
+                export = f"""FAA RF INTERFERENCE TOOL — CODE ANALYSIS REPORT
+Document: {code_doc or 'N/A'} | Admin: {code_admin or 'N/A'}
+Working Party: {', '.join(code_wp)}
+Agenda Item: {code_ai or 'N/A'}
+Language: {code_lang} | Analysis Type: {code_scenario}
+FAA Victim Systems: {', '.join(faa_victim)}
+Critique Depth: {critique_depth}
+
+{'='*60}
+ORIGINAL CODE
+{'='*60}
+{code_input_full}
+
+{'='*60}
+FAA TECHNICAL CRITIQUE
+{'='*60}
+{critique_text}
+"""
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    st.download_button(
+                        "⬇️ Download Full Critique (.txt)",
+                        export,
+                        file_name=f"code_critique_{(code_doc or 'doc').replace('/','_')}.txt",
+                        mime="text/plain"
+                    )
+                with col_dl2:
+                    # Prepare a quick intervention draft
+                    intervention = f"""US DELEGATION INTERVENTION — TECHNICAL FLOOR STATEMENT
+Document: {code_doc or '[doc number]'} | {', '.join(code_wp)} | AI {code_ai or '[AI]'}
+
+The United States has reviewed the technical analysis in document {code_doc or '[doc number]'} 
+and has identified the following technical concerns with the methodology:
+
+[Insert top 3 findings from critique above]
+
+The United States requests that the Working Party:
+1. Require reanalysis using [corrected propagation model / receiver parameters / deployment assumptions]
+2. Apply the protection criteria established in [M.1642 / M.1318 / M.1477 / SM.2028] 
+3. Defer any regulatory conclusion pending submission of a corrected analysis
+
+The United States will submit a formal contribution addressing these technical issues 
+before the next meeting.
+
+[US Delegation — {', '.join(code_wp)} | FAA/NTIA]
+"""
+                    st.download_button(
+                        "⬇️ Download Floor Intervention Draft (.txt)",
+                        intervention,
+                        file_name=f"floor_intervention_{(code_doc or 'doc').replace('/','_')}.txt",
+                        mime="text/plain"
+                    )
+
+            except anthropic.AuthenticationError:
+                st.error("❌ Invalid API key.")
+            except anthropic.RateLimitError:
+                st.error("❌ Rate limit — wait a moment and retry.")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+
+    elif not code_input.strip():
+        st.info("👆 Paste code above and click Analyze.")
+
+    # ── Example code snippets ─────────────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("📋 Example code snippets to test with"):
+        st.markdown("**Example 1 — WP 5D: IMT sharing study with several intentional flaws**")
+        st.code("""% WP 5D Sharing Study — IMT at 4800 MHz vs Radio Altimeter
+% Assumes: terrestrial P.452 urban, 50% time, low N, good NF
+
+f_MHz = 4800;
+Pt_dBm = 43;
+Gt_dBi = 15;
+cable_dB = 2;
+EIRP = Pt_dBm + Gt_dBi - cable_dB;   % = 56 dBm
+
+N_interferers = 3;
+deploy_radius_km = 10;
+
+% P.452 path loss with urban clutter
+distances = sqrt(rand(N_interferers,1)) * deploy_radius_km;
+FSPL = 20*log10(distances) + 20*log10(f_MHz) + 32.44;
+urban_clutter_dB = 18;                 % urban correction
+PL = FSPL + urban_clutter_dB;
+
+% Received power per interferer
+Pr_each = EIRP - PL;                   % dBm
+
+% Aggregate (sum in dB - INCORRECT!)
+Pr_agg = 10*log10(sum(10.^(Pr_each/10)));
+
+% Victim receiver (radio altimeter)
+BW_MHz = 500;                          % MHz - overstated
+NF_dB = 10;                            % dB - pessimistic for victim
+N_floor = -174 + 10*log10(BW_MHz*1e6) + NF_dB;
+
+IN_dB = Pr_agg - N_floor;
+threshold_dB = -6;
+fprintf('I/N = %.1f dB, threshold = %d dB\\n', IN_dB, threshold_dB);
+fprintf('Compatible: %d\\n', IN_dB < threshold_dB);
+""", language="matlab")
+
+        st.markdown("**Example 2 — WP 7C: Radiolocation study near SSR with pulsed power error**")
+        st.code("""# WP 7C radiolocation study - interference to SSR at 1090 MHz
+import numpy as np
+
+f_MHz = 1090
+# Pulsed radar parameters
+peak_power_dBm = 70      # 10 kW peak
+pulse_width_us = 1.0     # microseconds
+prf_hz = 1000            # pulse repetition frequency
+
+# INCORRECT: using average power without accounting for duty cycle properly
+duty_cycle = pulse_width_us * 1e-6 * prf_hz
+avg_power_dBm = peak_power_dBm + 10*np.log10(duty_cycle)
+
+Gt_dBi = 20
+EIRP_avg = avg_power_dBm + Gt_dBi    # Using average - wrong for pulse desensitization
+
+dist_km = 10
+FSPL = 20*np.log10(dist_km) + 20*np.log10(f_MHz) + 32.44
+
+Pr = EIRP_avg - FSPL    # dBm at SSR receiver
+
+# SSR noise floor - using wrong bandwidth
+BW_MHz = 10             # SSR reply bandwidth ~1-2 MHz, not 10
+NF_dB = 8
+N_floor = -174 + 10*np.log10(BW_MHz*1e6) + NF_dB
+
+IN_dB = Pr - N_floor
+print(f"I/N = {IN_dB:.1f} dB")
+print(f"Compatible: {IN_dB < -10}")
+""", language="python")
+
+        st.markdown("**Example 3 — WP 5D: GNSS L5 study missing M.1318 framework**")
+        st.code("""% GPS L5 interference study - missing c = a-b framework
+% WP 5D document - IMT at 1200 MHz vs GPS L5
+
+f_MHz = 1200;
+EIRP_dBm = 46;
+dist_km = 5;
+
+FSPL = 20*log10(dist_km) + 20*log10(f_MHz) + 32.44;
+Pr_dBm = EIRP_dBm - FSPL;
+
+% Using generic noise floor instead of M.1318 framework
+BW_MHz = 20;
+NF_dB = 2;
+N_floor = -174 + 10*log10(BW_MHz*1e6) + NF_dB;
+
+% Missing: conversion to dB(W/Hz), comparison to M.1318 'a' parameter
+% Missing: application of 6 dB aeronautical safety margin (M.1477)
+% Missing: narrowband rule check (M.1477 Annex 5 - 700 Hz threshold)
+% Using simple I/N instead of c = a - b methodology
+
+IN_dB = Pr_dBm - N_floor;
+fprintf('I/N = %.1f dB vs threshold -10 dB\\n', IN_dB);
+fprintf('Result: %s\\n', IN_dB < -10 ? 'Compatible' : 'Incompatible');
+""", language="matlab")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOOTER
