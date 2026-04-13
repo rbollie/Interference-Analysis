@@ -422,67 +422,98 @@ if selected_tab == "📡 Protected Bands":
         "#a5d6a7","#90caf9",
     ]
 
-    fig, ax = plt.subplots(figsize=(16, 7))
+    fig, ax = plt.subplots(figsize=(17, 8))
     fig.patch.set_facecolor("#0e1117")
     ax.set_facecolor("#0e1117")
 
     log_min, log_max = np.log10(100), np.log10(11000)
     min_log_w = (log_max - log_min) * 0.022
+    BAR_TOP = 0.38
+    BAR_BOT = 0.0
 
-    BAR_TOP   = 0.42   # top of the colored bar
-    BAR_BOT   = 0.0    # bottom of the colored bar
-    LABEL_GAP = 0.10   # gap between bar top and label start
-    FREQ_BOT  = -0.18  # where frequency label sits below bar
+    # Pre-compute all band center positions
+    band_list = list(FAA_BANDS.items())
+    log_mids = []
+    log_fls  = []
+    log_fhs  = []
 
-    for i, (name, b) in enumerate(FAA_BANDS.items()):
-        fl, fh = b["f_low_mhz"], b["f_high_mhz"]
-        col = band_colors[i % len(band_colors)]
-
-        log_fl = np.log10(fl)
-        log_fh = np.log10(fh)
+    for name, b in band_list:
+        log_fl = np.log10(b["f_low_mhz"])
+        log_fh = np.log10(b["f_high_mhz"])
         if (log_fh - log_fl) < min_log_w:
-            log_mid = (log_fl + log_fh) / 2
-            log_fl = log_mid - min_log_w / 2
-            log_fh = log_mid + min_log_w / 2
+            lm = (log_fl + log_fh) / 2
+            log_fl = lm - min_log_w / 2
+            log_fh = lm + min_log_w / 2
+        log_fls.append(log_fl)
+        log_fhs.append(log_fh)
+        log_mids.append((log_fl + log_fh) / 2)
 
-        ax.fill_betweenx([BAR_BOT, BAR_TOP], 10**log_fl, 10**log_fh,
+    # Assign vertical tiers to avoid overlapping labels.
+    # Bands within ~0.18 log-units of each other get different tiers.
+    n_tiers  = 4
+    tier_tops = [BAR_TOP + 0.14 + t * 0.30 for t in range(n_tiers)]  # label start heights
+    tiers = [0] * len(band_list)
+    OVERLAP_THRESH = 0.19  # log10 units — tune as needed
+
+    for i in range(len(band_list)):
+        used = set()
+        for j in range(i):
+            if abs(log_mids[i] - log_mids[j]) < OVERLAP_THRESH:
+                used.add(tiers[j])
+        for t in range(n_tiers):
+            if t not in used:
+                tiers[i] = t
+                break
+
+    # Draw bars + labels
+    for i, (name, b) in enumerate(band_list):
+        col = band_colors[i % len(band_colors)]
+        lfl, lfh, lm = log_fls[i], log_fhs[i], log_mids[i]
+
+        # Bar
+        ax.fill_betweenx([BAR_BOT, BAR_TOP], 10**lfl, 10**lfh,
                          color=col, alpha=0.88, linewidth=0)
-        ax.plot([10**log_fl, 10**log_fh, 10**log_fh, 10**log_fl, 10**log_fl],
+        ax.plot([10**lfl, 10**lfh, 10**lfh, 10**lfl, 10**lfl],
                 [BAR_BOT, BAR_BOT, BAR_TOP, BAR_TOP, BAR_BOT],
                 color='white', linewidth=0.6, alpha=0.35)
 
-        log_mid = (log_fl + log_fh) / 2
+        label_y = tier_tops[tiers[i]]
 
-        # Band name — above bar with generous gap
-        ax.text(10**log_mid, BAR_TOP + LABEL_GAP, name,
+        # Thin connector line from bar top to label
+        ax.plot([10**lm, 10**lm], [BAR_TOP, label_y - 0.03],
+                color=col, linewidth=0.9, alpha=0.55, linestyle=':')
+
+        # Small dot at bar top
+        ax.plot(10**lm, BAR_TOP, 'o', color=col, markersize=3, alpha=0.8)
+
+        # Band name label
+        ax.text(10**lm, label_y, name,
                 ha='left', va='bottom',
                 fontsize=9.5, color='white', fontweight='bold',
-                rotation=45, rotation_mode='anchor')
+                rotation=35, rotation_mode='anchor')
 
-        # Frequency range — below bar
-        ax.text(10**log_mid, FREQ_BOT, f"{fl:.0f}–{fh:.0f} MHz",
+        # Frequency range — just below the band name
+        ax.text(10**lm, label_y - 0.06, f"{b['f_low_mhz']:.0f}–{b['f_high_mhz']:.0f} MHz",
                 ha='left', va='top',
-                fontsize=8, color='#cccccc',
-                rotation=45, rotation_mode='anchor')
+                fontsize=8, color='#bbbbbb',
+                rotation=35, rotation_mode='anchor')
 
     ax.set_xscale("log")
     ax.set_xlim(10**log_min, 10**log_max)
-    ax.set_ylim(-0.65, 1.9)
+    ax.set_ylim(-0.12, tier_tops[-1] + 1.0)
     ax.set_yticks([])
-    ax.set_xlabel("Frequency (MHz) — log scale", color='white', fontsize=10,
-                  labelpad=50)
-    ax.tick_params(axis='x', colors='white', labelsize=9, pad=55)
+    ax.set_xlabel("Frequency (MHz) — log scale", color='white', fontsize=10, labelpad=10)
+    ax.tick_params(axis='x', colors='white', labelsize=9, pad=6)
     ax.spines['bottom'].set_color('#555')
     for sp in ['top', 'left', 'right']:
         ax.spines[sp].set_visible(False)
     ax.set_title("FAA Protected Aeronautical Frequency Bands",
-                 color='white', fontsize=13, fontweight='bold', pad=12)
+                 color='white', fontsize=13, fontweight='bold', pad=10)
 
-    # Subtle reference lines
     for kf in [108, 329, 960, 1090, 1176, 1575, 2800, 4300, 5030, 9375]:
-        ax.axvline(kf, color='#2a2a2a', linewidth=0.8, linestyle='--', zorder=0)
+        ax.axvline(kf, color='#252525', linewidth=0.8, linestyle='--', zorder=0)
 
-    plt.subplots_adjust(bottom=0.30)
+    plt.tight_layout()
     st.pyplot(fig)
 
     st.subheader("Band Details")
