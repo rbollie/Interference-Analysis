@@ -363,6 +363,7 @@ tab_names = [
     "📚 Tutorial",
     "🤖 Contribution Analyzer",
     "🎓 RF Training",
+    "📓 Meeting Notes",
 ]
 selected_tab = st.sidebar.radio("Module", tab_names)
 
@@ -381,11 +382,11 @@ st.sidebar.markdown("""
 # ─────────────────────────────────────────────────────────────────────────────
 if selected_tab == "📡 Protected Bands":
     st.title("📡 FAA Protected Frequency Bands")
-    ex("This database captures the key aeronautical allocations you are defending in ITU-R proceedings — your starting reference before any analysis.")
+    ex("Each band carries a primary or secondary allocation under the ITU Radio Regulations — knowing the allocation type and footnote structure determines which regulatory instruments you can invoke.")
 
     # Spectrum overview chart
     st.subheader("Spectrum Overview")
-    ex("Visual map of all protected FAA bands — use this to quickly spot which new proposals fall near or within these zones.")
+    ex("Frequency proximity matters: receiver front-end selectivity is finite — a new allocation 200 MHz away at C-band can still cause LNA desensitization via blocking, even with no spectral overlap.")
 
     fig, ax = plt.subplots(figsize=(14, 3))
     fig.patch.set_facecolor("#0e1117")
@@ -412,7 +413,7 @@ if selected_tab == "📡 Protected Bands":
     st.pyplot(fig)
 
     st.subheader("Band Details")
-    ex("I/N threshold is the maximum tolerable interference-to-noise ratio; exceeding it can degrade or deny the aeronautical service.")
+    ex("I/N threshold is defined such that the total noise floor rise stays below ~1 dB — at I/N = −6 dB the noise power increases by 10·log(1 + 10^(−0.6)) ≈ 0.97 dB; at −10 dB it is 0.41 dB.")
 
     selected_band = st.selectbox("Select a band for details:", list(FAA_BANDS.keys()))
     b = FAA_BANDS[selected_band]
@@ -435,7 +436,7 @@ if selected_tab == "📡 Protected Bands":
 
     # Full table
     st.subheader("All Bands Summary Table")
-    ex("Use this table when drafting a US contribution — it gives you the protection criteria to cite for each system.")
+    ex("Noise floor estimates here are representative — always verify against the applicable RTCA DO standard or ICAO Annex 10 minimum operational performance specification for the specific receiver generation.")
     rows = []
     for name, b in FAA_BANDS.items():
         rows.append({
@@ -455,13 +456,13 @@ if selected_tab == "📡 Protected Bands":
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🔗 Link Budget":
     st.title("🔗 Link Budget Calculator")
-    ex("A link budget accounts for every gain and loss between transmitter and receiver — the foundation of any interference analysis.")
+    ex("The Friis transmission equation in log form: Pr = Pt + Gt − Lcable − FSPL + Gr. Every term must use consistent reference points — EIRP subsumes Pt + Gt − Lcable into a single radiated power figure.")
 
     col_l, col_r = st.columns([1, 1])
 
     with col_l:
         st.subheader("Transmitter (Interferer)")
-        ex("The interferer is the new system whose emissions you are assessing — e.g., a new IMT base station or satellite downlink.")
+        ex("For a worst-case bound, use the maximum authorized EIRP from the relevant ITU-R Recommendation or WRC agenda item — proponents often use median or typical values, which is a common optimism to challenge.")
         tx_power_dbm = st.number_input("Tx Power (dBm)", value=43.0, step=1.0,
             help="e.g., 43 dBm = 20W typical LTE base station")
         tx_gain_dbi = st.number_input("Tx Antenna Gain (dBi)", value=15.0, step=0.5,
@@ -471,7 +472,7 @@ elif selected_tab == "🔗 Link Budget":
         tx_height_m = st.number_input("Tx Height (m AGL)", value=30.0, step=5.0)
 
         st.subheader("Channel")
-        ex("Path loss describes how signal power dissipates over distance — choose the model that best fits the scenario.")
+        ex("FSPL assumes isotropic radiation into free space with no terrain, atmosphere, or clutter — it is the most optimistic model (least loss) and therefore represents the worst-case interference scenario.")
         propagation_model = st.selectbox("Propagation Model",
             ["Free Space (FSPL)", "P.452 (Terrestrial)", "P.528 (Aeronautical)"])
         freq_mhz = st.number_input("Frequency (MHz)", value=4300.0, step=10.0,
@@ -493,7 +494,7 @@ elif selected_tab == "🔗 Link Budget":
 
     with col_r:
         st.subheader("Receiver (Victim)")
-        ex("The victim is your protected aeronautical system — set its parameters using RTCA standards or ITU-R Recommendations.")
+        ex("Use 0 dBi receive antenna gain for worst-case (isotropic toward the interferer) unless you have a validated antenna pattern model — assumed directivity away from the interferer is a common proponent tactic to challenge.")
         rx_gain_dbi = st.number_input("Rx Antenna Gain (dBi)", value=0.0, step=0.5,
             help="Toward interferer; 0 dBi = worst case omnidirectional")
 
@@ -540,7 +541,7 @@ elif selected_tab == "🔗 Link Budget":
                     delta=f"{margin:.1f} dB",
                     delta_color="normal" if margin >= 0 else "inverse")
 
-        ex("Protection Margin = I/N threshold − actual I/N. Positive means protected; negative means the threshold is violated.")
+        ex("Protection Margin = threshold − computed I/N. A negative margin means the aggregate noise floor rise exceeds the ITU-R criterion and you have grounds to cite harmful interference under RR No. 4.10.")
 
         if margin >= 10:
             ok(f"PROTECTED with {margin:.1f} dB margin — system is well-protected at this distance.")
@@ -551,7 +552,7 @@ elif selected_tab == "🔗 Link Budget":
 
         # Waterfall chart
         st.subheader("Link Budget Waterfall")
-        ex("Each bar represents a gain (+) or loss (−) in the signal path from transmitter to receiver noise floor.")
+        ex("The waterfall visualization follows the Friis equation left to right: Pt → EIRP (add Gt, subtract cable) → Pr (subtract path loss, add Gr). The gap between Pr and the noise floor reference is your link margin.")
         stages = ["Tx Power", "Tx Gain", "Cable Loss", "Path Loss", "Rx Gain", "Rx Power"]
         values = [tx_power_dbm, tx_gain_dbi, -cable_loss, -pl, rx_gain_dbi, None]
 
@@ -597,7 +598,7 @@ elif selected_tab == "🔗 Link Budget":
 
         # Distance sweep
         st.subheader("Path Loss vs. Distance")
-        ex("Sweep shows how much isolation distance is needed to bring I/N below the protection threshold.")
+        ex("Required path loss = EIRP − noise floor − I/N threshold. This value on the FSPL curve gives the minimum separation distance — cite this in contributions as a coordination zone requirement.")
         dists = np.linspace(0.1, max(50, dist_km * 3), 200)
         pls_fspl = [free_space_path_loss_db(freq_mhz, d) for d in dists]
         pls_p452 = [p452_basic_loss_db(freq_mhz, d, tx_height_m, rx_height_m, terrain_type) for d in dists]
@@ -626,12 +627,12 @@ elif selected_tab == "🔗 Link Budget":
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "📊 Noise & I/N":
     st.title("📊 Noise Floor & I/N Analysis")
-    ex("I/N (Interference-to-Noise) is the ITU-R standard metric for compatibility — it tells you how much a new service degrades an existing receiver's noise environment.")
+    ex("I/N quantifies the degradation of receiver sensitivity: total noise = N·(1 + I/N_linear). At I/N = −6 dB, sensitivity degrades by 0.97 dB; at 0 dB it degrades by 3 dB — unacceptable for safety-critical systems.")
 
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Receiver Noise Floor Calculator")
-        ex("The noise floor is the minimum signal a receiver can detect — interference must stay well below this to be acceptable.")
+        ex("Thermal noise floor: N = kTB·NF, where k = 1.38×10⁻²³ J/K, T = 290K standard, B = noise bandwidth. The NF term captures all internal noise contributions referred to the input — any interference power above kTB·NF degrades SNR.")
         bw_mhz = st.number_input("Receiver Bandwidth (MHz)", value=100.0, min_value=0.001, step=10.0)
         nf_db = st.number_input("Receiver Noise Figure (dB)", value=5.0, step=0.5,
             help="Measure of receiver's internal noise amplification (0 dB = ideal)")
@@ -644,11 +645,11 @@ elif selected_tab == "📊 Noise & I/N":
         st.markdown("---")
         st.metric("Thermal Noise Density", f"{kT:.1f} dBm/Hz")
         st.metric("Noise Floor", f"{nf_dbm:.1f} dBm")
-        ex("Noise density = kT in dBm/Hz; floor rises with bandwidth. GPS receivers use ~290 K; some avionics use lower.")
+        ex("kT = −174 dBm/Hz at 290K is the fundamental thermal noise limit. Each decade of bandwidth adds 10 dB to the noise floor. NF is the receiver's contribution above kTB — a 1 dB NF increase directly reduces sensitivity by 1 dB.")
 
     with col2:
         st.subheader("I/N Threshold Selector")
-        ex("Protection thresholds vary by system type — GNSS is most sensitive (−10 dB) due to the extremely low signal levels from satellites.")
+        ex("GNSS threshold is −10 dB I/N per M.1477/M.1905 because GPS L1 arrives at approximately −130 dBm — only 25 dB above the noise floor of a typical receiver. Any noise floor rise materially degrades acquisition and tracking margin.")
         threshold_type = st.selectbox("System Type", [
             "Generic aeronautical ARNS (−6 dB)",
             "GNSS / GPS (−10 dB)",
@@ -684,7 +685,7 @@ elif selected_tab == "📊 Noise & I/N":
 
     # I/N sensitivity heatmap
     st.subheader("I/N Sensitivity — Interference Power vs Bandwidth")
-    ex("This heatmap shows how I/N changes as receiver bandwidth and interference power vary — helps identify worst-case scenarios.")
+    ex("The contour line at your I/N threshold shows the boundary between compatible and incompatible operation. Note how wider bandwidth moves the boundary upward — a broader receiver requires proportionally stronger interference to violate the threshold.")
     bw_range = np.logspace(np.log10(0.1), np.log10(500), 40)
     int_range = np.linspace(-140, -60, 40)
     Z = np.zeros((len(int_range), len(bw_range)))
@@ -711,12 +712,218 @@ elif selected_tab == "📊 Noise & I/N":
     plt.tight_layout()
     st.pyplot(fig4)
 
+    st.markdown("---")
+    # ── GNSS PROTECTION FRAMEWORK (M.1318 / M.1477 / M.1904 / M.1905) ────────
+    st.header("🛰️ GNSS Protection Framework — ITU-R M.1318 / M.1477 / M.1904 / M.1905")
+    ex("The M.1318/M.1477 framework is the legally grounded calculation chain for GNSS protection: receiver spec (a) minus safety margin (b) gives the maximum tolerable interference density (c) — all in dB(W/Hz) at the passive antenna terminal.")
+
+    st.subheader("1️⃣  The c = a − b Framework (ITU-R M.1318 Annex 1)")
+    ex("Note that 'a' is specified at the passive antenna terminal — not at the LNA output. This is important when comparing with interference analyses that compute received power: convert to power density using the receiver noise bandwidth.")
+    st.latex(r"c = a - b")
+    st.markdown("""
+| Symbol | Parameter | Units | Description |
+|---|---|---|---|
+| **a** | Max aggregate non-RNSS interference power density | dB(W/Hz) | Specified by the RNSS receiver design — from receiver datasheet or ITU-R recommendation |
+| **b** | Protection margin | dB | To ensure protection as provided by RR No. 4.10 — **6 dB aeronautical safety margin (M.1477)** |
+| **c** | Tolerable interference power density at receiver | dB(W/Hz) | The level you must stay below in your interference analysis |
+    """)
+
+    st.subheader("🔢 c = a − b Calculator")
+    ex("'a' comes from the RNSS receiver's minimum operational performance specification (MOPS) — typically −111.5 dB(W/Hz) for GPS/GNSS. This is not a system-level threshold; it is the worst-case receiver design point.")
+
+    col_gnss1, col_gnss2 = st.columns(2)
+    with col_gnss1:
+        gnss_band = st.selectbox("GNSS Band (ITU-R M.1318):", [
+            "L5 / E5 — 1164–1215 MHz",
+            "L2 / E6 — 1215–1300 MHz",
+            "L1 / E1 — 1559–1610 MHz",
+            "L3 / future — 5010–5030 MHz",
+            "Custom",
+        ])
+        # Pre-fill typical 'a' values per band from ITU-R M.1318
+        a_defaults = {
+            "L5 / E5 — 1164–1215 MHz": -111.5,
+            "L2 / E6 — 1215–1300 MHz": -111.5,
+            "L1 / E1 — 1559–1610 MHz": -111.5,
+            "L3 / future — 5010–5030 MHz": -111.5,
+            "Custom": -111.5,
+        }
+        param_a = st.number_input(
+            "a — Max aggregate non-RNSS interference power density (dB(W/Hz))",
+            value=a_defaults.get(gnss_band, -111.5), step=0.5,
+            help="From ITU-R M.1318 Table / receiver spec. Typical GPS L1: −111.5 dB(W/Hz)"
+        )
+        interferer_bw_hz = st.number_input(
+            "Interferer bandwidth (Hz) — for narrowband rule check",
+            value=10e6, min_value=1.0, step=1000.0, format="%.0f",
+            help="Enter the bandwidth of the interfering signal in Hz"
+        )
+
+    with col_gnss2:
+        # Protection margin b — M.1477 defines 6 dB aeronautical safety margin
+        margin_type = st.selectbox("b — Protection Margin Source:", [
+            "M.1477 Annex 5 — Aeronautical safety margin (6 dB)",
+            "M.1904 / M.1905 — GLONASS/RNSS safety margin (6 dB)",
+            "M.1477 Annex 5 — Narrowband interferer ≤700 Hz (+10 dB additional)",
+            "Custom margin",
+        ])
+        margin_map = {
+            "M.1477 Annex 5 — Aeronautical safety margin (6 dB)": 6.0,
+            "M.1904 / M.1905 — GLONASS/RNSS safety margin (6 dB)": 6.0,
+            "M.1477 Annex 5 — Narrowband interferer ≤700 Hz (+10 dB additional)": 16.0,
+            "Custom margin": None,
+        }
+        if margin_map[margin_type] is None:
+            param_b = st.number_input("b — Custom protection margin (dB)", value=6.0, step=0.5)
+        else:
+            param_b = margin_map[margin_type]
+            st.metric("b — Protection Margin", f"{param_b} dB")
+
+        param_c = param_a - param_b
+        st.metric("c — Tolerable interference level", f"{param_c:.1f} dB(W/Hz)")
+        ex("c is defined at the passive antenna terminal, integrated over the noise bandwidth. If your analysis produces received interference power P_i (dBm), convert: c_computed = P_i(dBm) − 30 − 10·log10(B_Hz), then compare to c.")
+
+    # Narrowband rule check — M.1477 Annex 5
+    st.subheader("2️⃣  Narrowband Interferer Rule (ITU-R M.1477 Annex 5)")
+    ex("The ≤700 Hz narrowband rule applies because a CW or very narrowband interferer concentrates all its energy into the receiver's phase-locked tracking loops, causing cycle slips and position errors disproportionate to its total power.")
+
+    nb_threshold_hz = 700.0
+    is_narrowband = interferer_bw_hz <= nb_threshold_hz
+    col_nb1, col_nb2 = st.columns(2)
+    with col_nb1:
+        st.metric("Interferer Bandwidth", f"{interferer_bw_hz:.0f} Hz")
+        st.metric("Narrowband Threshold", "700 Hz")
+    with col_nb2:
+        if is_narrowband:
+            warn(f"⚠️ NARROWBAND RULE APPLIES — interferer BW ({interferer_bw_hz:.0f} Hz) ≤ 700 Hz. "
+                 f"Additional +10 dB protection margin required per M.1477 Annex 5. "
+                 f"Effective I/N threshold tightens to −20 dB (−10 dB standard + −10 dB additional).")
+            effective_gnss_threshold = -20.0
+        else:
+            ok(f"Narrowband rule does NOT apply — interferer BW ({interferer_bw_hz:.0f} Hz) > 700 Hz. "
+               f"Standard −10 dB I/N threshold applies.")
+            effective_gnss_threshold = -10.0
+        st.metric("Effective GNSS I/N Threshold", f"{effective_gnss_threshold} dB")
+
+    # Full GNSS protection criteria table
+    st.subheader("3️⃣  Complete GNSS Protection Criteria by Band")
+    ex("RR No. 5.328 limits RNSS protection in 1164–1215 MHz: RNSS cannot claim protection from ARNS (DME beacons) per M.1318 Annex 1. Your interference analysis must account for DME as a pre-existing interference source in this band.")
+    gnss_table = pd.DataFrame([
+        ["L1 / E1 / B1", "1559–1610 MHz", "−111.5", "6 dB", "−10 dB", "−20 dB*",
+         "M.1318, M.1477, M.1905", "Primary aviation GNSS; WAAS/SBAS; most protected"],
+        ["L5 / E5a / B2a", "1164–1215 MHz", "−111.5", "6 dB", "−10 dB", "−20 dB*",
+         "M.1318, M.1477, M.1904", "Safety-of-life signal; aviation approach procedures"],
+        ["L2 / E6 / B3", "1215–1300 MHz", "−111.5", "6 dB", "−10 dB", "−20 dB*",
+         "M.1318, M.1477", "Dual-freq integrity; shares with ARNS (RR 5.328 applies)"],
+        ["L3 / future", "5010–5030 MHz", "−111.5", "6 dB", "−10 dB", "−20 dB*",
+         "M.1318", "Under pressure from IMT-2030 studies in WP 5D"],
+    ], columns=[
+        "Signal", "Band (MHz)", "a (dB(W/Hz))", "b (Aero Margin)",
+        "Std I/N Threshold", "Narrowband I/N*", "Key References", "Notes"
+    ])
+    st.dataframe(gnss_table, use_container_width=True)
+    st.caption("* Narrowband threshold applies when interferer BW ≤ 700 Hz per ITU-R M.1477 Annex 5")
+
+    # Recommendation summary box
+    st.subheader("4️⃣  Recommendation Doctrine Summary")
+    ex("M.1904 and M.1905 are critical because they establish the 6 dB safety margin as settled ITU-R doctrine — any proponent proposing less must argue against two explicit Recommendations, not just a methodology document.")
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        st.markdown("""
+**ITU-R M.1318** — *Methodology for GNSS protection*
+- Defines the c = a − b framework
+- Covers L1, L2, L5, L3 bands
+- Establishes aggregate interference methodology
+- **Cite for:** methodology basis of any GNSS interference analysis
+
+**ITU-R M.1477 Annex 5** — *Aeronautical safety margin*
+- 6 dB safety margin for GNSS safety-of-life apps
+- +10 dB additional margin for narrowband (≤700 Hz) interferers
+- Lists factors requiring additional margins: terrain, weather, RNSS config
+- **Cite for:** justifying b = 6 dB in the c = a − b calculation
+        """)
+    with col_r2:
+        st.markdown("""
+**ITU-R M.1904** — *GLONASS spaceborne receiver protection*
+- Annex 1 Table 1 Note 3: safety margin = 6 dB
+- Establishes GLONASS-specific protection baseline
+- **Cite for:** GLONASS L1/L2 band contributions; reinforces 6 dB doctrine
+
+**ITU-R M.1905** — *RNSS safety applications*
+- Recommends safety margin be applied for all RNSS safety-of-life interference analyses
+- Note 1: Aeronautical safety margin of 6 dB
+- **Cite for:** Any contribution involving aviation use of GNSS — broadest coverage
+- **Key strength:** Applies to ALL RNSS systems, not just GPS or GLONASS
+
+---
+**Together:** M.1318 (method) + M.1477 (margin) + M.1904 + M.1905 (doctrine) = complete GNSS defense stack
+        """)
+
+    # Interference budget worked example
+    st.subheader("5️⃣  Worked Example — GPS L1 Protection Budget")
+    ex("The M.1318 budget uses power spectral density (dB(W/Hz)) rather than integrated power (dBm) — this makes the criterion independent of receiver bandwidth and directly comparable across systems with different noise bandwidths.")
+    with st.expander("📐 Show GPS L1 Protection Budget Walkthrough"):
+        st.markdown("""
+**Scenario:** New terrestrial service proposed near 1559–1610 MHz GPS L1 band.
+Is the aggregate interference tolerable?
+
+**Step 1 — Establish 'a' from receiver spec (M.1318)**
+> Maximum aggregate non-RNSS interference power density for GPS L1:
+> **a = −111.5 dB(W/Hz)**
+> (From ITU-R M.1318 Annex 1 Table 1)
+
+**Step 2 — Apply aeronautical safety margin 'b' (M.1477 Annex 5 + M.1905)**
+> Aeronautical safety margin = **6 dB** (M.1477 Note 1, M.1905 Recommendation 2)
+> This ensures protection as required by RR No. 4.10 (M.1318 Annex 1, Step 1b)
+> **b = 6 dB**
+
+**Step 3 — Compute tolerable interference level 'c'**
+> c = a − b = −111.5 − 6 = **−117.5 dB(W/Hz)**
+
+**Step 4 — Check narrowband rule (M.1477 Annex 5, Section 4)**
+> If interfering signal BW ≤ 700 Hz: apply additional 10 dB margin
+> Effective tolerable level = −117.5 − 10 = **−127.5 dB(W/Hz)** for narrowband
+
+**Step 5 — Compare your computed interference to 'c'**
+> Run your link budget → convert received interference power to power density (dB(W/Hz))
+> If computed interference > c → threshold exceeded → **cite harmful interference under RR 4.10**
+> If computed interference ≤ c → compatible → **document margin and conditions**
+
+**Step 6 — State the regulatory consequence**
+> "The computed aggregate non-RNSS interference power density of [X] dB(W/Hz) exceeds
+> the tolerable level c = −117.5 dB(W/Hz) established by ITU-R M.1318 Annex 1, with
+> the 6 dB aeronautical safety margin required by ITU-R M.1477 Annex 5, M.1904, and M.1905.
+> This constitutes harmful interference to a safety-of-life service under RR No. 4.10.
+> The United States opposes this proposal without additional protective measures."
+        """)
+
+    # Power density converter
+    st.subheader("🔢 Power → Power Density Converter")
+    ex("Power density = received power − 10·log10(noise BW). GPS L1 C/A noise BW ≈ 2 MHz; L5 ≈ 20.46 MHz. Using too wide a bandwidth here artificially lowers the density and makes interference appear more benign — check the proponent's assumed bandwidth.")
+    col_pd1, col_pd2 = st.columns(2)
+    with col_pd1:
+        pwr_dbm_conv = st.number_input("Interference power at Rx (dBm)", value=-100.0, step=1.0)
+        rx_bw_hz_conv = st.number_input("Receiver noise bandwidth (Hz)", value=20.46e6,
+            step=1e6, format="%.0f",
+            help="GPS L1 C/A: ~1 MHz; L5: ~20.46 MHz; use receiver spec")
+    pwr_dbw = pwr_dbm_conv - 30
+    pwr_density_dbwHz = pwr_dbw - 10*np.log10(rx_bw_hz_conv)
+    with col_pd2:
+        st.metric("Power density", f"{pwr_density_dbwHz:.1f} dB(W/Hz)")
+        margin_vs_c = param_c - pwr_density_dbwHz
+        st.metric("Margin vs tolerable level c", f"{margin_vs_c:.1f} dB",
+                  delta_color="normal" if margin_vs_c >= 0 else "inverse")
+        if margin_vs_c < 0:
+            warn(f"Computed interference exceeds c by {abs(margin_vs_c):.1f} dB — cite M.1318 violation in contribution.")
+        else:
+            ok(f"Compatible with {margin_vs_c:.1f} dB margin against M.1318 tolerable level.")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 4 — PROPAGATION ANALYSIS
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🌐 Propagation":
     st.title("🌐 Propagation Analysis")
-    ex("Choosing the right propagation model is critical — using FSPL when P.528 is appropriate can underestimate interference by 10–20 dB.")
+    ex("P.528 accounts for atmospheric refraction, radio horizon geometry, and troposcatter — all of which increase path loss relative to FSPL for slant paths. A proponent using FSPL for an airborne scenario is using an unrealistically pessimistic interference estimate.")
 
     freq_mhz_p = st.slider("Frequency (MHz)", min_value=100, max_value=10000, value=4300, step=50)
     max_dist_km = st.slider("Max Distance (km)", min_value=5, max_value=500, value=100)
@@ -755,11 +962,11 @@ elif selected_tab == "🌐 Propagation":
     plt.tight_layout()
     st.pyplot(fig5)
 
-    ex("Lower path loss = more interference reaching the victim. Always use the most optimistic (lowest) path loss for a conservative protection analysis.")
+    ex("Conservative protection analysis uses the lowest plausible path loss (FSPL or P.452 open, time %=1) to maximize computed interference. If compatibility holds under these conditions, any realistic deployment will also be compatible.")
 
     # Atmospheric attenuation using itur P.676
     st.subheader("Atmospheric Gaseous Attenuation (ITU-R P.676 via itur)")
-    ex("Above ~1 GHz, oxygen and water vapor absorb signal energy — this adds loss that helps protect against terrestrial interference but matters for airborne paths too.")
+    ex("P.676 gaseous attenuation is negligible below ~3 GHz (<0.01 dB/km), becomes relevant above 6 GHz, and peaks at 60 GHz (O₂ resonance, ~15 dB/km). Do not cite it as a protection mechanism for L-band or C-band ground-to-air paths.")
 
     freq_range_ghz = np.linspace(0.1, min(freq_mhz_p / 1000 * 2, 10), 100)
     gas_atten_vals = []
@@ -792,7 +999,7 @@ elif selected_tab == "🌐 Propagation":
 
     # Model selector guidance
     st.subheader("Which Model Should You Use?")
-    ex("This decision table follows ITU-R practice — using the wrong model is a common error that reviewers will challenge in Working Party sessions.")
+    ex("Model selection is a regulatory choice, not just a technical one — ITU-R contributions cite the specific model by name. A challenge to your model choice in a Working Party session can invalidate your entire analysis, so document your selection rationale explicitly.")
     guidance = pd.DataFrame([
         ["Terrestrial base station → ground receiver", "P.452", "Point-to-point interference, terrain profile needed for full implementation"],
         ["Terrestrial base station → airborne receiver", "P.528", "Specific to aeronautical scenarios; slant path + atmosphere"],
@@ -807,13 +1014,13 @@ elif selected_tab == "🌐 Propagation":
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🎲 Monte Carlo":
     st.title("🎲 Monte Carlo Aggregate Interference")
-    ex("Monte Carlo simulates thousands of random interferer deployments to estimate the probability that aggregate interference violates the I/N threshold — the ITU-R standard methodology per SM.2028.")
+    ex("Per SM.2028, violation probability >5% is the standard incompatibility criterion. The simulation draws random transmitter positions from a uniform spatial distribution within the deployment area — the resulting I/N distribution is a function of aggregate received power summed linearly across all N interferers.")
 
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Interferer Parameters")
         n_interferers = st.number_input("Number of Interferers (N)", value=10, min_value=1, max_value=500, step=5)
-        ex("N is the density of new transmitters in a deployment area — a key assumption that drives aggregate interference.")
+        ex("N is the most sensitive assumption in any Monte Carlo study — aggregate I/N scales approximately as 10·log10(N) at high densities. Always document the source of your N assumption and challenge unrealistically low values in others' contributions.")
         mc_tx_power = st.number_input("Tx Power per Unit (dBm)", value=43.0, step=1.0)
         mc_tx_gain = st.number_input("Tx Antenna Gain (dBi)", value=15.0, step=1.0)
         mc_freq = st.number_input("Frequency (MHz)", value=4300.0, step=10.0)
@@ -862,7 +1069,7 @@ elif selected_tab == "🎲 Monte Carlo":
                      delta="High Risk" if results['violation_probability'] > 0.05 else "Acceptable",
                      delta_color="inverse" if results['violation_probability'] > 0.05 else "normal")
 
-        ex("The 99th percentile I/N is the value to cite in a US contribution — it represents the worst-case aggregate scenario across realistic deployments.")
+        ex("The 99th percentile bounds the upper tail of the I/N distribution — for a 5% violation criterion, you need the exceedance probability at the threshold, not just the percentile. Read the CCDF directly at the I/N threshold to get the violation probability.")
 
         if results['violation_probability'] > 0.05:
             warn(f"Violation probability {results['violation_probability']*100:.1f}% exceeds 5% — this scenario poses a credible interference threat and supports a protection requirement.")
@@ -910,11 +1117,11 @@ elif selected_tab == "🎲 Monte Carlo":
         plt.tight_layout()
         st.pyplot(fig7)
 
-        ex("The CCDF (right plot) is how ITU-R contributions typically present Monte Carlo results — read across from the threshold line to get exceedance probability.")
+        ex("The CCDF shows P(I/N > x). Reading off at x = I/N threshold gives the violation probability directly. The SM.2028 criterion requires this value < 5% — if a proponent's CCDF intersects the threshold above the 5% line, their scenario is incompatible.")
 
         # Sensitivity: vary N interferers
         st.subheader("Sensitivity: Violation Probability vs Number of Interferers")
-        ex("This shows how quickly risk grows as deployment density increases — use to argue for density limits or coordination zones in a contribution.")
+        ex("Aggregate I/N grows roughly as 10·log10(N) at low densities and more slowly as the deployment radius fills. The inflection point identifies a maximum compatible density — propose this as a PFD density limit or coordination zone in your contribution text.")
         n_range = list(range(1, min(int(n_interferers) * 3, 100), max(1, int(n_interferers) // 5)))
         viol_probs = []
         with st.spinner("Running sensitivity sweep..."):
@@ -956,7 +1163,7 @@ elif selected_tab == "🎲 Monte Carlo":
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "📋 Contribution Summary":
     st.title("📋 ITU-R Contribution Summary Generator")
-    ex("An ITU-R contribution is the formal document submitted by an administration to a Working Party — this module helps you draft the key technical sections.")
+    ex("A contribution carries the weight of your administration's regulatory position — vague language weakens it. Specific dB margins, named propagation models, and cited Recommendation/RR article numbers are what Working Party rapporteurs actually use to draft agreed text.")
 
     st.subheader("Scenario Setup")
     contrib_title = st.text_input("Analysis Title", value="Interference Assessment: New IMT Allocation vs. Radio Altimeter Band")
@@ -1106,34 +1313,39 @@ Generated by FAA RF Interference Analysis Tool
         st.text_area("Generated Contribution Draft", contrib_text, height=600)
         st.download_button("⬇️ Download as .txt", contrib_text,
                            file_name="ITU_R_Contribution_Draft.txt", mime="text/plain")
-        ex("This is a starting scaffold — fill in the bracketed placeholders and attach your full analysis figures before submission through NTIA.")
+        ex("Before submission through NTIA: verify all numerical results with SEAMCAT or ITU-R SoftTools for P.452/P.528; confirm I/N threshold citations against current RTCA DO standards; have FAA spectrum office review for classification and policy alignment.")
 
     # Regulatory citation quick reference
     st.subheader("Regulatory Citation Quick Reference")
-    ex("Always cite the correct RR article or Resolution — this is what gives your technical argument legal weight in the WRC process.")
+    ex("Regulatory citations transform a technical finding into a legal position — 'our analysis shows threshold violated' is an opinion; 'computed I/N exceeds the criterion in M.1318 Annex 1 Step 1b, invoking RR No. 4.10' is a treaty-level regulatory argument.")
     reg_refs = pd.DataFrame([
         ["RR No. 4.10", "No harmful interference to safety-of-life services", "Strongest lever — invoked for ALL FAA safety systems"],
         ["RR No. 5.444", "ARNS protection at 960–1215 MHz", "Use for DME/TACAN/SSR/TCAS/ADS-B bands"],
-        ["RR No. 5.328", "ARNS at 108–137 MHz", "VOR/ILS protection basis"],
+        ["RR No. 5.328", "ARNS at 108–137 MHz; RNSS cannot claim protection from ARNS in 1164–1215 MHz", "VOR/ILS protection; also limits RNSS protection claims vs DME"],
         ["RR Resolution 233", "Protection of RNSS (GPS/GNSS)", "Use for all GPS/GNSS band defense"],
         ["RR Resolution 750", "IMT and safety services coexistence", "Relevant for all WP 5D IMT proposals"],
-        ["ITU-R M.1642", "IMT→ARNS methodology", "Cite as methodology basis for your analysis"],
-        ["ITU-R SM.2028", "Monte Carlo methodology", "Cite to validate your simulation approach"],
+        ["ITU-R M.1318 Annex 1", "c = a − b methodology for aggregate non-RNSS interference to GNSS", "Cite as the formal calculation framework for GPS L1/L2/L5 protection analysis"],
+        ["ITU-R M.1477 Annex 5", "Aeronautical safety margin ≥6 dB for GNSS; +10 dB for narrowband (≤700 Hz) interferers", "Cite to justify b = 6 dB in c = a − b; invoke narrowband rule for CW/tonal interferers"],
+        ["ITU-R M.1904", "GLONASS spaceborne receiver — safety margin = 6 dB (Annex 1 Table 1 Note 3)", "Cite alongside M.1905 for GLONASS band contributions; reinforces 6 dB doctrine"],
+        ["ITU-R M.1905", "Safety margin must be applied for RNSS safety-of-life interference analyses (Note 1: 6 dB aero)", "Broadest RNSS safety margin authority — applies to ALL RNSS systems, cite in every GNSS contribution"],
+        ["ITU-R M.1642", "IMT→ARNS methodology", "Cite as methodology basis for non-GNSS aeronautical analysis"],
+        ["ITU-R SM.2028", "Monte Carlo simulation methodology", "Cite to validate your simulation approach"],
         ["ITU-R P.528", "Aeronautical propagation model", "Model authority — cite when using P.528 curves"],
         ["ICAO Annex 10", "Aeronautical telecomm standards", "Aligns ITU-R work with ICAO civil aviation requirements"],
     ], columns=["Reference", "Subject", "When to Cite"])
-    st.table(reg_refs)
+    st.dataframe(reg_refs, use_container_width=True)
+    ex("Citation stacking is a standard ITU-R practice: M.1318 provides the methodology, M.1477 provides the aeronautical safety margin value, M.1904/M.1905 establish the 6 dB doctrine across GNSS systems — together they preclude any argument that the margin is discretionary.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 7 — TUTORIAL
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "📚 Tutorial":
     st.title("📚 How to Use This Tool")
-    ex("This tutorial walks you through the full workflow — from reading a new proposal to producing a defensible US contribution.")
+    ex("The five-step workflow maps directly to the ITU-R study cycle timeline: identify threats at CPM study launch (4–5 years before WRC), quantify during WP meetings, draft contributions 6 weeks before each meeting, engage at the meeting, implement after WRC.")
 
     st.markdown("---")
     st.header("🗺️ The Big Picture — Your Workflow")
-    ex("Every interference analysis follows the same five-step arc — this tool supports each step.")
+    ex("The study cycle runs approximately 4 years from WRC agenda item adoption to the next WRC. Planting conservative protection criteria early in Step 1 Recommendations is far more effective than fighting a nearly-agreed CPM method in the final study cycle year.")
 
     st.markdown("""
 ```
@@ -1626,7 +1838,7 @@ elif selected_tab == "🎓 RF Training":
     # ── LESSON 1 ──────────────────────────────────────────────────────────────
     if lesson.startswith("Lesson 1"):
         st.header("📐 Lesson 1 — The Decibel: Your Most Important Tool")
-        ex("Every number in RF engineering is expressed in decibels. Master this and everything else follows.")
+        ex("The dB scale is log base 10 of a power ratio multiplied by 10. Because the Friis equation is multiplicative in linear scale, it becomes additive in dB — this is why every RF link analysis is a simple arithmetic chain of dB values.")
 
         st.subheader("Why Decibels?")
         st.markdown("""
@@ -1670,7 +1882,7 @@ This compares two power levels. When you say a signal is "30 dB stronger," you m
         st.table(pd.DataFrame(conv_data))
 
         st.subheader("🔢 Interactive dB Calculator")
-        ex("Use this to build intuition — change the inputs and watch how the dB math works.")
+        ex("Note that dBm is an absolute power level (referenced to 1 mW), while dB is a dimensionless ratio. You can add dB values to dBm, but you cannot add two dBm values — that would require linear addition of milliwatts, then convert back.")
         col1, col2 = st.columns(2)
         with col1:
             p_watts = st.number_input("Power (Watts)", value=1.0, min_value=0.000001, format="%.6f")
@@ -1717,7 +1929,7 @@ you just add and subtract dB values.
     # ── LESSON 2 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 2"):
         st.header("📻 Lesson 2 — Frequency, Wavelength & The EM Spectrum")
-        ex("Frequency determines how a signal behaves — how far it travels, how it's absorbed, and what it can penetrate.")
+        ex("The free-space path loss equation has a 20·log10(f) term — doubling frequency adds 6 dB of path loss at fixed distance. This frequency dependence is why UHF/L-band systems like GPS require extremely sensitive receivers to overcome orbital path losses exceeding 180 dB.")
 
         st.subheader("The Fundamental Relationship")
         st.latex(r"c = f \cdot \lambda \quad \Rightarrow \quad \lambda = \frac{c}{f}")
@@ -1743,7 +1955,7 @@ Where:
             st.metric("Frequency", f"{f_from_lam:.1f} MHz")
 
         st.subheader("The Aeronautical Spectrum — Bands You Work With")
-        ex("Each band has different propagation characteristics — lower frequencies travel farther; higher frequencies carry more data but attenuate faster.")
+        ex("The key parameter is the ratio of wavelength to obstacle size: wavelength < obstacle → shadowing/reflection dominate; wavelength ≈ obstacle → diffraction and scattering matter. At C-band (λ ≈ 7 cm), rain drops scatter efficiently — hence airborne weather radar operates here.")
         band_data = pd.DataFrame([
             ["VHF", "30–300 MHz", "~1–10 m", "Line-of-sight + some diffraction", "VOR, ILS, VHF comms"],
             ["UHF", "300 MHz–3 GHz", "~10 cm–1 m", "Line-of-sight dominant", "DME, TACAN, ADS-B, GPS L1"],
@@ -1786,7 +1998,7 @@ and scatter energy. Airborne weather radar at 9 GHz exploits this to detect stor
     # ── LESSON 3 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 3"):
         st.header("📡 Lesson 3 — Transmit Power, EIRP & Antenna Gain")
-        ex("EIRP is the single number that characterizes how much power a transmitter effectively radiates — it's what you put into every interference calculation.")
+        ex("EIRP is the product of transmit power and antenna gain in the direction of the victim, less cable losses. It is invariant to whether gain is achieved by increasing power or focusing the antenna — both create identical interference at a distant receiver.")
 
         st.subheader("Transmit Power")
         st.markdown("""
@@ -1840,7 +2052,7 @@ the same signal strength in the direction of maximum radiation.
             lc = st.number_input("Cable Loss (dB)", value=2.0, step=0.5)
         eirp_val = pt + gt - lc
         st.metric("EIRP", f"{eirp_val:.1f} dBm = {10**(eirp_val/10)/1000:.1f} W equivalent")
-        ex("This is the effective radiated power toward the victim — the starting point of every link budget and interference calculation.")
+        ex("In ITU-R Radio Regulations, EIRP limits are specified per carrier, per antenna beam, or as aggregate — always check which definition applies. A proponent quoting per-carrier EIRP for a MIMO system may be understating the effective aggregate EIRP toward your victim.")
 
         st.subheader("Power Flux Density (PFD)")
         st.markdown("""
@@ -1853,7 +2065,7 @@ ITU-R uses PFD limits in the Radio Regulations to protect Earth-based receivers 
         eirp_dbw = eirp_val - 30
         pfd_val = eirp_dbw - 10 * np.log10(4 * np.pi * (d_km_l3 * 1000) ** 2)
         st.metric("PFD at distance", f"{pfd_val:.1f} dBW/m²")
-        ex("PFD limits in the Radio Regulations (e.g., RR Appendix 7) are what you cite to protect ground receivers from satellite interference.")
+        ex("PFD (W/m²) is power per unit area at the victim, independent of the victim's antenna aperture. RR Appendix 7 PFD limits are specified by elevation angle — the lower the elevation, the tighter the limit, because low-elevation satellite paths have longer atmospheric path lengths.")
 
         st.subheader("✅ Self-Check")
         with st.expander("Click to reveal answers"):
@@ -1871,7 +2083,7 @@ ITU-R uses PFD limits in the Radio Regulations to protect Earth-based receivers 
     # ── LESSON 4 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 4"):
         st.header("📉 Lesson 4 — Free Space Path Loss")
-        ex("Path loss is the signal power lost as it travels through space — even in a vacuum with no obstructions, power spreads out and weakens with distance.")
+        ex("FSPL arises from the inverse square law: power density decreases as 1/4πr². The 20·log10(d) + 20·log10(f) form captures both the geometric spreading and the frequency dependence of effective antenna aperture (Ae = λ²G/4π).")
 
         st.subheader("The Formula")
         st.latex(r"FSPL \text{ (dB)} = 20\log_{10}(d_{km}) + 20\log_{10}(f_{MHz}) + 32.44")
@@ -1895,7 +2107,7 @@ between a transmitter and receiver separated by distance d, at frequency f.
         with col2:
             st.metric("Free Space Path Loss", f"{fspl_val:.1f} dB")
             st.metric("Signal reduced by factor of", f"{10**(fspl_val/10):.2e}")
-        ex("This number goes directly into your link budget as the main loss term.")
+        ex("FSPL is the dominant loss term for most aeronautical links — it typically ranges from 100 dB (VHF, short range) to 190 dB (GPS orbital distance). All other loss mechanisms (atmospheric, terrain, clutter) are additive corrections to this baseline.")
 
         st.subheader("FSPL vs Distance — Interactive Chart")
         freqs_to_plot = st.multiselect("Select frequencies to compare:",
@@ -1957,7 +2169,7 @@ This is why GPS receivers are so sensitive — and why any interference is so da
     # ── LESSON 5 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 5"):
         st.header("🔗 Lesson 5 — The Link Budget: Putting It All Together")
-        ex("A link budget is a running total of every gain and loss in a signal path — it's the foundation of all RF system design and interference analysis.")
+        ex("The Friis transmission equation: Pr(dBm) = Pt + Gt − Lcable − FSPL + Gr. For interference analysis, Pr is the interference power at the victim input — compare it to the noise floor (N = kTBF) using I/N = Pr − N to assess compatibility.")
 
         st.subheader("The Friis Transmission Equation")
         st.latex(r"P_r = P_t + G_t - L_{cable} - FSPL + G_r \quad \text{(all in dB)}")
@@ -1973,7 +2185,7 @@ This is why GPS receivers are so sensitive — and why any interference is so da
         """)
 
         st.subheader("🔢 Build a Link Budget Step by Step")
-        ex("Adjust each parameter and watch how the received power changes — this is exactly how you assess interference in the Link Budget module.")
+        ex("Sensitivity analysis: vary one parameter at a time to identify which term most strongly drives the I/N result. If path loss dominates, argue for a more realistic propagation model. If EIRP dominates, argue for a PFD or EIRP limit in the regulatory text.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -2049,7 +2261,7 @@ you compare it to the **noise floor** using the I/N criterion:
     # ── LESSON 6 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 6"):
         st.header("📊 Lesson 6 — Noise, Sensitivity & the Noise Floor")
-        ex("The noise floor sets the fundamental limit of what a receiver can detect — interference must stay well below it to be acceptable.")
+        ex("The receiver noise floor N = kTB·NF is a physical lower bound set by thermodynamics. Interference raises the effective noise floor to N·(1 + I/N_linear), degrading SNR for the desired signal by the same amount — this is why I/N is the correct metric.")
 
         st.subheader("Thermal Noise — The Unavoidable Baseline")
         st.markdown("""
@@ -2079,7 +2291,7 @@ Where:
             st.metric("kT noise density", f"{kT_l6:.1f} dBm/Hz")
             st.metric("Noise floor (kTB)", f"{kT_l6 + 10*np.log10(bw_l6*1e6):.1f} dBm")
             st.metric("Noise floor (kTBNF)", f"{nf_total:.1f} dBm")
-        ex("Every extra MHz of bandwidth raises the noise floor by 10·log(extra_BW) dB — wider receivers are inherently less sensitive.")
+        ex("Noise floor = −174 + 10·log10(B) + NF. A GPS L1 receiver (2 MHz BW, 2 dB NF) has a noise floor of −174 + 63 + 2 = −109 dBm. A radio altimeter (200 MHz BW, 5 dB NF) has −174 + 83 + 5 = −86 dBm — the wider bandwidth raises the floor by 23 dB.")
 
         st.subheader("Noise Figure")
         st.markdown("""
@@ -2138,7 +2350,7 @@ Determined by the filter characteristics (bandwidth, roll-off, out-of-band rejec
     # ── LESSON 7 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 7"):
         st.header("⚡ Lesson 7 — Interference: I/N, C/I & Protection Criteria")
-        ex("I/N is the ITU-R standard currency for interference — master it and you can read, write, and challenge any interference analysis.")
+        ex("I/N = I(dBm) − N(dBm). The noise floor rise ΔN = 10·log10(1 + 10^(I/N/10)). For I/N = −6 dB: ΔN = 0.97 dB. For I/N = 0 dB: ΔN = 3 dB. The ITU-R thresholds (−6 dB, −10 dB) correspond to ΔN < 1 dB for safety-critical systems.")
 
         st.subheader("The Three Key Ratios")
         col1, col2, col3 = st.columns(3)
@@ -2190,7 +2402,7 @@ only ~−130 dBm — any noise floor increase materially degrades position accur
             st.metric("Effective Noise Floor Rise", f"+{noise_rise:.2f} dB")
 
         st.subheader("Protection Criteria by System")
-        ex("These are the numbers you cite in contributions — they come from RTCA standards and ITU-R Recommendations.")
+        ex("RTCA Minimum Operational Performance Standards (MOPS) define receiver sensitivity and selectivity under interference. The I/N thresholds are derived from MOPS by determining the interference level that degrades receiver output (accuracy, availability, integrity) beyond acceptable limits.")
         prot_data = pd.DataFrame([
             ["GPS/GNSS L1/L5", "−10 dB", "DO-235B / DO-253", "Satellite signal extremely weak (~−130 dBm)"],
             ["ADS-B / Mode-S", "−10 dB", "DO-260B", "False target / missed detection consequences"],
@@ -2223,7 +2435,7 @@ Is that a strong argument?
     # ── LESSON 8 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 8"):
         st.header("🌐 Lesson 8 — Propagation Models: P.452, P.528, P.676")
-        ex("The propagation model determines how much signal reaches the victim — the biggest single source of variation between optimistic and conservative interference studies.")
+        ex("Path loss model choice can swing computed I/N by 10–30 dB depending on terrain and scenario. This is the single parameter most worth challenging in a proponent's study — an unjustified urban clutter correction or inappropriate P.452 time percentage can flip the compatibility finding entirely.")
 
         st.subheader("Why FSPL Is Just the Starting Point")
         st.markdown("""
@@ -2305,7 +2517,7 @@ paths below 6 GHz in ITU-R submissions — reviewers will challenge it as neglig
         """)
 
         st.subheader("Model Selection Decision Tree")
-        ex("Choosing the wrong model is the most common technical error in interference studies — reviewers will catch it.")
+        ex("The ITU-R rapporteur and experienced delegations will immediately flag model misapplication — e.g., using P.452 for an airborne receiver, using 50% time percentage for a protection study, or applying urban clutter corrections in open terrain near airports. These are grounds to request reanalysis.")
         st.markdown("""
 ```
 Is the victim airborne?
@@ -2343,7 +2555,7 @@ Always run FSPL first:
     # ── LESSON 9 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 9"):
         st.header("🎲 Lesson 9 — Monte Carlo & Aggregate Interference")
-        ex("Single-scenario analysis tells you about one interferer — Monte Carlo tells you about a realistic population of interferers, which is what ITU-R protection is actually about.")
+        ex("Single-entry analysis captures the worst individual interferer but misses aggregate effects. For a deployment of N interferers, aggregate I/N ≈ single-entry I/N + 10·log10(N) at low N — 10 interferers add ~10 dB to the single-entry result, potentially flipping a compliant scenario into a violation.")
 
         st.subheader("Why Single-Scenario Analysis Isn't Enough")
         st.markdown("""
@@ -2378,7 +2590,7 @@ This is what the ITU-R actually protects against, and it's what Monte Carlo quan
         """)
 
         st.subheader("🔢 Mini Monte Carlo — Watch It Work")
-        ex("This live simulation shows you exactly what the Monte Carlo module does under the hood.")
+        ex("Each trial places N interferers uniformly in area (positions drawn from P(r) ∝ r, i.e., r = √(U)·R_max for uniform areal density), computes path loss per interferer, sums interference powers linearly in mW, then converts aggregate to dBm for the I/N comparison.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -2460,7 +2672,7 @@ When reviewing another administration's Monte Carlo contribution, examine these 
     # ── LESSON 10 ──────────────────────────────────────────────────────────────
     elif lesson.startswith("Lesson 10"):
         st.header("🏛️ Lesson 10 — From RF Math to ITU-R Policy")
-        ex("This final lesson shows you how to translate your technical findings into policy language that influences WRC outcomes.")
+        ex("The CPM Report method that gains traction at WRC is the one with the most administrations behind it, the most rigorous technical basis, and the clearest proposed regulatory text. Your job is to build all three simultaneously — analysis alone without proposed text is advisory, not decisive.")
 
         st.subheader("The Translation Problem")
         st.markdown("""
@@ -2472,7 +2684,7 @@ communicated as policy language will not change the outcome of a Working Party s
         """)
 
         st.subheader("Mapping RF Results to Policy Language")
-        ex("This table is your translation guide — use it when writing the policy sections of a US contribution.")
+        ex("The translation from dB margins to regulatory language is not mechanical — you must also characterize the consequence of interference (what flight operation fails, what safety margin is lost) to justify the regulatory weight of your proposed protection measure.")
         mapping = pd.DataFrame([
             ["I/N threshold violated", "Harmful interference cannot be excluded", "Grounds to oppose"],
             ["I/N margin < 3 dB", "Compatibility is marginal; further study required", "Request additional studies"],
@@ -2544,7 +2756,7 @@ When preparing for a Working Party meeting, your position paper should follow th
         """)
 
         st.subheader("Red Flags in Others' Contributions")
-        ex("These are the signs that a contribution is using overly optimistic assumptions to reach a compatibility conclusion — your job is to find them.")
+        ex("Proponents have strong incentives to reach a compatibility finding — check every assumption that reduces computed interference: time percentage, clutter correction, deployment exclusion zones, antenna downtilt, frequency separation, and receiver bandwidths used for power density normalization.")
         st.markdown("""
 | Red Flag | What It Means | Your Response |
 |---|---|---|
@@ -2582,6 +2794,658 @@ When preparing for a Working Party meeting, your position paper should follow th
         """)
 
         ok("You've completed the RF Training curriculum. You now have the fundamentals to run interference analyses, interpret results, and translate findings into ITU-R policy language.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 10 — MEETING NOTES
+# ─────────────────────────────────────────────────────────────────────────────
+elif selected_tab == "📓 Meeting Notes":
+    st.title("📓 ITU-R Working Party Meeting Notes")
+    ex("P1–P5 are the five formal plenary sessions that open, checkpoint, and close a WP meeting. Working Group sessions between plenaries produce the actual technical text — your most important notes are from WG sessions, not plenaries.")
+
+    # ── Initialize session state stores ──────────────────────────────────────
+    if "mn_meeting_info" not in st.session_state:
+        st.session_state.mn_meeting_info = {
+            "meeting_name": "", "location": "", "dates": "", "working_party": "WP 5D"
+        }
+    if "mn_sessions" not in st.session_state:
+        st.session_state.mn_sessions = {}       # key: session_id → session dict
+    if "mn_documents" not in st.session_state:
+        st.session_state.mn_documents = {}      # key: doc_id → doc dict
+    if "mn_ai_items" not in st.session_state:
+        st.session_state.mn_ai_items = {}       # key: ai_id → agenda item dict
+    if "mn_actions" not in st.session_state:
+        st.session_state.mn_actions = []        # list of action items
+
+    # ── Sub-page navigation ───────────────────────────────────────────────────
+    sub = st.radio("Section:", [
+        "🏁 Meeting Setup",
+        "📝 Session Notes",
+        "📄 Document Tracker",
+        "🗂️ Agenda Item Tracker",
+        "✅ Action Items",
+        "📊 Meeting Dashboard",
+        "📤 Export Full Record",
+    ], horizontal=True)
+
+    st.markdown("---")
+
+    # ── MEETING SETUP ─────────────────────────────────────────────────────────
+    if sub == "🏁 Meeting Setup":
+        st.subheader("🏁 Meeting Setup")
+        ex("The US delegation head is the spokesperson who must approve any US floor intervention — always check with them before speaking. The FAA lead is your technical authority for aeronautical positions. Know both before the meeting opens.")
+
+        info = st.session_state.mn_meeting_info
+        col1, col2 = st.columns(2)
+        with col1:
+            info["meeting_name"] = st.text_input("Meeting Name",
+                value=info.get("meeting_name", ""),
+                placeholder="e.g., ITU-R WP 5D Meeting #45")
+            info["working_party"] = st.selectbox("Working Party",
+                ["WP 5D", "WP 5B", "WP 5A", "SG 5", "Other"],
+                index=["WP 5D","WP 5B","WP 5A","SG 5","Other"].index(info.get("working_party","WP 5D")))
+            info["location"] = st.text_input("Location",
+                value=info.get("location", ""),
+                placeholder="e.g., ITU Headquarters, Geneva")
+        with col2:
+            info["dates"] = st.text_input("Dates",
+                value=info.get("dates", ""),
+                placeholder="e.g., 14–25 October 2025")
+            info["us_head"] = st.text_input("US Delegation Head",
+                value=info.get("us_head", ""),
+                placeholder="Name / Organization")
+            info["faa_lead"] = st.text_input("FAA Technical Lead",
+                value=info.get("faa_lead", ""),
+                placeholder="Your name")
+
+        st.markdown("**WRC-27 Agenda Items Under Watch**")
+        ex("WRC-27 agenda items are formally adopted at WRC-23. Each item is assigned to one or more Study Groups and Working Parties for technical study. The CPM Report summarizing results is due approximately 12 months before WRC-27.")
+        ai_text = st.text_area("One per line (number — description):",
+            value=info.get("ai_text", ""),
+            placeholder="1.2 — IMT identification above 6 GHz\n1.4 — RNSS additional allocations\n9.1(b) — Resolution 236 review",
+            height=120)
+        info["ai_text"] = ai_text
+
+        st.session_state.mn_meeting_info = info
+        ok("Meeting info saved to session.")
+
+    # ── SESSION NOTES ─────────────────────────────────────────────────────────
+    elif sub == "📝 Session Notes":
+        st.subheader("📝 Session Notes")
+        ex("WP meetings typically last 2 weeks with 50–100+ documents. Working Groups handle specific agenda items and produce draft Recommendations, Reports, and CPM text. Track which WG is handling each of your agenda items — that is where the real work happens.")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            session_label = st.selectbox("Session", [
+                "P1 — Opening Plenary",
+                "WG-1 (morning)", "WG-1 (afternoon)",
+                "WG-2 (morning)", "WG-2 (afternoon)",
+                "WG-3 (morning)", "WG-3 (afternoon)",
+                "WG-4 (morning)", "WG-4 (afternoon)",
+                "P2 — Mid-week Plenary",
+                "WG-5 (morning)", "WG-5 (afternoon)",
+                "WG-6 (morning)", "WG-6 (afternoon)",
+                "WG-7 (morning)", "WG-7 (afternoon)",
+                "P3 — Plenary",
+                "WG-8 (morning)", "WG-8 (afternoon)",
+                "P4 — Plenary",
+                "P5 — Closing Plenary",
+                "Coordination Meeting",
+                "Bilateral",
+            ])
+        with col2:
+            session_date = st.text_input("Date", placeholder="e.g., Mon 14 Oct")
+        with col3:
+            session_chair = st.text_input("Chair / Rapporteur", placeholder="Name")
+
+        ai_context = st.text_input("Agenda Item(s) covered", placeholder="e.g., AI 1.2, AI 9.1(b)")
+
+        st.markdown("**Session Notes**")
+        ex("Note the document number of any text that was agreed, modified, or deferred — you will need to reference these exactly in your trip report and in any follow-up contributions. Agreed text is marked [AGREED]; contentious text is bracketed [ ] pending resolution.")
+
+        note_text = st.text_area("Notes:", height=200,
+            placeholder="""• Doc 5D/123 (China) introduced — proposes IMT identification at 4800-4990 MHz
+• US (Smith) intervened citing FAA radio altimeter concerns — I/N analysis shows threshold exceeded
+• France/Germany supported further study before any identification
+• Rapporteur agreed to hold for additional contributions next meeting
+• Japan proposed compromise text with coordination zone — US noted this is insufficient without PFD limits
+• Decision: AIs 1.2 and 9.1(b) deferred to next meeting; new contributions due by [date]""")
+
+        faa_outcome = st.selectbox("FAA Outcome This Session", [
+            "✅ Favorable — FAA position advanced",
+            "⚠️ Mixed — partial progress, concerns remain",
+            "🔴 Unfavorable — opposing text gaining traction",
+            "⏳ Deferred — no decision, carried forward",
+            "ℹ️ Informational — no action required",
+        ])
+
+        key_decisions = st.text_area("Key Decisions / Agreed Text:", height=80,
+            placeholder="Record any agreed language, decisions, or text that was approved...")
+
+        follow_up = st.text_area("Follow-up Required:", height=80,
+            placeholder="What does the US/FAA need to do before the next session?")
+
+        if st.button("💾 Save Session Notes", type="primary"):
+            sid = f"{session_label}_{session_date}".replace(" ","_").replace("/","_")
+            st.session_state.mn_sessions[sid] = {
+                "session": session_label,
+                "date": session_date,
+                "chair": session_chair,
+                "ai_context": ai_context,
+                "notes": note_text,
+                "faa_outcome": faa_outcome,
+                "key_decisions": key_decisions,
+                "follow_up": follow_up,
+            }
+            ok(f"Session notes saved: {session_label} — {session_date}")
+
+        # Show existing sessions
+        if st.session_state.mn_sessions:
+            st.markdown("---")
+            st.subheader("Saved Sessions")
+            for sid, s in st.session_state.mn_sessions.items():
+                outcome_color = {
+                    "✅ Favorable — FAA position advanced": "🟢",
+                    "⚠️ Mixed — partial progress, concerns remain": "🟡",
+                    "🔴 Unfavorable — opposing text gaining traction": "🔴",
+                    "⏳ Deferred — no decision, carried forward": "🔵",
+                    "ℹ️ Informational — no action required": "⚪",
+                }.get(s["faa_outcome"], "⚪")
+                with st.expander(f"{outcome_color} {s['session']} — {s['date']} | {s.get('ai_context','')}"):
+                    st.markdown(f"**Chair:** {s.get('chair','—')}")
+                    st.markdown(f"**FAA Outcome:** {s['faa_outcome']}")
+                    st.markdown("**Notes:**")
+                    st.text(s["notes"])
+                    if s.get("key_decisions"):
+                        st.markdown(f"**Key Decisions:** {s['key_decisions']}")
+                    if s.get("follow_up"):
+                        st.markdown(f"**Follow-up:** {s['follow_up']}")
+                    if st.button(f"🗑️ Delete", key=f"del_sess_{sid}"):
+                        del st.session_state.mn_sessions[sid]
+                        st.rerun()
+
+    # ── DOCUMENT TRACKER ──────────────────────────────────────────────────────
+    elif sub == "📄 Document Tracker":
+        st.subheader("📄 Document Tracker")
+        ex("Documents are pre-posted to the ITU-R document system (TIES) before each meeting. Flag high-concern documents before the meeting starts so you arrive with prepared interventions — reacting in real time to a complex sharing study is not ideal.")
+
+        with st.expander("➕ Add New Document", expanded=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                doc_num = st.text_input("Document Number", placeholder="e.g., 5D/234-E")
+                doc_title = st.text_input("Title / Subject", placeholder="Brief description")
+                doc_admin = st.text_input("Submitting Admin(s)", placeholder="e.g., China, Korea")
+            with col2:
+                doc_ai = st.text_input("WRC Agenda Item", placeholder="e.g., AI 1.2")
+                doc_session = st.text_input("Introduced in Session", placeholder="e.g., WG-1 Mon AM")
+                doc_type = st.selectbox("Document Type", [
+                    "Sharing/compatibility study",
+                    "Draft new Recommendation",
+                    "Amendment to Recommendation",
+                    "Liaison statement",
+                    "Information document",
+                    "Working document / DT",
+                    "Chairman's report",
+                ])
+            with col3:
+                doc_concern = st.selectbox("FAA Concern Level", [
+                    "🔴 HIGH — Directly threatens FAA band",
+                    "🟡 MEDIUM — Adjacent band / indirect risk",
+                    "🟢 LOW — Monitor only",
+                    "✅ FAVORABLE — Supports FAA position",
+                    "⚪ NEUTRAL — No FAA impact",
+                ])
+                doc_us_action = st.selectbox("Required US Action", [
+                    "Oppose — prepare rebuttal contribution",
+                    "Comment — propose amendments",
+                    "Support — align with US position",
+                    "Monitor — no action this meeting",
+                    "Refer to FAA for technical input",
+                    "Coordinate with ICAO",
+                ])
+
+            doc_summary = st.text_area("Technical Summary / Notes:", height=100,
+                placeholder="What does this document propose? What are the FAA implications? Key technical claims?")
+            doc_faa_response = st.text_area("FAA Response / Intervention Taken:", height=80,
+                placeholder="What did the US say? What text was proposed?")
+
+            if st.button("💾 Save Document", type="primary", key="save_doc"):
+                if doc_num:
+                    did = doc_num.replace("/","_").replace("-","_").replace(" ","_")
+                    st.session_state.mn_documents[did] = {
+                        "doc_num": doc_num,
+                        "title": doc_title,
+                        "admin": doc_admin,
+                        "ai": doc_ai,
+                        "session": doc_session,
+                        "doc_type": doc_type,
+                        "concern": doc_concern,
+                        "us_action": doc_us_action,
+                        "summary": doc_summary,
+                        "faa_response": doc_faa_response,
+                    }
+                    ok(f"Document {doc_num} saved.")
+                else:
+                    warn("Please enter a document number.")
+
+        # Document table
+        if st.session_state.mn_documents:
+            st.subheader("Document Index")
+            ex("Focus first on documents proposing new or amended Radio Regulations text (footnotes, allocations, Resolutions) — these have direct treaty-level impact. Informational documents and liaison statements are lower priority unless they establish technical precedent.")
+
+            filter_concern = st.multiselect("Filter by concern level:",
+                ["🔴 HIGH — Directly threatens FAA band",
+                 "🟡 MEDIUM — Adjacent band / indirect risk",
+                 "🟢 LOW — Monitor only",
+                 "✅ FAVORABLE — Supports FAA position",
+                 "⚪ NEUTRAL — No FAA impact"],
+                default=["🔴 HIGH — Directly threatens FAA band",
+                         "🟡 MEDIUM — Adjacent band / indirect risk"])
+
+            rows = []
+            for did, d in st.session_state.mn_documents.items():
+                if not filter_concern or d["concern"] in filter_concern:
+                    rows.append({
+                        "Doc #": d["doc_num"],
+                        "Admin": d["admin"],
+                        "AI": d["ai"],
+                        "Session": d["session"],
+                        "Concern": d["concern"].split("—")[0].strip(),
+                        "US Action": d["us_action"].split("—")[0].strip(),
+                        "Title": d["title"],
+                    })
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+            # Detail view
+            st.subheader("Document Detail")
+            doc_select = st.selectbox("Select document for full details:",
+                [d["doc_num"] for d in st.session_state.mn_documents.values()])
+            if doc_select:
+                did_sel = doc_select.replace("/","_").replace("-","_").replace(" ","_")
+                if did_sel in st.session_state.mn_documents:
+                    d = st.session_state.mn_documents[did_sel]
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Submitting Admin:** {d['admin']}")
+                        st.markdown(f"**Agenda Item:** {d['ai']}")
+                        st.markdown(f"**Type:** {d['doc_type']}")
+                        st.markdown(f"**FAA Concern:** {d['concern']}")
+                    with col2:
+                        st.markdown(f"**Session:** {d['session']}")
+                        st.markdown(f"**US Action:** {d['us_action']}")
+                    st.markdown(f"**Summary:** {d['summary']}")
+                    if d.get("faa_response"):
+                        st.markdown(f"**FAA Response:** {d['faa_response']}")
+                    if st.button("🗑️ Delete this document", key=f"del_doc_{did_sel}"):
+                        del st.session_state.mn_documents[did_sel]
+                        st.rerun()
+
+    # ── AGENDA ITEM TRACKER ───────────────────────────────────────────────────
+    elif sub == "🗂️ Agenda Item Tracker":
+        st.subheader("🗂️ Agenda Item Tracker")
+        ex("The US position matrix is the internal coordination document that tracks where each agenda item stands relative to the US goal. Update it at the end of each day — it feeds directly into the delegation head's daily debrief and NTIA post-meeting report.")
+
+        with st.expander("➕ Add / Update Agenda Item", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                ai_num = st.text_input("Agenda Item Number", placeholder="e.g., 1.2")
+                ai_title = st.text_input("Title", placeholder="e.g., IMT identification above 6 GHz")
+                ai_faa_bands = st.text_input("FAA Bands at Risk",
+                    placeholder="e.g., Radio Altimeter 4200-4400 MHz, ARNS 5000-5150 MHz")
+                ai_us_position = st.selectbox("Current US Position", [
+                    "🔴 OPPOSE — unacceptable interference risk",
+                    "🟡 CONDITIONAL — support with protective measures",
+                    "🟢 SUPPORT — compatible with FAA systems",
+                    "🔵 STUDYING — analysis underway",
+                    "⚪ TBD — position not yet established",
+                ])
+            with col2:
+                ai_status = st.selectbox("Meeting Status", [
+                    "📥 Not yet discussed",
+                    "🔄 Under discussion — active drafting",
+                    "⚠️ Contentious — major disagreement",
+                    "🤝 Converging — near agreement",
+                    "✅ Agreed — text finalized this meeting",
+                    "⏳ Deferred — carried to next meeting",
+                ])
+                ai_rapporteur = st.text_input("Rapporteur", placeholder="Name / Admin")
+                ai_next_steps = st.text_area("Next Steps / FAA Required Actions:", height=80,
+                    placeholder="What does the US/FAA need to do before next meeting?")
+
+            ai_current_text = st.text_area("Current Draft Text (paste key proposed RR language):",
+                height=100,
+                placeholder="Paste the current state of any proposed RR footnote, Resolution, or Recommendation text...")
+            ai_faa_concerns = st.text_area("Technical FAA Concerns:", height=80,
+                placeholder="What specific interference mechanism or regulatory gap is the FAA concerned about?")
+            ai_allies = st.text_input("Aligned Administrations / Organizations",
+                placeholder="e.g., EU, Canada, Australia, ICAO")
+
+            if st.button("💾 Save Agenda Item", type="primary", key="save_ai"):
+                if ai_num:
+                    aid = ai_num.replace(".","_").replace(" ","_")
+                    st.session_state.mn_ai_items[aid] = {
+                        "num": ai_num, "title": ai_title,
+                        "faa_bands": ai_faa_bands,
+                        "us_position": ai_us_position,
+                        "status": ai_status,
+                        "rapporteur": ai_rapporteur,
+                        "next_steps": ai_next_steps,
+                        "current_text": ai_current_text,
+                        "faa_concerns": ai_faa_concerns,
+                        "allies": ai_allies,
+                    }
+                    ok(f"Agenda Item {ai_num} saved.")
+                else:
+                    warn("Please enter an agenda item number.")
+
+        # Position matrix
+        if st.session_state.mn_ai_items:
+            st.subheader("US Position Matrix")
+            ex("End-of-day updates are critical: overnight, other delegations coordinate bilaterally and positions shift. If you arrive the next morning without an updated picture, you may be caught off-guard by a compromise proposal that moved without you.")
+            rows = []
+            for aid, a in st.session_state.mn_ai_items.items():
+                rows.append({
+                    "AI #": a["num"],
+                    "Title": a["title"],
+                    "FAA Bands at Risk": a["faa_bands"],
+                    "US Position": a["us_position"].split("—")[0].strip(),
+                    "Status": a["status"].split("—")[0].strip(),
+                    "Allies": a["allies"],
+                    "Rapporteur": a["rapporteur"],
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+            # Detail expanders
+            for aid, a in st.session_state.mn_ai_items.items():
+                pos_icon = a["us_position"].split(" ")[0]
+                with st.expander(f"{pos_icon} AI {a['num']} — {a['title']}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**FAA Bands:** {a['faa_bands']}")
+                        st.markdown(f"**US Position:** {a['us_position']}")
+                        st.markdown(f"**Status:** {a['status']}")
+                        st.markdown(f"**Rapporteur:** {a['rapporteur']}")
+                        st.markdown(f"**Allied Admins:** {a['allies']}")
+                    with col2:
+                        if a.get("faa_concerns"):
+                            st.markdown(f"**FAA Concerns:** {a['faa_concerns']}")
+                        if a.get("next_steps"):
+                            st.markdown(f"**Next Steps:** {a['next_steps']}")
+                    if a.get("current_text"):
+                        st.markdown("**Current Draft Text:**")
+                        st.code(a["current_text"], language=None)
+                    if st.button("🗑️ Delete", key=f"del_ai_{aid}"):
+                        del st.session_state.mn_ai_items[aid]
+                        st.rerun()
+
+    # ── ACTION ITEMS ──────────────────────────────────────────────────────────
+    elif sub == "✅ Action Items":
+        st.subheader("✅ Action Items")
+        ex("Contribution deadlines are typically 4–6 weeks before each WP meeting. Missing a deadline means your analysis is submitted as 'late' — it may not be formally considered. Action items from the meeting floor (rapporteur requests) often have even shorter turnaround windows.")
+
+        with st.expander("➕ Add Action Item", expanded=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                act_desc = st.text_area("Action Description:", height=80,
+                    placeholder="e.g., Prepare interference analysis for AI 1.2 at 4800-4990 MHz using P.528, submit as US contribution")
+            with col2:
+                act_owner = st.text_input("Owner", placeholder="Name / Organization")
+                act_due = st.text_input("Due Date", placeholder="e.g., 3 days before next meeting")
+                act_ai = st.text_input("Related Agenda Item", placeholder="e.g., AI 1.2")
+            with col3:
+                act_priority = st.selectbox("Priority", [
+                    "🔴 URGENT — before next session",
+                    "🟡 HIGH — before end of meeting",
+                    "🟢 NORMAL — before next meeting",
+                    "🔵 LOW — informational follow-up",
+                ])
+                act_status = st.selectbox("Status", [
+                    "⬜ Not started",
+                    "🔄 In progress",
+                    "✅ Complete",
+                    "⛔ Blocked",
+                ])
+
+            if st.button("💾 Add Action Item", type="primary", key="save_act"):
+                if act_desc:
+                    st.session_state.mn_actions.append({
+                        "desc": act_desc,
+                        "owner": act_owner,
+                        "due": act_due,
+                        "ai": act_ai,
+                        "priority": act_priority,
+                        "status": act_status,
+                    })
+                    ok("Action item added.")
+
+        if st.session_state.mn_actions:
+            st.subheader("Open Action Items")
+            for i, act in enumerate(st.session_state.mn_actions):
+                pri_icon = act["priority"].split(" ")[0]
+                stat_icon = act["status"].split(" ")[0]
+                with st.expander(f"{pri_icon} {stat_icon} AI {act.get('ai','—')} — {act['desc'][:60]}..."):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Owner:** {act['owner']}")
+                        st.markdown(f"**Due:** {act['due']}")
+                        st.markdown(f"**Agenda Item:** {act['ai']}")
+                    with col2:
+                        st.markdown(f"**Priority:** {act['priority']}")
+                        new_status = st.selectbox("Update Status:",
+                            ["⬜ Not started","🔄 In progress","✅ Complete","⛔ Blocked"],
+                            index=["⬜ Not started","🔄 In progress","✅ Complete","⛔ Blocked"].index(act["status"]),
+                            key=f"act_stat_{i}")
+                        if new_status != act["status"]:
+                            st.session_state.mn_actions[i]["status"] = new_status
+                    st.markdown(f"**Description:** {act['desc']}")
+                    if st.button("🗑️ Remove", key=f"del_act_{i}"):
+                        st.session_state.mn_actions.pop(i)
+                        st.rerun()
+
+    # ── DASHBOARD ─────────────────────────────────────────────────────────────
+    elif sub == "📊 Meeting Dashboard":
+        st.subheader("📊 Meeting Dashboard")
+        info = st.session_state.mn_meeting_info
+        if info.get("meeting_name"):
+            st.markdown(f"### {info.get('meeting_name','Meeting')} — {info.get('working_party','')} | {info.get('location','')} | {info.get('dates','')}")
+        ex("The dashboard gives you a rapid red/yellow/green picture of FAA equities across the meeting. A shift from 'Converging' to 'Contentious' on a high-concern agenda item is an escalation trigger — notify NTIA and consider requesting a bilateral with the opposing administration.")
+
+        # Summary metrics
+        docs = st.session_state.mn_documents
+        ais = st.session_state.mn_ai_items
+        sessions = st.session_state.mn_sessions
+        actions = st.session_state.mn_actions
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Sessions Logged", len(sessions))
+        col2.metric("Documents Tracked", len(docs))
+        col3.metric("Agenda Items", len(ais))
+        col4.metric("Action Items", len(actions))
+        col5.metric("Open Actions",
+            sum(1 for a in actions if "Complete" not in a["status"]))
+
+        # Document concern breakdown
+        if docs:
+            st.markdown("---")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.subheader("Documents by Concern Level")
+                concern_counts = {}
+                for d in docs.values():
+                    c = d["concern"].split("—")[0].strip()
+                    concern_counts[c] = concern_counts.get(c, 0) + 1
+                fig_dash, ax_dash = plt.subplots(figsize=(5, 4))
+                fig_dash.patch.set_facecolor("#0e1117")
+                ax_dash.set_facecolor("#0e1117")
+                labels = list(concern_counts.keys())
+                sizes = list(concern_counts.values())
+                colors_pie = ['#ff4444','#ffaa00','#44bb44','#4488ff','#aaaaaa'][:len(labels)]
+                wedges, texts, autotexts = ax_dash.pie(sizes, labels=labels,
+                    autopct='%1.0f%%', colors=colors_pie, textprops={'color':'white','fontsize':8})
+                plt.tight_layout()
+                st.pyplot(fig_dash)
+
+            with col_b:
+                st.subheader("US Position Summary")
+                if ais:
+                    pos_counts = {}
+                    for a in ais.values():
+                        p = a["us_position"].split("—")[0].strip()
+                        pos_counts[p] = pos_counts.get(p, 0) + 1
+                    fig_pos, ax_pos = plt.subplots(figsize=(5, 4))
+                    fig_pos.patch.set_facecolor("#0e1117")
+                    ax_pos.set_facecolor("#0e1117")
+                    bars = ax_pos.barh(list(pos_counts.keys()),
+                        list(pos_counts.values()),
+                        color=['#ff4444','#ffaa00','#44bb44','#4488ff','#aaaaaa'][:len(pos_counts)])
+                    ax_pos.tick_params(colors='white', labelsize=8)
+                    ax_pos.set_xlabel("Count", color='white')
+                    for sp in ax_pos.spines.values(): sp.set_color('#444')
+                    plt.tight_layout()
+                    st.pyplot(fig_pos)
+                else:
+                    st.info("No agenda items logged yet.")
+
+        # Session outcomes timeline
+        if sessions:
+            st.markdown("---")
+            st.subheader("Session Outcomes")
+            for sid, s in sessions.items():
+                outcome = s["faa_outcome"]
+                icon = "🟢" if "Favorable" in outcome else "🔴" if "Unfavorable" in outcome else "🟡" if "Mixed" in outcome else "🔵"
+                st.markdown(f"{icon} **{s['session']}** ({s['date']}) — {s.get('ai_context','—')} — *{outcome.split('—')[-1].strip()}*")
+
+        # High-priority actions
+        if actions:
+            st.markdown("---")
+            st.subheader("🔴 Open High-Priority Actions")
+            urgent = [a for a in actions if "URGENT" in a["priority"] and "Complete" not in a["status"]]
+            if urgent:
+                for a in urgent:
+                    st.markdown(f"- **{a['owner']}** | AI {a.get('ai','—')} | Due: {a['due']} — {a['desc'][:80]}...")
+            else:
+                ok("No urgent open actions.")
+
+    # ── EXPORT ────────────────────────────────────────────────────────────────
+    elif sub == "📤 Export Full Record":
+        st.subheader("📤 Export Full Meeting Record")
+        ex("The trip report is a formal deliverable to NTIA and FAA within 5–10 business days of the meeting. It must document: all agreed text affecting FAA interests, US interventions made, outstanding action items, and recommended US positions for the next meeting cycle.")
+
+        info = st.session_state.mn_meeting_info
+        docs = st.session_state.mn_documents
+        ais = st.session_state.mn_ai_items
+        sessions = st.session_state.mn_sessions
+        actions = st.session_state.mn_actions
+
+        if st.button("📄 Generate Full Export", type="primary"):
+            lines = []
+            lines.append("=" * 70)
+            lines.append("ITU-R WORKING PARTY MEETING RECORD")
+            lines.append("FAA RF Interference Analysis Tool — Meeting Notes Export")
+            lines.append("=" * 70)
+            lines.append(f"Meeting:      {info.get('meeting_name','')}")
+            lines.append(f"Working Party:{info.get('working_party','')}")
+            lines.append(f"Location:     {info.get('location','')}")
+            lines.append(f"Dates:        {info.get('dates','')}")
+            lines.append(f"US Del. Head: {info.get('us_head','')}")
+            lines.append(f"FAA Lead:     {info.get('faa_lead','')}")
+            lines.append("")
+
+            # Position Matrix
+            lines.append("=" * 70)
+            lines.append("US POSITION MATRIX — AGENDA ITEMS")
+            lines.append("=" * 70)
+            if ais:
+                for a in ais.values():
+                    lines.append(f"\nAI {a['num']} — {a['title']}")
+                    lines.append(f"  FAA Bands at Risk: {a['faa_bands']}")
+                    lines.append(f"  US Position:       {a['us_position']}")
+                    lines.append(f"  Meeting Status:    {a['status']}")
+                    lines.append(f"  Rapporteur:        {a['rapporteur']}")
+                    lines.append(f"  Allied Admins:     {a['allies']}")
+                    if a.get("faa_concerns"):
+                        lines.append(f"  FAA Concerns:      {a['faa_concerns']}")
+                    if a.get("next_steps"):
+                        lines.append(f"  Next Steps:        {a['next_steps']}")
+                    if a.get("current_text"):
+                        lines.append(f"  Draft Text:\n    {a['current_text']}")
+            else:
+                lines.append("  No agenda items logged.")
+
+            # Document Index
+            lines.append("")
+            lines.append("=" * 70)
+            lines.append("DOCUMENT INDEX — FAA FLAGGED DOCUMENTS")
+            lines.append("=" * 70)
+            if docs:
+                high = [d for d in docs.values() if "HIGH" in d["concern"]]
+                med  = [d for d in docs.values() if "MEDIUM" in d["concern"]]
+                for group, label in [(high,"HIGH CONCERN"),(med,"MEDIUM CONCERN")]:
+                    if group:
+                        lines.append(f"\n--- {label} ---")
+                        for d in group:
+                            lines.append(f"\n  Doc {d['doc_num']} | {d['admin']} | AI {d['ai']} | {d['session']}")
+                            lines.append(f"  Title:   {d['title']}")
+                            lines.append(f"  Type:    {d['doc_type']}")
+                            lines.append(f"  Action:  {d['us_action']}")
+                            if d.get("summary"):
+                                lines.append(f"  Summary: {d['summary']}")
+                            if d.get("faa_response"):
+                                lines.append(f"  US Response: {d['faa_response']}")
+            else:
+                lines.append("  No documents logged.")
+
+            # Session Notes
+            lines.append("")
+            lines.append("=" * 70)
+            lines.append("SESSION NOTES")
+            lines.append("=" * 70)
+            if sessions:
+                for s in sessions.values():
+                    lines.append(f"\n{s['session']} — {s['date']}")
+                    lines.append(f"  Chair: {s.get('chair','—')} | AI(s): {s.get('ai_context','—')}")
+                    lines.append(f"  FAA Outcome: {s['faa_outcome']}")
+                    lines.append(f"  Notes:\n    {s['notes']}")
+                    if s.get("key_decisions"):
+                        lines.append(f"  Key Decisions: {s['key_decisions']}")
+                    if s.get("follow_up"):
+                        lines.append(f"  Follow-up: {s['follow_up']}")
+            else:
+                lines.append("  No sessions logged.")
+
+            # Action Items
+            lines.append("")
+            lines.append("=" * 70)
+            lines.append("ACTION ITEMS")
+            lines.append("=" * 70)
+            if actions:
+                open_acts = [a for a in actions if "Complete" not in a["status"]]
+                done_acts = [a for a in actions if "Complete" in a["status"]]
+                if open_acts:
+                    lines.append("\n--- OPEN ---")
+                    for a in open_acts:
+                        lines.append(f"\n  [{a['status']}] {a['priority']}")
+                        lines.append(f"  Owner: {a['owner']} | Due: {a['due']} | AI: {a.get('ai','—')}")
+                        lines.append(f"  {a['desc']}")
+                if done_acts:
+                    lines.append("\n--- COMPLETED ---")
+                    for a in done_acts:
+                        lines.append(f"  ✅ {a['owner']} | AI: {a.get('ai','—')} — {a['desc'][:60]}...")
+            else:
+                lines.append("  No action items logged.")
+
+            lines.append("")
+            lines.append("=" * 70)
+            lines.append("END OF MEETING RECORD")
+            lines.append("Generated by FAA RF Interference Analysis Tool")
+            lines.append("=" * 70)
+
+            export_str = "\n".join(lines)
+            st.text_area("Preview:", export_str, height=400)
+            fname = f"meeting_record_{info.get('working_party','WP').replace(' ','_')}.txt"
+            st.download_button("⬇️ Download Full Meeting Record (.txt)",
+                export_str, file_name=fname, mime="text/plain")
+            ok("Export ready. This document is suitable for your FAA/NTIA trip report.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOOTER
