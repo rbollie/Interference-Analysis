@@ -416,116 +416,70 @@ if selected_tab == "📡 Protected Bands":
     st.subheader("Spectrum Overview")
     ex("Frequency proximity matters: receiver front-end selectivity is finite — a new allocation 200 MHz away at C-band can still cause LNA desensitization via blocking, even with no spectral overlap.")
 
-    # ── Improved spectrum chart ──────────────────────────────────────────────
     band_colors = [
         "#4fc3f7","#81c784","#ffb74d","#e57373",
         "#ce93d8","#4db6ac","#fff176","#ff8a65",
         "#a5d6a7","#90caf9",
     ]
 
-    fig, axes = plt.subplots(2, 1, figsize=(15, 6),
-                             gridspec_kw={"height_ratios": [3, 1]})
+    fig, ax = plt.subplots(figsize=(16, 5))
     fig.patch.set_facecolor("#0e1117")
-
-    ax = axes[0]
     ax.set_facecolor("#0e1117")
-    ax_leg = axes[1]
-    ax_leg.set_facecolor("#0e1117")
-    ax_leg.axis("off")
 
     log_min, log_max = np.log10(100), np.log10(11000)
+    min_log_w = (log_max - log_min) * 0.022  # minimum visible width
 
     for i, (name, b) in enumerate(FAA_BANDS.items()):
         fl, fh = b["f_low_mhz"], b["f_high_mhz"]
         col = band_colors[i % len(band_colors)]
 
-        # Minimum visible width in log space = 2% of total log range
         log_fl = np.log10(fl)
         log_fh = np.log10(fh)
-        min_log_w = (log_max - log_min) * 0.022
         if (log_fh - log_fl) < min_log_w:
             log_mid = (log_fl + log_fh) / 2
             log_fl = log_mid - min_log_w / 2
             log_fh = log_mid + min_log_w / 2
 
-        # Draw bar in log space using fill_between
-        ax.fill_betweenx([0.1, 0.9], 10**log_fl, 10**log_fh,
-                         color=col, alpha=0.90, linewidth=0)
+        ax.fill_betweenx([0.05, 0.75], 10**log_fl, 10**log_fh,
+                         color=col, alpha=0.88, linewidth=0)
         ax.plot([10**log_fl, 10**log_fh, 10**log_fh, 10**log_fl, 10**log_fl],
-                [0.1, 0.1, 0.9, 0.9, 0.1],
-                color='white', linewidth=0.4, alpha=0.5)
+                [0.05, 0.05, 0.75, 0.75, 0.05],
+                color='white', linewidth=0.5, alpha=0.4)
 
-        # Band number label inside bar
+        # Label above bar — full name, rotated
         log_mid = (log_fl + log_fh) / 2
-        ax.text(10**log_mid, 0.5, str(i + 1),
-                ha='center', va='center',
-                fontsize=8, fontweight='bold',
-                color='#0e1117')
+        label = name.replace(" / ", "/").replace("Mode-S", "Mode‑S")
+        ax.text(10**log_mid, 0.82, label,
+                ha='center', va='bottom',
+                fontsize=8.5, color='white',
+                fontweight='semibold',
+                rotation=40, rotation_mode='anchor')
+
+        # Frequency range below bar
+        freq_label = f"{fl:.0f}–{fh:.0f}"
+        ax.text(10**log_mid, 0.0, freq_label,
+                ha='center', va='top',
+                fontsize=7, color='#aaaaaa', rotation=40,
+                rotation_mode='anchor')
 
     ax.set_xscale("log")
     ax.set_xlim(10**log_min, 10**log_max)
-    ax.set_ylim(0, 1)
+    ax.set_ylim(-0.35, 2.1)
     ax.set_yticks([])
     ax.set_xlabel("Frequency (MHz) — log scale", color='white', fontsize=10)
     ax.tick_params(axis='x', colors='white', labelsize=9)
     ax.spines['bottom'].set_color('#555')
     for sp in ['top', 'left', 'right']:
         ax.spines[sp].set_visible(False)
+    ax.set_title("FAA Protected Aeronautical Frequency Bands",
+                 color='white', fontsize=13, fontweight='bold', pad=6)
 
-    # Frequency tick marks at key aeronautical frequencies
-    key_freqs = [108, 329, 960, 1090, 1176, 1575, 2800, 4300, 5030, 9375]
-    for kf in key_freqs:
-        ax.axvline(kf, color='#333', linewidth=0.5, linestyle=':')
+    # Subtle vertical reference lines at key frequencies
+    for kf in [108, 329, 960, 1090, 1176, 1575, 2800, 4300, 5030, 9375]:
+        ax.axvline(kf, color='#2a2a2a', linewidth=0.8, linestyle='--', zorder=0)
 
-    ax.set_title("FAA Protected Aeronautical Frequency Bands", color='white',
-                 fontsize=12, fontweight='bold', pad=8)
-
-    # Legend panel — 2 rows of 5
-    legend_items = list(FAA_BANDS.items())
-    n_cols = 5
-    n_rows = int(np.ceil(len(legend_items) / n_cols))
-    col_w = 1.0 / n_cols
-    row_h = 1.0 / (n_rows + 0.5)
-
-    for i, (name, b) in enumerate(legend_items):
-        col_idx = i % n_cols
-        row_idx = i // n_cols
-        col = band_colors[i % len(band_colors)]
-
-        x = col_idx * col_w + 0.01
-        y = 1.0 - (row_idx + 1) * row_h + 0.05
-
-        # Color swatch
-        rect = plt.Rectangle((x, y), col_w * 0.06, row_h * 0.55,
-                              color=col, transform=ax_leg.transAxes,
-                              clip_on=False)
-        ax_leg.add_patch(rect)
-
-        # Number + name + frequency range
-        label = f"{i+1}. {name}  [{b['f_low_mhz']}–{b['f_high_mhz']} MHz]"
-        ax_leg.text(x + col_w * 0.10, y + row_h * 0.25, label,
-                    transform=ax_leg.transAxes,
-                    fontsize=7.5, color='white', va='center',
-                    fontfamily='monospace')
-
-    plt.tight_layout(h_pad=0.5)
+    plt.tight_layout()
     st.pyplot(fig)
-
-    # Compact band quick-reference table below chart
-    st.markdown("**Band Quick Reference**")
-    qref_cols = st.columns(5)
-    for i, (name, b) in enumerate(FAA_BANDS.items()):
-        col = qref_cols[i % 5]
-        col.markdown(
-            f"<div style='background:{band_colors[i % len(band_colors)]}22;"
-            f"border-left:3px solid {band_colors[i % len(band_colors)]};"
-            f"padding:4px 6px;border-radius:3px;margin-bottom:4px;"
-            f"font-size:0.78em;color:white'>"
-            f"<b>{i+1}. {name.split('/')[0].strip()}</b><br>"
-            f"{b['f_low_mhz']}–{b['f_high_mhz']} MHz<br>"
-            f"I/N: {b['in_threshold_db']} dB</div>",
-            unsafe_allow_html=True
-        )
 
     st.subheader("Band Details")
     ex("I/N threshold is defined such that the total noise floor rise stays below ~1 dB — at I/N = −6 dB the noise power increases by 10·log(1 + 10^(−0.6)) ≈ 0.97 dB; at −10 dB it is 0.41 dB.")
