@@ -523,15 +523,22 @@ if selected_tab == "📡 Protected Bands":
     b = FAA_BANDS[selected_band]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Lower Freq", f"{b['f_low_mhz']} MHz")
-    col2.metric("Upper Freq", f"{b['f_high_mhz']} MHz")
-    col3.metric("Bandwidth", f"{b['f_high_mhz'] - b['f_low_mhz']:.1f} MHz")
-    col4.metric("I/N Threshold", f"{b['in_threshold_db']} dB")
+    col1.metric("Lower Freq", f"{b['f_low_mhz']} MHz",
+        help="Bottom edge of the protected band in MHz — new allocations must not encroach below this frequency.")
+    col2.metric("Upper Freq", f"{b['f_high_mhz']} MHz",
+        help="Top edge of the protected band in MHz — out-of-band emissions from systems above this frequency can still cause receiver blocking.")
+    col3.metric("Bandwidth", f"{b['f_high_mhz'] - b['f_low_mhz']:.1f} MHz",
+        help="Total protected bandwidth. Wider bandwidth = higher noise floor = less sensitive to interference — but also more spectrum to defend.")
+    col4.metric("I/N Threshold", f"{b['in_threshold_db']} dB",
+        help="Maximum tolerable interference-to-noise ratio. At −6 dB the noise floor rises by ~1 dB; at −10 dB (GNSS) it rises by ~0.4 dB. Exceeding this threshold is grounds to cite harmful interference under RR No. 4.10.")
 
     col5, col6, col7 = st.columns(3)
-    col5.metric("Allocation", b["allocation"])
-    col6.metric("Noise Floor (est.)", f"{b['noise_floor_dbm']} dBm")
-    col7.metric("RTCA Standard", b["rtca_doc"])
+    col5.metric("Allocation", b["allocation"],
+        help="ITU Radio Regulations allocation type. ARNS = Aeronautical Radionavigation Service; RNSS = Radionavigation Satellite Service; ANS = Aeronautical Navigation Service. Primary allocations have stronger protection than secondary.")
+    col6.metric("Noise Floor (est.)", f"{b['noise_floor_dbm']} dBm",
+        help="Estimated receiver thermal noise floor (kTBF). Interference must stay below I/N threshold relative to this level. Verify exact value against the applicable RTCA DO standard before citing in a contribution.")
+    col7.metric("RTCA Standard", b["rtca_doc"],
+        help="RTCA Minimum Operational Performance Standard governing this receiver type. This document defines the protection criteria, receiver sensitivity, and selectivity requirements you cite in ITU-R contributions.")
 
     st.markdown(f"**System:** {b['system']}")
     st.markdown(f"**Notes:** {b['notes']}")
