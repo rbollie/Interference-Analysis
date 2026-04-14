@@ -388,6 +388,7 @@ tab_names = [
     "🎓 RF Training",
     "📓 Meeting Notes",
     "🔬 Code Analyzer",
+    "📖 Glossary",
 ]
 
 # Admin-only tab
@@ -4057,7 +4058,469 @@ fprintf('Result: %s\\n', IN_dB < -10 ? 'Compatible' : 'Incompatible');
 """, language="matlab")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 12 — ADMIN PANEL (admin only)
+# TAB 12 — GLOSSARY
+# ─────────────────────────────────────────────────────────────────────────────
+elif selected_tab == "📖 Glossary":
+    st.title("📖 Glossary — Terms, Acronyms & Definitions")
+    st.markdown("*Every acronym and technical term used in this tool and in ITU-R aeronautical spectrum work, in plain language.*")
+    ex("Use Ctrl+F (or Cmd+F on Mac) to search this page, or use the category filter below to jump to a section.")
+
+    # Search box
+    search = st.text_input("🔍 Search glossary:", placeholder="Type any term or acronym...").strip().lower()
+
+    # Category filter
+    categories = [
+        "All",
+        "🔤 Acronyms — Systems & Organizations",
+        "📡 RF & Signal Theory",
+        "🌐 ITU-R & Regulatory",
+        "✈️ Aeronautical Systems",
+        "📐 Measurements & Units",
+        "💻 Analysis Methods",
+    ]
+    cat_filter = st.selectbox("Filter by category:", categories)
+
+    st.markdown("---")
+
+    # ── Glossary data ─────────────────────────────────────────────────────────
+    GLOSSARY = [
+
+        # ── ACRONYMS — Systems & Organizations ───────────────────────────────
+        ("ADS-B", "Automatic Dependent Surveillance — Broadcast",
+         "A surveillance technology where aircraft determine their own position using GPS and periodically broadcast it. Air Traffic Control and other aircraft receive these broadcasts to track traffic. Operates at 1090 MHz. Mandated in US airspace since 2020.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("AGL", "Above Ground Level",
+         "Height measured from the ground directly below, not from sea level. Antenna heights in interference analyses are typically specified in meters Above Ground Level (AGL).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ARNS", "Aeronautical Radionavigation Service",
+         "An ITU Radio Regulations allocation category covering radio systems used for aircraft navigation. ARNS is a primary allocation in most aeronautical frequency bands and carries safety-of-life status under Radio Regulations No. 4.10.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ANS", "Aeronautical Navigation Service",
+         "An ITU Radio Regulations service category covering navigation aids for aviation, including both ground-based and satellite-based systems.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ATC", "Air Traffic Control",
+         "The ground-based service that directs aircraft in controlled airspace. ATC uses radar (SSR, PSR), voice radio (VHF), and data links (ADS-B, CPDLC) to manage aircraft separation and flow.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("CAT I / II / III", "Instrument Landing System Categories I, II, III",
+         "Categories of precision instrument approach defined by visibility and decision height. CAT I: visibility ≥ 550m. CAT II: visibility ≥ 300m. CAT III: visibility < 300m down to zero. Higher categories require more precise ILS signals and more stringent interference protection.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("CEPT", "European Conference of Postal and Telecommunications Administrations",
+         "The European regional body that coordinates spectrum policy and produces shared European positions for ITU-R meetings. CEPT produces SEAMCAT (Spectrum Engineering Advanced Monte Carlo Analysis Tool) used in interference studies.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("CPM", "Conference Preparatory Meeting",
+         "An ITU-R meeting held approximately 12 months before each World Radiocommunication Conference (WRC) that produces the CPM Report — a summary of all technical study results and proposed methods for each WRC agenda item.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("DME", "Distance Measuring Equipment",
+         "A radio navigation system that measures the slant-range distance between an aircraft and a ground transponder. Aircraft interrogate the ground station at 1025–1150 MHz; the station responds at 962–1213 MHz. Used alongside VOR for position fixing and with ILS for approach guidance.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("EASA", "European Union Aviation Safety Agency",
+         "The European counterpart to the FAA. EASA certifies aircraft and avionics in Europe and participates in ICAO and EUROCAE standards work.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("EGPWS", "Enhanced Ground Proximity Warning System",
+         "An avionics system that alerts pilots when an aircraft is in dangerous proximity to terrain. Uses GPS position and a terrain database. Relies on accurate radio altimeter readings for low-altitude warnings.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("EPFD", "Equivalent Power Flux Density",
+         "A measure of aggregate interference from non-geostationary satellite constellations at a point on the Earth's surface. EPFD limits are specified in ITU Radio Regulations Appendix 7 to protect terrestrial and geostationary services.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ESA", "European Space Agency",
+         "The intergovernmental organization responsible for Europe's space program, including the Galileo Global Navigation Satellite System (GNSS). ESA participates in ITU-R coordination meetings affecting GNSS spectrum.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("FAA", "Federal Aviation Administration",
+         "The United States government agency responsible for regulating civil aviation, managing US airspace, and certifying aircraft and avionics. The FAA is the primary stakeholder defending aeronautical spectrum in US ITU-R proceedings through NTIA.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("FMG", "Frequency Management Group",
+         "An ICAO working group that manages the frequency assignments for aeronautical services globally and prepares ICAO positions for ITU-R World Radiocommunication Conferences.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("FSMP", "Frequency Spectrum Management Panel",
+         "An ICAO body responsible for managing the frequency spectrum used by international civil aviation and coordinating with ITU-R on spectrum issues affecting aviation.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("Galileo", "Galileo Global Navigation Satellite System",
+         "The European Union's Global Navigation Satellite System (GNSS), operated by the European Space Agency (ESA) and European Union Agency for the Space Programme (EUSPA). Provides civil and safety-of-life positioning services on L1 (1575.42 MHz) and E5 (1164–1215 MHz) bands.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("GLONASS", "Global Navigation Satellite System (Russian)",
+         "Russia's Global Navigation Satellite System, operated by the Russian Aerospace Defence Forces. Provides positioning on L1 (1602 MHz region) and L2 (1246 MHz region). Protected under ITU-R M.1904.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("GMDSS", "Global Maritime Distress and Safety System",
+         "An internationally agreed-upon set of safety procedures, types of equipment, and communication protocols used to increase safety and make it easier to rescue distressed ships, boats, and aircraft. Governed by ITU-R Working Party 5B (WP 5B).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("GNSS", "Global Navigation Satellite System",
+         "The generic term for satellite-based positioning systems including GPS (United States), GLONASS (Russia), Galileo (European Union), and BeiDou (China). GNSS signals arrive at Earth at approximately −130 dBm — roughly 20 dB above the receiver noise floor — making them extremely vulnerable to interference.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("GPS", "Global Positioning System",
+         "The United States satellite-based navigation system operated by the US Space Force. Provides positioning, navigation, and timing (PNT) services on L1 (1575.42 MHz), L2 (1227.60 MHz), and L5 (1176.45 MHz). GPS L1 and L5 are used for aviation safety-of-life applications.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("GPWS", "Ground Proximity Warning System",
+         "An avionics system that warns pilots when an aircraft is in immediate danger of controlled flight into terrain (CFIT). The enhanced version is called EGPWS (Enhanced Ground Proximity Warning System) and uses GPS and terrain databases.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("IALA", "International Association of Marine Aids to Navigation and Lighthouse Authorities",
+         "The international organization that coordinates maritime navigation aids worldwide. IALA participates in ITU-R Working Party 5B (WP 5B) on maritime spectrum issues.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("IATA", "International Air Transport Association",
+         "The trade association representing airlines worldwide. IATA participates in ITU-R as a Sector Member to protect airline operational spectrum interests.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ICAO", "International Civil Aviation Organization",
+         "A United Nations specialized agency that codifies the principles and techniques of international air navigation and promotes the planning of international air transport. ICAO has Sector Member status at ITU-R and submits influential contributions defending aeronautical spectrum allocations.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ILS", "Instrument Landing System",
+         "A precision radio navigation system that provides aircraft with horizontal (Localizer, 108–117.975 MHz) and vertical (Glide Slope, 328.6–335.4 MHz) guidance for landing in low visibility. ILS enables Category I, II, and III approaches. It is a safety-of-life system protected under Radio Regulations No. 4.10.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("IMO", "International Maritime Organization",
+         "A United Nations agency responsible for regulating shipping. IMO coordinates with ITU-R Working Party 5B (WP 5B) on maritime radio spectrum, including GMDSS and VDES.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("IMT", "International Mobile Telecommunications",
+         "The ITU-R family of standards for mobile broadband, including 4G (Long Term Evolution / LTE) and 5G (New Radio / NR). IMT spectrum studies are conducted in ITU-R Working Party 5D (WP 5D). New IMT allocations near aeronautical bands are a primary FAA concern.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("JAXA", "Japan Aerospace Exploration Agency",
+         "Japan's national aerospace and space agency. JAXA operates the Multi-functional Satellite Augmentation System (MSAS), Japan's Satellite-Based Augmentation System (SBAS) for GPS. Participates in ITU-R coordination affecting GNSS spectrum.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("LNA", "Low Noise Amplifier",
+         "The first active component in a receiver chain, designed to amplify weak signals while adding minimal noise. The LNA sets the receiver's noise figure. A strong out-of-band interferer can drive the LNA into compression (saturation), causing it to generate intermodulation products and lose sensitivity — this is called receiver desensitization or blocking.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("MOPS", "Minimum Operational Performance Standards",
+         "RTCA documents that specify the minimum performance requirements for avionics systems, including receiver sensitivity, selectivity, and interference immunity. MOPS are the primary source for protection criteria cited in ITU-R contributions. Examples: DO-235B (GNSS), DO-260B (ADS-B), DO-155 (Radio Altimeter).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("MSAS", "Multi-functional Satellite Augmentation System",
+         "Japan's Satellite-Based Augmentation System (SBAS) for GPS, operated by JAXA. Transmits GPS correction signals on L1 (1575.42 MHz) from geostationary satellites to improve positioning accuracy for aviation.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("NASA", "National Aeronautics and Space Administration",
+         "The United States government agency responsible for civilian space program and aeronautics research. NASA operates GNSS reference stations and participates in ITU-R coordination affecting GNSS spectrum.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("NTIA", "National Telecommunications and Information Administration",
+         "The US government agency, part of the Department of Commerce, responsible for managing the federal government's use of radio spectrum. NTIA coordinates all US government positions for ITU-R meetings and submits official US contributions. FAA spectrum concerns are channeled through NTIA.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("OOBE", "Out-of-Band Emissions",
+         "Radio frequency energy emitted by a transmitter outside its assigned channel or band. OOBE can cause in-band interference to a victim receiver even when the interferer is nominally operating in a different frequency band. OOBE limits are specified in ITU-R Radio Regulations and system-specific Recommendations.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("PSR", "Primary Surveillance Radar",
+         "A radar system that detects aircraft by reflecting radio waves off the aircraft skin — no cooperation from the aircraft is required. PSR provides range and bearing but no altitude. Used by Air Traffic Control alongside Secondary Surveillance Radar (SSR).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("RNSS", "Radionavigation Satellite Service",
+         "An ITU Radio Regulations allocation category covering satellite-based navigation systems (GPS, GLONASS, Galileo, BeiDou). RNSS allocations in the L-band are protected under Resolution 233 and the GNSS protection methodology in ITU-R M.1318.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("RTCA", "Radio Technical Commission for Aeronautics",
+         "A US standards organization that develops aviation standards, including Minimum Operational Performance Standards (MOPS) for avionics. RTCA documents (called DO-xxx) define the receiver sensitivity, selectivity, and interference immunity requirements cited in ITU-R contributions to defend aeronautical frequencies.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("SBAS", "Satellite-Based Augmentation System",
+         "A system that improves GPS accuracy and integrity for aviation by broadcasting correction signals from geostationary satellites. Examples include WAAS (Wide Area Augmentation System, United States), EGNOS (Europe), MSAS (Japan), and GAGAN (India). SBAS signals occupy the GPS L1 band (1575.42 MHz).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("SSR", "Secondary Surveillance Radar",
+         "An Air Traffic Control radar system that interrogates aircraft transponders (Mode A, C, S) to obtain identification and altitude. SSR operates at 1030 MHz (interrogation) and 1090 MHz (reply). ADS-B (Automatic Dependent Surveillance — Broadcast) uses the 1090 MHz SSR reply frequency.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("TACAN", "Tactical Air Navigation",
+         "A military radio navigation system providing both bearing and distance information, operating in the 960–1215 MHz band. Civilian DME (Distance Measuring Equipment) and TACAN are co-located at VORTAC stations, providing both VOR bearing and distance to civilian and military aircraft.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("TAWS", "Terrain Awareness and Warning System",
+         "An avionics system that provides pilots with alerts about terrain, obstacles, and excessive descent rates. TAWS uses GPS position, a terrain database, and radio altimeter data to generate alerts. Radio altimeter accuracy is critical to TAWS performance at low altitude.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("TCAS", "Traffic Collision Avoidance System",
+         "An airborne system that monitors the airspace around an aircraft for other transponder-equipped aircraft and provides Resolution Advisories (RA) to avoid collisions. TCAS operates at 1030 MHz (interrogation) and 1090 MHz (reply), sharing the SSR/ADS-B frequencies.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("USTR", "United States Trade Representative",
+         "The US government office that coordinates international trade and telecommunications negotiations. The USTR, together with the State Department and NTIA, represents the US at World Radiocommunication Conferences (WRC).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("VDES", "VHF Data Exchange System",
+         "A maritime communication system operating in the Very High Frequency (VHF) maritime band (156–174 MHz), intended to succeed the Automatic Identification System (AIS). VDES adds data exchange capabilities for e-navigation. Governed by ITU-R Working Party 5B (WP 5B).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("VHF", "Very High Frequency",
+         "The radio frequency range from 30 to 300 MHz, with wavelengths of 1 to 10 meters. Aeronautical VHF communications (118–136 MHz) and VOR/ILS navigation (108–117.975 MHz) operate in this band. VHF propagation is primarily line-of-sight.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("VOR", "VHF Omnidirectional Range",
+         "A Very High Frequency (VHF) radio navigation beacon operating at 108–117.975 MHz that transmits bearing information in all directions simultaneously. Aircraft use VOR to determine their magnetic bearing (called a radial) from the station. VOR stations form the backbone of the US and international airway system. Co-located with DME at VORTAC stations.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("VORTAC", "VOR and TACAN Co-located Station",
+         "A navigation facility combining a VHF Omnidirectional Range (VOR) beacon with a Tactical Air Navigation (TACAN) transponder. Provides civilian aircraft with VOR bearing and DME distance, and military aircraft with TACAN bearing and distance.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WAAS", "Wide Area Augmentation System",
+         "The United States Satellite-Based Augmentation System (SBAS), operated by the FAA. WAAS broadcasts GPS correction and integrity signals from geostationary satellites on L1 (1575.42 MHz), enabling GPS approaches to as low as 200 feet Decision Height (Category I equivalent). WAAS reference stations are a specific FAA concern in L-band spectrum discussions.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WP 5D", "Working Party 5D — IMT Systems",
+         "The ITU-R Working Party responsible for International Mobile Telecommunications (IMT), including 4G (LTE), 5G (NR), and IMT-2030 (6G). WP 5D conducts sharing studies for new IMT spectrum that may threaten aeronautical bands including the Radio Altimeter band (4200–4400 MHz), ARNS at 5 GHz, and GNSS L-band.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WP 5B", "Working Party 5B — Maritime Mobile and Radiodetermination",
+         "The ITU-R Working Party responsible for maritime mobile communications (GMDSS, VDES, AIS) and radiodetermination (radar) services. WP 5B proposals near aeronautical VHF and radar bands require FAA monitoring.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WP 7C", "Working Party 7C — Radiolocation",
+         "The ITU-R Working Party responsible for radiolocation services including ground-based radar systems. WP 7C proposals can affect the Radio Altimeter band (4200–4400 MHz), Airborne Weather Radar band (9000–9500 MHz), and ATC radar bands (2700–2900 MHz).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WP 7D", "Working Party 7D — Radio Astronomy",
+         "The ITU-R Working Party responsible for radio astronomy and passive sensing services. WP 7D protection zones and emission limit proposals adjacent to aeronautical bands can indirectly constrain FAA system parameters.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WRC", "World Radiocommunication Conference",
+         "An international treaty conference held every 3–4 years under the International Telecommunication Union (ITU) that reviews and revises the Radio Regulations — the international treaty governing use of the radio frequency spectrum. WRC decisions are legally binding on all 193 ITU member states. WRC-27 is the next conference, scheduled for 2027.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        # ── RF & Signal Theory ────────────────────────────────────────────────
+        ("Blocking / Desensitization", "Receiver Front-End Overload",
+         "A condition where a strong out-of-band signal drives the receiver's Low Noise Amplifier (LNA) into compression (saturation), raising the effective noise floor and reducing sensitivity to the desired signal. The interferer does not need to be in-band to cause this — it only needs to be strong enough at the antenna input. This was the core mechanism in the 5G / Radio Altimeter interference problem of 2019–2022.",
+         "📡 RF & Signal Theory"),
+
+        ("C/I", "Carrier-to-Interference Ratio",
+         "The ratio of the desired signal power to the interference power, expressed in decibels (dB). C/I = C(dBm) − I(dBm). Used in communications system design to assess whether the desired signal can be detected in the presence of interference. A higher C/I indicates less interference impact.",
+         "📡 RF & Signal Theory"),
+
+        ("C/N", "Carrier-to-Noise Ratio",
+         "The ratio of the desired signal power to the thermal noise floor power, expressed in decibels (dB). C/N = C(dBm) − N(dBm). Determines whether a receiver can successfully decode a signal. GPS L1 operates at C/N of approximately 40–45 dB-Hz under normal conditions.",
+         "📡 RF & Signal Theory"),
+
+        ("dB", "Decibel",
+         "A logarithmic unit expressing the ratio of two power levels: dB = 10 × log10(P2/P1). Because RF signal levels span many orders of magnitude (from kilowatts to femtowatts), the decibel scale makes calculations manageable. In decibels, multiplication of powers becomes addition, and division becomes subtraction.",
+         "📡 RF & Signal Theory"),
+
+        ("dBm", "Decibels Relative to One Milliwatt",
+         "An absolute power level expressed in decibels referenced to 1 milliwatt. Formula: P(dBm) = 10 × log10(P(mW)). Common reference points: 0 dBm = 1 mW; 30 dBm = 1 W; 43 dBm = 20 W; −130 dBm = GPS signal at Earth's surface.",
+         "📡 RF & Signal Theory"),
+
+        ("dBi", "Decibels Relative to an Isotropic Antenna",
+         "A unit of antenna gain relative to a theoretical isotropic antenna that radiates equally in all directions. 0 dBi = isotropic; 2 dBi = simple dipole; 15 dBi = typical cellular sector antenna; 30+ dBi = high-gain dish or phased array.",
+         "📡 RF & Signal Theory"),
+
+        ("dBW", "Decibels Relative to One Watt",
+         "An absolute power level in decibels referenced to 1 watt. Relationship: 0 dBW = 30 dBm; 27 dBW = 57 dBm = 500 W (typical GPS satellite transmit power).",
+         "📡 RF & Signal Theory"),
+
+        ("EIRP", "Effective Isotropic Radiated Power",
+         "The product of transmitter output power and antenna gain in a given direction, less cable losses. EIRP = Pt(dBm) + Gt(dBi) − Lcable(dB). EIRP represents the power that would need to be fed to an isotropic antenna to produce the same signal strength in the direction of interest. It is the standard metric for interference analysis and is used in ITU Radio Regulations power flux density limits.",
+         "📡 RF & Signal Theory"),
+
+        ("FSPL", "Free Space Path Loss",
+         "The signal power loss between a transmitting and receiving antenna in free space (vacuum, no obstructions). Formula: FSPL(dB) = 20·log10(d_km) + 20·log10(f_MHz) + 32.44. FSPL is the most optimistic (least loss) propagation model and represents the worst-case interference scenario — if compatibility holds under FSPL, any realistic deployment will also be compatible.",
+         "📡 RF & Signal Theory"),
+
+        ("I/N", "Interference-to-Noise Ratio",
+         "The ratio of interference power to thermal noise floor power at a receiver input, expressed in decibels (dB). I/N = I(dBm) − N(dBm). The ITU-R standard compatibility metric. At I/N = −6 dB, the noise floor rises by 0.97 dB. At I/N = −10 dB (GNSS standard), the rise is 0.41 dB. Exceeding the I/N threshold is the technical basis for citing harmful interference under Radio Regulations No. 4.10.",
+         "📡 RF & Signal Theory"),
+
+        ("Noise Figure (NF)", "Receiver Noise Figure",
+         "A measure of how much noise a receiver adds to the signal beyond the fundamental thermal noise limit, expressed in decibels (dB). A 0 dB noise figure is theoretically perfect. Real avionics receivers typically have noise figures of 2–8 dB. Every 1 dB increase in noise figure raises the noise floor by 1 dB and reduces sensitivity by 1 dB.",
+         "📡 RF & Signal Theory"),
+
+        ("Noise Floor", "Receiver Thermal Noise Floor",
+         "The minimum signal power a receiver can detect, set by thermal noise. Formula: N(dBm) = −174 + 10·log10(B_Hz) + NF(dB), where −174 dBm/Hz is thermal noise at 290 Kelvin, B is bandwidth in Hertz, and NF is the receiver noise figure in dB. Interference must remain below the I/N threshold relative to this level.",
+         "📡 RF & Signal Theory"),
+
+        ("PFD", "Power Flux Density",
+         "The radio frequency power arriving per unit area at a given location, expressed in dB(W/m²) or dB(W/m²/MHz). PFD limits are specified in the ITU Radio Regulations to protect Earth-based receivers from satellite transmissions. RR Appendix 7 specifies PFD limits for non-geostationary satellite systems.",
+         "📡 RF & Signal Theory"),
+
+        ("PRF", "Pulse Repetition Frequency",
+         "The number of radar pulses transmitted per second, expressed in Hertz (Hz) or pulses per second (pps). Used in pulsed radar systems such as ATC radar and airborne weather radar. The average power of a pulsed transmitter = Peak Power × Pulse Width × PRF (the duty cycle).",
+         "📡 RF & Signal Theory"),
+
+        ("SNR", "Signal-to-Noise Ratio",
+         "The ratio of the desired signal power to the noise floor power, expressed in decibels (dB). SNR = S(dBm) − N(dBm). Interference raises the effective noise floor, thereby reducing SNR and degrading receiver performance. GPS requires SNR above approximately 25 dB for reliable tracking.",
+         "📡 RF & Signal Theory"),
+
+        # ── ITU-R & Regulatory ────────────────────────────────────────────────
+        ("AI", "Agenda Item (WRC)",
+         "A specific topic adopted by a World Radiocommunication Conference (WRC) for study and potential regulatory action at the following WRC. Agenda items are numbered (e.g., AI 1.2) and assigned to ITU-R Study Groups and Working Parties for technical study over the 3–4 year inter-conference period.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("CPM Report", "Conference Preparatory Meeting Report",
+         "The document produced by the ITU-R Conference Preparatory Meeting (CPM) summarizing all technical studies and presenting one or more 'methods' for each WRC Agenda Item. The CPM Report is the primary input to the WRC negotiation process.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("ITU", "International Telecommunication Union",
+         "A United Nations specialized agency for information and communication technologies, headquartered in Geneva, Switzerland. The ITU-R (Radiocommunication Sector) manages the global radio frequency spectrum and satellite orbits through international treaty — the Radio Regulations.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("ITU-R", "International Telecommunication Union — Radiocommunication Sector",
+         "The ITU sector responsible for managing the radio frequency spectrum and satellite orbits. ITU-R produces international standards (Recommendations, Reports) and maintains the Radio Regulations through the World Radiocommunication Conference (WRC) process.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1318", "ITU-R Recommendation M.1318",
+         "ITU-R Recommendation M.1318 — 'Model for the evaluation of continuous interference levels to radionavigation-satellite service receivers.' Defines the c = a − b calculation framework for assessing aggregate non-RNSS interference to GNSS receivers in the 1164–1215, 1215–1300, 1559–1610, and 5010–5030 MHz bands.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1477", "ITU-R Recommendation M.1477",
+         "ITU-R Recommendation M.1477 — Annex 5 establishes the aeronautical safety margin for GNSS: at least 6 dB protection margin for safety-of-life applications, plus an additional 10 dB margin when the interfering signal bandwidth is 700 Hz or less (the narrowband rule).",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1642", "ITU-R Recommendation M.1642",
+         "ITU-R Recommendation M.1642 — 'Methodology for assessing the interference from IMT-2000 to aeronautical radionavigation systems.' The standard methodology for compatibility studies between IMT systems and ARNS, including radio altimeters and other aeronautical navigation aids.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1904", "ITU-R Recommendation M.1904",
+         "ITU-R Recommendation M.1904 — Establishes protection criteria for GLONASS spaceborne receivers. Annex 1 Table 1 Note 3 specifies a safety margin of 6 dB. Part of the citation stack defending the 6 dB aeronautical safety margin doctrine alongside M.1477 and M.1905.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1905", "ITU-R Recommendation M.1905",
+         "ITU-R Recommendation M.1905 — Recommends that a safety margin be applied for protection of the safety aspects and applications of RNSS when performing interference analyses. Note 1 specifies an aeronautical safety margin of 6 dB. Applies to ALL RNSS systems, making it the broadest authority for the 6 dB doctrine.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("P.452", "ITU-R Recommendation P.452",
+         "ITU-R Recommendation P.452 — 'Prediction procedure for the evaluation of interference between stations on the surface of the Earth at frequencies above about 0.1 GHz.' The standard terrestrial propagation model for point-to-area interference prediction. Used for ground-to-ground interference scenarios.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("P.528", "ITU-R Recommendation P.528",
+         "ITU-R Recommendation P.528 — 'Propagation curves for aeronautical mobile and radionavigation services using the VHF, UHF and SHF bands.' The standard propagation model for aeronautical scenarios. Required when the victim receiver is airborne. Accounts for slant-path geometry, atmospheric refraction, and radio horizon effects.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("P.676", "ITU-R Recommendation P.676",
+         "ITU-R Recommendation P.676 — 'Attenuation by atmospheric gases and related effects.' Specifies gaseous attenuation from oxygen and water vapor. Implemented in this tool via the itur Python library. Relevant above approximately 3 GHz; negligible for L-band and VHF/UHF paths.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Radio Regulations (RR)", "ITU Radio Regulations",
+         "The international treaty governing use of the radio frequency spectrum and satellite orbits, binding on all 193 ITU member states. Key articles for aeronautical spectrum defense: RR No. 4.10 (no harmful interference to safety-of-life services), RR No. 5.444 (ARNS protection at 960–1215 MHz), RR No. 5.328 (ARNS at 108–137 MHz).",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 4.10", "Radio Regulations Article No. 4.10",
+         "The Radio Regulations provision stating that all stations must be established and operated so as not to cause harmful interference to safety-of-life services. This is the strongest regulatory instrument for protecting aeronautical frequencies — it applies regardless of allocation status and cannot be waived.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Resolution 233", "WRC Resolution 233",
+         "A World Radiocommunication Conference Resolution requiring that new spectrum allocations and uses not degrade the performance of Radionavigation Satellite Service (RNSS) systems including GPS, GLONASS, and Galileo.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("SM.2028", "ITU-R Recommendation SM.2028",
+         "ITU-R Recommendation SM.2028 — 'Monte Carlo simulation methodology for use in sharing and compatibility studies between different radio services or systems.' The authoritative methodology for aggregate interference Monte Carlo analysis. Specifies that time percentage should be 1% for protection studies and that violation probability must be less than 5%.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("SG 5", "Study Group 5 — Terrestrial Services",
+         "An ITU-R Study Group responsible for terrestrial services including mobile, fixed, amateur, and broadcasting. Working Parties 5A, 5B, and 5D operate under SG 5. SG 5 plenary sessions approve and coordinate the work of these Working Parties.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("TIES", "ITU Electronic Document System",
+         "The ITU-R electronic document management system where all Working Party contributions, chairman's reports, and meeting documents are posted. Access to TIES requires ITU membership or delegation credentials.",
+         "🌐 ITU-R & Regulatory"),
+
+        # ── Aeronautical Systems ──────────────────────────────────────────────
+        ("AIS", "Automatic Identification System",
+         "A maritime tracking system that broadcasts vessel identity, position, speed, and heading on VHF frequencies (161.975 MHz and 162.025 MHz). AIS is being succeeded by VDES (VHF Data Exchange System) for expanded maritime data communications. Governed by ITU-R Working Party 5B (WP 5B).",
+         "✈️ Aeronautical Systems"),
+
+        ("ARSR", "Air Route Surveillance Radar",
+         "Long-range Air Traffic Control radar used to track aircraft along airways. Operates in the 2700–2900 MHz band. The FAA operates the ARSR-4 system. Also refers to the L-band Air Route Surveillance Radar variant of WAAS reference station receivers.",
+         "✈️ Aeronautical Systems"),
+
+        ("ASR", "Airport Surveillance Radar",
+         "Short-range Air Traffic Control radar used to track aircraft in the terminal area around an airport. Typically operates in the 2700–2900 MHz (S-band) or 9000–9500 MHz (X-band) range.",
+         "✈️ Aeronautical Systems"),
+
+        ("Radio Altimeter", "Radio Altimeter (Rad Alt)",
+         "An aircraft instrument that measures the exact height above ground by transmitting radio pulses downward and measuring the time for the echo to return. Operates in 4200–4400 MHz. Critical for Category III instrument landings (near-zero visibility), Terrain Awareness and Warning System (TAWS), Enhanced Ground Proximity Warning System (EGPWS), and helicopter operations. A safety-of-life system protected under Radio Regulations No. 4.10.",
+         "✈️ Aeronautical Systems"),
+
+        # ── Measurements & Units ─────────────────────────────────────────────
+        ("GHz", "Gigahertz",
+         "A unit of frequency equal to one billion (10⁹) cycles per second, or 1000 Megahertz (MHz). Used for microwave and millimeter-wave frequencies. Example: Radio Altimeter at 4.2–4.4 GHz; 5G NR at 3.5 GHz or 26 GHz.",
+         "📐 Measurements & Units"),
+
+        ("Hz", "Hertz",
+         "The base unit of frequency, equal to one cycle per second. Radio frequencies are typically expressed in kilohertz (kHz = 10³ Hz), Megahertz (MHz = 10⁶ Hz), or Gigahertz (GHz = 10⁹ Hz).",
+         "📐 Measurements & Units"),
+
+        ("kHz", "Kilohertz",
+         "A unit of frequency equal to one thousand (10³) cycles per second. Used for low-frequency and medium-frequency radio systems. The 700 Hz narrowband threshold in ITU-R M.1477 Annex 5 is specified in Hertz — approximately 0.0007 MHz.",
+         "📐 Measurements & Units"),
+
+        ("kT", "Boltzmann's Constant × Temperature",
+         "The product of Boltzmann's constant (k = 1.38 × 10⁻²³ Joules per Kelvin) and temperature in Kelvin (T). At 290 Kelvin (room temperature), kT = −174 dBm/Hz — the fundamental thermal noise spectral density. This is the starting point for all receiver noise floor calculations.",
+         "📐 Measurements & Units"),
+
+        ("MHz", "Megahertz",
+         "A unit of frequency equal to one million (10⁶) cycles per second. The standard unit for specifying radio frequencies in the VHF, UHF, and microwave ranges. All FAA protected bands are specified in MHz in this tool.",
+         "📐 Measurements & Units"),
+
+        ("W", "Watt",
+         "The SI unit of power. In radio engineering, transmitter power is often expressed in Watts or converted to decibels relative to one milliwatt (dBm): P(dBm) = 10 × log10(P(mW)). Common reference: 1 W = 30 dBm; 20 W = 43 dBm (typical LTE base station).",
+         "📐 Measurements & Units"),
+
+        # ── Analysis Methods ─────────────────────────────────────────────────
+        ("CCDF", "Complementary Cumulative Distribution Function",
+         "A statistical function showing the probability that a variable exceeds a given value. In Monte Carlo interference analysis, the CCDF of I/N is plotted to show the probability that aggregate interference exceeds the protection threshold. Reading the CCDF at the I/N threshold directly gives the violation probability — which must be less than 5% per ITU-R SM.2028.",
+         "💻 Analysis Methods"),
+
+        ("Monte Carlo", "Monte Carlo Simulation",
+         "A statistical simulation method that uses random sampling to model uncertain or variable inputs. In ITU-R interference analysis (SM.2028), Monte Carlo simulates thousands of random interferer deployments, computing aggregate I/N for each trial, to produce a statistical distribution of interference outcomes and a violation probability.",
+         "💻 Analysis Methods"),
+
+        ("SEAMCAT", "Spectrum Engineering Advanced Monte Carlo Analysis Tool",
+         "Free software developed by CEPT (European Conference of Postal and Telecommunications Administrations) for Monte Carlo aggregate interference analysis. Widely used in ITU-R Working Party contributions. Implements the methodology of ITU-R SM.2028.",
+         "💻 Analysis Methods"),
+    ]
+
+    # ── Filter ────────────────────────────────────────────────────────────────
+    filtered = []
+    for term, full, definition, cat in GLOSSARY:
+        if cat_filter != "All" and cat != cat_filter:
+            continue
+        if search and search not in term.lower() and search not in full.lower() and search not in definition.lower():
+            continue
+        filtered.append((term, full, definition, cat))
+
+    st.markdown(f"**Showing {len(filtered)} of {len(GLOSSARY)} entries**")
+    st.markdown("---")
+
+    if not filtered:
+        st.info("No entries match your search. Try a broader term.")
+    else:
+        # Group by category
+        current_cat = None
+        for term, full, definition, cat in filtered:
+            if cat != current_cat:
+                current_cat = cat
+                st.subheader(cat)
+            with st.expander(f"**{term}** — {full}"):
+                st.markdown(definition)
+
+    st.markdown("---")
+    st.caption(f"FAA RF Interference Analysis Tool Glossary — {len(GLOSSARY)} terms across 6 categories.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 13 — ADMIN PANEL (admin only)
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "⚙️ Admin Panel":
     if is_admin():
