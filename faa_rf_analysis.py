@@ -317,8 +317,103 @@ FAA_BANDS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE CALCULATION FUNCTIONS
+# WRC-27 AGENDA ITEMS DATABASE — FAA-RELEVANT ITEMS
 # ─────────────────────────────────────────────────────────────────────────────
+WRC27_AGENDA_ITEMS = {
+    "AI 1.7": {
+        "ref": "AI 1.7 (US/ITU 5D)",
+        "title": "IMT identification in 4.4–4.8 GHz, 7.125–8.4 GHz, and 14.8–15.35 GHz",
+        "service": "IMT (International Mobile Telecommunications)",
+        "working_party": "WP 5D",
+        "threat_level": "HIGH",
+        "faa_systems_at_risk": [
+            "Radio Altimeter & WAICS — 4.2–4.4 GHz (immediately adjacent to 4.4–4.8 GHz proposal)",
+            "Fixed systems (FAA microwave backbone) — 7.125–8.4 GHz band",
+            "Fixed systems — 14.8–15.35 GHz band",
+        ],
+        "faa_bands_mhz": [(4200, 4400), (7125, 8400), (14800, 15350)],
+        "mechanism": "OOB emissions and receiver blocking from IMT base stations adjacent to RA band; in-band interference to FAA fixed links",
+        "key_concern": "4.4–4.8 GHz IMT is only 200 MHz above the Radio Altimeter band (4.2–4.4 GHz). Given 5G OOB emission levels and RA receiver blocking susceptibility, this mirrors the C-band / RA controversy at WRC-23.",
+        "citations": ["RR No. 4.10", "ITU-R SM.1540", "ITU-R SM.1541", "RR Appendix 3", "RTCA DO-155"],
+        "us_position": "Oppose IMT identification in 4.4–4.8 GHz without demonstrating compatibility with RA. Require coordination zones and OOB emission masks verified per SM.1541.",
+        "notes": "Radio Altimeter / WAICS at 4.2–4.4 GHz is a safety-of-life system per RR 1.59. 6 dB aviation safety factor applies.",
+    },
+    "AI 1.13": {
+        "ref": "AI 1.13 (US/ITU 4C)",
+        "title": "MSS 694–2700 MHz — connectivity between space stations and IMT users (DC-MSS-IMT s-E systems)",
+        "service": "Mobile Satellite Service (MSS) + IMT",
+        "working_party": "WP 4C",
+        "threat_level": "HIGH",
+        "faa_systems_at_risk": [
+            "ARNS/AM(R)S/AMS(R)S — 960–1215 MHz (DME, TACAN, SSR, TCAS)",
+            "MSS SatCom DL receivers on board aircraft — 1525–1559 MHz",
+            "ARNS Airport Surveillance Radar (ASR) — 2700–2900 MHz",
+        ],
+        "faa_bands_mhz": [(960, 1215), (1525, 1559), (2700, 2900)],
+        "candidate_bands_mhz": [(925, 960), (1475, 1518), (2620, 2690)],
+        "mechanism": "OOB and spurious emissions from DC-MSS-IMT (s-E) downlinks landing in adjacent FAA bands; receiver blocking of airborne terminals",
+        "key_concern": "Candidate band 925–960 MHz is immediately adjacent to DME/TACAN at 960 MHz. Candidate 1475–1518 MHz is adjacent to L-band AMS(R)S at 1525–1559 MHz. Aggregate interference from multiple satellite downlinks must be assessed per SM.2028.",
+        "citations": ["RR No. 4.10", "RR No. 5.444", "ITU-R SM.2028", "ITU-R M.1642", "ITU-R SM.1540"],
+        "us_position": "Require aggregate interference analysis per SM.2028 for all three candidate bands. Oppose any candidate band whose OOB/spurious products land in 960–1215 MHz or 1525–1559 MHz without demonstrated compliance with ΔT/T limits.",
+        "notes": "960–1215 MHz contains DME — critical navigation. 1525–1559 MHz is L-band AMS(R)S used for aeronautical safety comms. ASR at 2700–2900 MHz has I/N = −10 dB protection level.",
+    },
+    "AI 1.15": {
+        "ref": "AI 1.15 (US/ITU 7B)",
+        "title": "SRS (space-to-space) in various bands for lunar surface communications",
+        "service": "Space Research Service (SRS) — space-to-space links for lunar communications",
+        "working_party": "WP 7B",
+        "threat_level": "MEDIUM",
+        "faa_systems_at_risk": [
+            "ARNS En-Route / Airport Surveillance Radar — 2700–2900 MHz",
+            "Airborne weather radar and other systems — 3600–4200 MHz",
+            "ARNS 5 GHz — 5350–5470 MHz",
+            "FAA fixed systems — 7190–7235 MHz",
+            "FAA fixed systems — 8450–8500 MHz",
+        ],
+        "faa_bands_mhz": [(2700, 2900), (3600, 4200), (5350, 5470), (7190, 7235), (8450, 8500)],
+        "mechanism": "Downlink SRS transmissions from lunar spacecraft landing in or near aeronautical bands; spurious products from high-power SRS uplinks",
+        "key_concern": "Lunar SRS links operate at high EIRP over long paths. Frequency coordination is novel — no established methodology for Earth-Moon link interference into terrestrial aeronautical systems.",
+        "citations": ["RR No. 4.10", "ITU-R SM.2028", "ITU-R P.528", "RR Appendix 3"],
+        "us_position": "Require frequency coordination studies demonstrating compatibility with ARNS and fixed service in all listed bands before SRS allocation is finalized.",
+        "notes": "Lunar surface communications is a new use case — FAA must ensure any SRS allocation does not create interference precedents that compromise terrestrial aeronautical operations.",
+    },
+    "AI 1.17": {
+        "ref": "AI 1.17 (US/ITU 7C)",
+        "title": "Receive-only space weather sensors in 27.5–28, 29.7–30.2, 32.2–32.6, 37.5–38.325, 73–74.6, and 608–614 MHz",
+        "service": "Earth Exploration Satellite Service (EESS) — passive space weather monitoring",
+        "working_party": "WP 7C",
+        "threat_level": "LOW-MEDIUM",
+        "faa_systems_at_risk": [
+            "HF aeronautical communications — 2.1–29.89 MHz (AM(R)S)",
+            "ILS glide slope and related systems — 74.8–75.2 MHz",
+        ],
+        "faa_bands_mhz": [(2100, 29890), (74800, 75200)],
+        "mechanism": "Passive receive-only sensors pose low direct interference risk but their frequency allocations can restrict FAA transmissions nearby; coordination requirements could affect aeronautical operations",
+        "key_concern": "Relatively low threat — passive sensors don't transmit. Primary concern is whether allocation creates coordination obligations that restrict FAA HF and VHF communications.",
+        "citations": ["RR No. 4.10", "ICAO Annex 10"],
+        "us_position": "Monitor for secondary allocation status. Ensure passive sensor allocations do not impose coordination burdens on FAA HF comms or ILS operations.",
+        "notes": "Primary FAA concern is procedural — that passive EESS allocations don't create regulatory precedents limiting FAA frequency use in adjacent bands.",
+    },
+    "AI 1.19": {
+        "ref": "AI 1.19 (US/ITU 7C)",
+        "title": "EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz",
+        "service": "Earth Exploration Satellite Service (EESS) — passive sensing",
+        "working_party": "WP 7C",
+        "threat_level": "MEDIUM",
+        "faa_systems_at_risk": [
+            "Radio Altimeter & WAICS — 4.2–4.4 GHz (EESS passive co-primary proposal)",
+            "FAA fixed systems — 8.4–8.5 GHz",
+        ],
+        "faa_bands_mhz": [(4200, 4400), (8400, 8500)],
+        "mechanism": "Passive EESS co-primary allocation in RA band creates regulatory precedent; future active EESS or other services could use the allocation to challenge RA protection",
+        "key_concern": "4.2–4.4 GHz Radio Altimeter band is already under pressure from AI 1.7 (IMT) and was the subject of the 5G C-band controversy. Adding EESS (passive) further crowds the allocation table and weakens the FAA's exclusive ARNS status argument.",
+        "citations": ["RR No. 4.10", "RR No. 1.59", "RTCA DO-155", "ITU-R M.1477"],
+        "us_position": "Oppose EESS passive co-primary allocation in 4.2–4.4 GHz. The RA band must remain exclusively ARNS to maintain the strongest regulatory protection. Any dilution of the allocation table weakens FAA's position on AI 1.7.",
+        "notes": "This AI is strategically linked to AI 1.7 — if EESS gets a co-primary allocation in RA band, it weakens FAA's argument that 4.2–4.4 GHz is exclusive ARNS.",
+    },
+}
+
+
 
 def noise_floor_dbm(bandwidth_hz: float, noise_figure_db: float) -> float:
     """Thermal noise floor: N = -174 + 10log10(BW) + NF"""
@@ -1730,21 +1825,74 @@ Generated by FAA RF Interference Analysis Tool
     ex("Regulatory citations transform a technical finding into a legal position — 'our analysis shows threshold violated' is an opinion; 'computed I/N exceeds the criterion in M.1318 Annex 1 Step 1b, invoking RR No. 4.10' is a treaty-level regulatory argument.")
     reg_refs = pd.DataFrame([
         ["RR No. 4.10", "No harmful interference to safety-of-life services", "Strongest lever — invoked for ALL FAA safety systems"],
+        ["RR No. 1.153", "Occupied bandwidth definition — band containing 99% of total mean power (0.5% each edge)", "Cite when challenging a proponent's bandwidth claim; defines where OOB zone starts"],
         ["RR No. 5.444", "ARNS protection at 960–1215 MHz", "Use for DME/TACAN/SSR/TCAS/ADS-B bands"],
         ["RR No. 5.328", "ARNS at 108–137 MHz; RNSS cannot claim protection from ARNS in 1164–1215 MHz", "VOR/ILS protection; also limits RNSS protection claims vs DME"],
+        ["RR Appendix 3 (Rev. WRC-12)", "Maximum permitted spurious power levels: 43+10·log(P) dB or 70 dBc (general); 60 dBc for space stations", "Cite when spurious emissions land in a protected band. For satellites: 60 dBc is the limit. Formula scales with transmitter power P in watts."],
         ["RR Resolution 233", "Protection of RNSS (GPS/GNSS)", "Use for all GPS/GNSS band defense"],
         ["RR Resolution 750", "IMT and safety services coexistence", "Relevant for all WP 5D IMT proposals"],
-        ["ITU-R M.1318 Annex 1", "c = a − b methodology for aggregate non-RNSS interference to GNSS", "Cite as the formal calculation framework for GPS L1/L2/L5 protection analysis"],
+        ["ITU-R SM.1540", "Unwanted emissions in OOB domain falling into adjacent allocated bands", "Cite when OOB emissions from a new service threaten an adjacent aeronautical band. Establishes the OOB mask framework and the 250% bandwidth boundary."],
+        ["ITU-R SM.1541", "Unwanted emissions in OOB domain — 23 dB attenuation at allocated band edge", "Cite the 23 dB rule: OOB mask must be ≥23 dB down at the edge of the allocated band (from RR 1.153 — 0.5% power criterion). This is the minimum mask floor."],
+        ["ITU-R SM.329", "Spurious domain emission limits and measurement methodology", "Cite for spurious emission limit disputes. Companion to RR Appendix 3."],
+        ["ITU-R M.1318 Annex 1", "c = a − b methodology for aggregate interference to GNSS", "Cite as the formal calculation framework for GPS L1/L2/L5 protection analysis"],
         ["ITU-R M.1477 Annex 5", "Aeronautical safety margin ≥6 dB for GNSS; +10 dB for narrowband (≤700 Hz) interferers", "Cite to justify b = 6 dB in c = a − b; invoke narrowband rule for CW/tonal interferers"],
-        ["ITU-R M.1904", "GLONASS spaceborne receiver — safety margin = 6 dB (Annex 1 Table 1 Note 3)", "Cite alongside M.1905 for GLONASS band contributions; reinforces 6 dB doctrine"],
-        ["ITU-R M.1905", "Safety margin must be applied for RNSS safety-of-life interference analyses (Note 1: 6 dB aero)", "Broadest RNSS safety margin authority — applies to ALL RNSS systems, cite in every GNSS contribution"],
+        ["ITU-R M.1904", "GLONASS spaceborne receiver — safety margin = 6 dB", "Cite alongside M.1905 for GLONASS band contributions; reinforces 6 dB doctrine"],
+        ["ITU-R M.1905", "Safety margin must be applied for RNSS safety-of-life interference analyses (6 dB aero)", "Broadest RNSS safety margin authority — applies to ALL RNSS systems"],
         ["ITU-R M.1642", "IMT→ARNS methodology", "Cite as methodology basis for non-GNSS aeronautical analysis"],
         ["ITU-R SM.2028", "Monte Carlo simulation methodology", "Cite to validate your simulation approach"],
         ["ITU-R P.528", "Aeronautical propagation model", "Model authority — cite when using P.528 curves"],
         ["ICAO Annex 10", "Aeronautical telecomm standards", "Aligns ITU-R work with ICAO civil aviation requirements"],
     ], columns=["Reference", "Subject", "When to Cite"])
     st.dataframe(reg_refs, use_container_width=True)
-    ex("Citation stacking is a standard ITU-R practice: M.1318 provides the methodology, M.1477 provides the aeronautical safety margin value, M.1904/M.1905 establish the 6 dB doctrine across GNSS systems — together they preclude any argument that the margin is discretionary.")
+    ex("Citation stacking: SM.1540 + SM.1541 define the OOB framework → RR Appendix 3 defines spurious limits → RR No. 4.10 is the enforcement mechanism. Together they give you the complete chain from emission characterization to regulatory consequence.")
+    ex("OOB domain boundary: 250% of occupied bandwidth each side of the channel (per SM.1540). Inside that zone = SM.1540/SM.1541 OOB rules. Outside it = RR Appendix 3 spurious rules. Challenge any proponent who conflates the two.")
+
+    # OOB Domain Quick Calculator
+    st.subheader("🧮 OOB Domain Boundary Calculator")
+    ex("Instantly determine the OOB zone boundary and the 23 dB attenuation point for any transmitter. Use this to check whether a neighboring band falls inside the OOB zone (SM.1540/SM.1541 apply) or the spurious domain (RR Appendix 3 applies).")
+    oob_c1, oob_c2 = st.columns(2)
+    with oob_c1:
+        oob_center  = st.number_input("Transmit Center Frequency (MHz)", value=1219.0, step=1.0,
+            help="Center frequency of the interfering transmitter")
+        oob_bw      = st.number_input("Occupied Bandwidth (MHz)", value=8.0, step=0.5,
+            help="99% power bandwidth per RR No. 1.153 — not the channel plan bandwidth")
+        oob_power_w = st.number_input("Peak Power (W)", value=8000.0, step=100.0,
+            help="Transmitter peak power in Watts. Used to calculate RR Appendix 3 spurious limit.")
+    with oob_c2:
+        # OOB boundary
+        half_bw      = oob_bw / 2
+        oob_boundary = oob_bw * 2.5  # 250% each side
+        band_low     = oob_center - half_bw
+        band_high    = oob_center + half_bw
+        oob_low      = oob_center - oob_bw * 2.5 - half_bw
+        oob_high     = oob_center + oob_bw * 2.5 + half_bw
+
+        # RR Appendix 3 spurious limit
+        p_dbw        = 10 * np.log10(oob_power_w)
+        spurious_rel = min(43 + 10 * np.log10(oob_power_w), 60)  # space station rule
+        spurious_abs = p_dbw - spurious_rel
+
+        st.metric("Allocated Band Edge (low)", f"{band_low:.1f} MHz")
+        st.metric("Allocated Band Edge (high)", f"{band_high:.1f} MHz")
+        st.metric("OOB Zone extends to (low)", f"{oob_low:.1f} MHz",
+            help="Below this = spurious domain (RR Appendix 3). Above this = OOB domain (SM.1540/SM.1541)")
+        st.metric("OOB Zone extends to (high)", f"{oob_high:.1f} MHz")
+        st.metric("RR App.3 Spurious Limit (space stn)", f"{spurious_rel:.1f} dBc  ({spurious_abs:.1f} dBW)",
+            help=f"= min(43+10·log({oob_power_w:.0f}W), 60) = {spurious_rel:.1f} dBc below {p_dbw:.1f} dBW carrier")
+
+    oob_check_freq = st.number_input("Check a specific frequency (MHz) — is it in OOB or spurious domain?",
+        value=1215.0, step=1.0)
+    dist_from_center = abs(oob_check_freq - oob_center)
+    dist_from_edge   = dist_from_center - half_bw
+    if dist_from_edge <= 0:
+        st.info(f"📡 {oob_check_freq} MHz is **inside the transmit channel** — this is in-band interference, not OOB.")
+    elif dist_from_edge <= oob_boundary:
+        pct = (dist_from_edge / (oob_bw)) * 100
+        st.warning(f"⚠️ {oob_check_freq} MHz is in the **OOB domain** ({dist_from_edge:.1f} MHz from band edge = {pct:.0f}% of BN). "
+                   f"**SM.1540 and SM.1541 apply.** OOB mask must be ≥23 dB down at the band edge.")
+    else:
+        st.error(f"🔴 {oob_check_freq} MHz is in the **spurious domain** ({dist_from_edge:.1f} MHz from band edge, beyond 250% BN boundary). "
+                 f"**RR Appendix 3 applies.** Limit = {spurious_rel:.1f} dBc ({spurious_abs:.1f} dBW) for space stations.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 7 — TUTORIAL
@@ -2197,7 +2345,34 @@ AERONAUTICAL SPECTRUM FUNCTIONS (per FAA slides):
 
 SAFETY SERVICE (RR 1.59): Any radiocommunication service used permanently or temporarily for the safeguarding of human life and property. ALL aeronautical bands listed above qualify.
 
-FREQUENCY SHARING BASIS: Permissible interference / non-interference basis. Permissible interference results in acceptable minimal performance change and is typically a change in the noise floor or received signal-to-noise ratio."""
+FREQUENCY SHARING BASIS: Permissible interference / non-interference basis. Permissible interference results in acceptable minimal performance change and is typically a change in the noise floor or received signal-to-noise ratio.
+
+WRC-27 AGENDA ITEMS DIRECTLY THREATENING FAA BANDS:
+
+AI 1.7 (WP 5D) — IMT identification in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz
+  FAA at risk: Radio Altimeter/WAICS (4.2–4.4 GHz), FAA fixed links (7.125–8.4 GHz, 14.8–15.35 GHz)
+  Mechanism: OOB emissions/blocking from IMT base stations into RA band (mirrors 5G/RA C-band issue)
+  US position: Oppose without coordination zones and OOB mask compliance per SM.1541
+  Highest priority — RA is safety-of-life, 6 dB aviation safety factor applies
+
+AI 1.13 (WP 4C) — MSS 694–2700 MHz for DC-MSS-IMT space-to-Earth connectivity
+  Candidate bands: 925–960 MHz (adj to DME), 1475–1518 MHz (adj to L-band AMS(R)S), 2620–2690 MHz (adj to ASR)
+  FAA at risk: ARNS/AM(R)S/AMS(R)S 960–1215 MHz, MSS SatCom DL 1525–1559 MHz, ASR 2700–2900 MHz
+  Mechanism: OOB/spurious from satellite downlinks landing in FAA bands; aggregate interference
+  Require SM.2028 aggregate analysis for all candidate bands
+
+AI 1.15 (WP 7B) — SRS (space-to-space) for lunar surface communications
+  FAA at risk: ASR 2700–2900 MHz, 3600–4200 MHz, ARNS 5350–5470 MHz, fixed 7190–7235 MHz, 8450–8500 MHz
+  Novel use case — no established Earth-Moon interference methodology for terrestrial aeronautical systems
+
+AI 1.17 (WP 7C) — EESS passive space weather sensors
+  FAA at risk: HF comms 2.1–29.89 MHz, ILS-related 74.8–75.2 MHz — low direct threat, procedural concern
+
+AI 1.19 (WP 7C) — EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz
+  FAA at risk: Radio Altimeter 4.2–4.4 GHz, fixed 8.4–8.5 GHz
+  Strategic concern: EESS co-primary in RA band weakens FAA's exclusive ARNS status for AI 1.7
+
+When analyzing contributions related to these AIs, always flag which WRC-27 item is implicated and assess whether the contribution advances or threatens the FAA position on that item."""
 
         system_prompt = f"""You are a senior RF spectrum policy advisor supporting the FAA and NTIA in ITU-R proceedings. 
 Your role is to analyze ITU-R contributions from Working Party 5D (IMT/Mobile) and Working Party 5B (Maritime/Radiodetermination) 
@@ -2246,15 +2421,36 @@ the level of which MAY BE REDUCED without affecting the corresponding transmissi
 information. Spurious emissions include: harmonic emissions, parasitic emissions,
 intermodulation products, and frequency conversion products.
 IMPORTANT: Spurious emissions EXPLICITLY EXCLUDE out-of-band emissions.
-Regulatory handle: RR Appendix 3 spurious emission limits. Argue for tighter masks.
+Regulatory limit (RR Appendix 3, Rev. WRC-12):
+  General services: 43 + 10·log(P) dB below carrier, OR 70 dBc — whichever is less stringent
+  Space stations: 43 + 10·log(P) dB OR 60 dBc — whichever is less stringent (stricter cap)
+  Where P = peak transmitter power in watts
+  Example: 39 dBW (8,000W) satellite → 43+39=82 dBc, but 60 dBc cap applies → limit = 60 dBc
+Verification: ITU-R SM.329 specifies the measurement methodology.
+Policy action: If spurious product lands in an FAA band, cite RR Appendix 3 for the exact dBc limit
+and demand compliance verification per SM.329.
 
 OUT-OF-BAND (OOB) EMISSIONS
 Definition: Emissions at frequency or frequencies IMMEDIATELY outside the necessary
 bandwidth, which result from the MODULATION PROCESS itself, but excluding spurious emissions.
 Key distinction from spurious: OOB is an inherent consequence of modulation;
 spurious is caused by hardware non-idealities (harmonics, intermod, parasitics).
-Regulatory handle: Emission designator/mask requirements. Argue for tighter OOB masks
-and larger guard bands between the interfering service and the protected band.
+OOB DOMAIN BOUNDARY (ITU-R SM.1540): 250% of occupied bandwidth each side of the channel.
+  If occupied BW = 8 MHz, OOB zone extends 20 MHz beyond each band edge.
+  Inside OOB zone → SM.1540 and SM.1541 apply.
+  Outside OOB zone (beyond 250% BN) → RR Appendix 3 spurious rules apply instead.
+23 dB RULE (ITU-R SM.1541): The OOB emission mask MUST be at least 23 dB down at the
+  edge of the allocated band. This comes from RR No. 1.153 — occupied bandwidth is defined
+  as the band containing 99% of total mean power, with β/2 = 0.5% outside each edge.
+  The mask at the 0.5% point must be ≥23 dB attenuation. This is the MINIMUM floor.
+RR No. 1.153: Occupied bandwidth definition — 99% power band; 0.5% each edge.
+  Cite when challenging a proponent's bandwidth claim or verifying OOB boundary placement.
+Policy actions for OOB interference:
+  1. Verify occupied BW per RR 1.153 — demand 99% power measurement, not channel plan BW
+  2. Calculate OOB boundary (250% × occupied BW) — determine if FAA band is in OOB or spurious domain
+  3. If FAA band is inside OOB zone: cite SM.1541 — demand 23 dB attenuation at the band edge
+  4. If proponent's mask doesn't achieve 23 dB at the band edge: demand tighter mask or guard band
+  5. If FAA band is beyond OOB zone: cite RR Appendix 3 spurious limits instead
 
 LAYER 2 — INTERFERENCE CLASSIFICATION (RR Article 1.166 — classify by IMPACT level):
 
@@ -3510,10 +3706,46 @@ elif selected_tab == "📓 Meeting Notes":
 
         st.markdown("**WRC-27 Agenda Items Under Watch**")
         ex("WRC-27 agenda items are formally adopted at WRC-23. Each item is assigned to one or more Study Groups and Working Parties for technical study. The CPM Report summarizing results is due approximately 12 months before WRC-27.")
-        ai_text = st.text_area("One per line (number — description):",
+
+        # Live WRC-27 database display
+        wrc27_rows = []
+        for ai_key, ai in WRC27_AGENDA_ITEMS.items():
+            threat_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW-MEDIUM": "🟢"}.get(ai["threat_level"], "⚪")
+            wrc27_rows.append({
+                "AI": ai["ref"],
+                "Title (summary)": ai["title"][:65] + "…",
+                "WP": ai["working_party"],
+                "Threat": f"{threat_icon} {ai['threat_level']}",
+                "FAA Systems": "; ".join(ai["faa_systems_at_risk"])[:80] + "…",
+            })
+        st.dataframe(pd.DataFrame(wrc27_rows), use_container_width=True, hide_index=True)
+
+        # Expandable detail for each AI
+        for ai_key, ai in WRC27_AGENDA_ITEMS.items():
+            threat_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW-MEDIUM": "🟢"}.get(ai["threat_level"], "⚪")
+            with st.expander(f"{threat_icon} {ai['ref']} — {ai['title'][:70]}"):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    st.markdown(f"**Service:** {ai['service']}")
+                    st.markdown(f"**Working Party:** {ai['working_party']}")
+                    st.markdown(f"**Interference Mechanism:** {ai['mechanism']}")
+                    st.markdown(f"**Key Concern:** {ai['key_concern']}")
+                with dc2:
+                    st.markdown("**FAA Systems at Risk:**")
+                    for s in ai["faa_systems_at_risk"]:
+                        st.markdown(f"  - {s}")
+                    if ai.get("candidate_bands_mhz"):
+                        st.markdown(f"**Candidate Bands (MHz):** {ai['candidate_bands_mhz']}")
+                    st.markdown(f"**US Position:** {ai['us_position']}")
+                    st.markdown("**Key Citations:** " + ", ".join(ai["citations"]))
+                if ai.get("notes"):
+                    st.caption(f"📝 {ai['notes']}")
+
+        st.markdown("**Additional Agenda Items to Track (free text)**")
+        ai_text = st.text_area("One per line:",
             value=info.get("ai_text", ""),
-            placeholder="1.2 — IMT identification above 6 GHz\n1.4 — RNSS additional allocations\n9.1(b) — Resolution 236 review",
-            height=120)
+            placeholder="e.g. AI 9.1(b) — Resolution 236 review\nAI 10 — any other business",
+            height=80)
         info["ai_text"] = ai_text
 
         st.session_state.mn_meeting_info = info
@@ -4841,6 +5073,26 @@ elif selected_tab == "📖 Glossary":
          "An international treaty conference held every 3–4 years under the International Telecommunication Union (ITU) that reviews and revises the Radio Regulations — the international treaty governing use of the radio frequency spectrum. WRC decisions are legally binding on all 193 ITU member states. WRC-27 is the next conference, scheduled for 2027.",
          "🔤 Acronyms — Systems & Organizations"),
 
+        ("WRC-27", "World Radiocommunication Conference 2027",
+         "The next WRC scheduled for 2027. Five agenda items directly threaten FAA aeronautical bands: AI 1.7 (IMT near Radio Altimeter band 4.2–4.4 GHz), AI 1.13 (MSS near DME/ASR bands), AI 1.15 (lunar SRS near ASR and radar bands), AI 1.17 (EESS passive sensors near HF/VHF), and AI 1.19 (EESS passive in RA band). AI 1.7 is the highest priority — IMT identification at 4.4–4.8 GHz is only 200 MHz above the Radio Altimeter band and repeats the pattern of the 5G C-band / RA controversy from 2019–2022.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("WRC-27 AI 1.7", "WRC-27 Agenda Item 1.7 — IMT in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz",
+         "Proposes IMT (5G/6G) identification in three frequency ranges, all of which threaten FAA systems. The 4.4–4.8 GHz range is the highest priority — it sits immediately above the Radio Altimeter band (4.2–4.4 GHz), and given 5G OOB emission characteristics and RA receiver blocking susceptibility, this directly parallels the C-band / Radio Altimeter controversy that caused FAA to restrict 5G deployment near airports in 2022. The 7.125–8.4 GHz range overlaps FAA microwave backbone links. FAA systems at risk: RA and WAICS (4.2–4.4 GHz), fixed microwave links (7.125–8.4 GHz and 14.8–15.35 GHz). US position: oppose without OOB compliance per SM.1541 and coordination zones. 6 dB aviation safety factor applies.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("WRC-27 AI 1.13", "WRC-27 Agenda Item 1.13 — MSS/IMT Connectivity (DC-MSS-IMT) 694–2700 MHz",
+         "Proposes new Mobile Satellite Service (MSS) allocations for direct satellite-to-device (s-E) connectivity linking space stations with IMT users. Three candidate frequency bands: 925–960 MHz (immediately adjacent to DME/TACAN at 960 MHz), 1475–1518 MHz (adjacent to L-band AMS(R)S at 1525–1559 MHz), and 2620–2690 MHz (adjacent to ASR at 2700–2900 MHz). All three threaten critical FAA safety systems via OOB and spurious emissions. Aggregate interference from multiple satellite downlinks must be assessed per SM.2028. US position: require aggregate analysis per SM.2028 for all candidate bands before any allocation.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("WRC-27 AI 1.15", "WRC-27 Agenda Item 1.15 — Space Research Service for Lunar Surface Communications",
+         "Proposes Space Research Service (SRS) space-to-space allocations to support lunar surface communications — a novel use case with no established interference methodology for effects on terrestrial aeronautical systems. FAA bands potentially affected: 2700–2900 MHz (ASR), 3600–4200 MHz, 5350–5470 MHz (ARNS), 7190–7235 MHz, and 8450–8500 MHz. Threat level medium — primary concern is setting precedents for high-power SRS links without adequate coordination requirements for terrestrial ARNS.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("WRC-27 AI 1.19", "WRC-27 Agenda Item 1.19 — EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz",
+         "Proposes Earth Exploration Satellite Service (EESS) passive allocation co-primary in the 4.2–4.4 GHz Radio Altimeter band. Passive sensors don't transmit, so the direct interference risk is low. However, the strategic threat is significant: adding a co-primary EESS allocation in the RA band dilutes the exclusive ARNS status that is FAA's strongest argument against AI 1.7 (IMT identification at 4.4–4.8 GHz). US position: oppose — the RA band must remain exclusively ARNS to maintain the strongest regulatory protection against IMT encroachment.",
+         "🌐 ITU-R & Regulatory"),
+
         # ── RF & Signal Theory ────────────────────────────────────────────────
         ("Blocking / Desensitization", "Receiver Front-End Overload",
          "A condition where a strong out-of-band signal drives the receiver's Low Noise Amplifier (LNA) into compression (saturation), raising the effective noise floor and reducing sensitivity to the desired signal. The interferer does not need to be in-band to cause this — it only needs to be strong enough at the antenna input. This was the core mechanism in the 5G / Radio Altimeter interference problem of 2019–2022.",
@@ -4932,7 +5184,27 @@ elif selected_tab == "📖 Glossary":
          "🌐 ITU-R & Regulatory"),
 
         ("Out-of-Band (OOB) Emissions", "Out-of-Band Emissions (ITU-R definition)",
-         "Emissions at frequencies immediately outside the necessary bandwidth which result from the modulation process, but excluding spurious emissions. OOB emissions are an unavoidable consequence of the modulation waveform — they arise from the spectral sidebands of the modulated signal. Unlike spurious emissions, OOB emissions cannot be eliminated without affecting the information content of the transmission. They can be reduced by filtering (at the cost of signal distortion) or by reducing modulation bandwidth. OOB emissions are the primary mechanism for interference into adjacent aeronautical bands — for example, 5G New Radio OOB emissions near the Radio Altimeter band (4200–4400 MHz).",
+         "Emissions at frequencies immediately outside the necessary bandwidth which result from the modulation process, but excluding spurious emissions. OOB emissions are an unavoidable consequence of the modulation waveform — they arise from the spectral sidebands of the modulated signal. Unlike spurious emissions, OOB emissions cannot be eliminated without affecting the information content of the transmission. They can be reduced by filtering or by reducing modulation bandwidth. OOB emissions are the primary mechanism for interference into adjacent aeronautical bands — for example, 5G New Radio OOB emissions near the Radio Altimeter band (4200–4400 MHz). The OOB domain boundary is defined as 250% of the occupied bandwidth on each side of the channel (per ITU-R SM.1540). Within that zone, SM.1540 and SM.1541 apply. Beyond it, RR Appendix 3 spurious limits take over.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("SM.1540", "ITU-R Recommendation SM.1540 — Unwanted Emissions in OOB Domain",
+         "Governs unwanted emissions falling into adjacent allocated bands from the OOB domain. Establishes the framework for evaluating OOB emissions that land in neighboring services. The OOB domain is defined as extending 250% of the occupied bandwidth on each side of the channel edge. Within this zone, SM.1540 provides the general methodology and Figure 1 of Annex 1 defines the evaluation framework showing the OOB spectrum mask against the spurious limit floor. Key concept: the OOB mask at the allocated band edge must be at least 23 dB down (per RR No. 1.153 — the 0.5% power criterion). Cite SM.1540 when a new service proposes to operate in a band adjacent to an FAA protected band and its OOB emissions cross the boundary.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("SM.1541", "ITU-R Recommendation SM.1541 — OOB Emission Mask 23 dB Rule",
+         "Specifies that the maximum value of 99% power occupied bandwidth permitted by a particular emission mask can be determined from the 23 dB attenuation levels. In plain terms: the OOB emission mask must attenuate the signal by at least 23 dB at the edge of the allocated band. This comes from RR No. 1.153 which defines occupied bandwidth as the band containing 99% of total mean power, meaning 0.5% (β/2) sits outside each edge — and the mask at that 0.5% point must be 23 dB down. Practical impact: if a proponent's emission mask doesn't show 23 dB attenuation at the boundary of the FAA protected band, SM.1541 gives you the regulatory basis to demand a tighter mask or a larger guard band.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 1.153", "Radio Regulations No. 1.153 — Occupied Bandwidth Definition",
+         "Defines occupied bandwidth as the frequency band such that below its lower frequency limit and above its upper frequency limit, the mean powers emitted are each equal to a specified percentage β/2 of the total mean power of the emission. Unless otherwise specified in an ITU-R Recommendation, β/2 = 0.5% — meaning the occupied bandwidth contains 99% of the total transmitted power, with 0.5% sitting outside each edge. This definition is the anchor for both the OOB domain boundary (250% of occupied BW per SM.1540) and the 23 dB OOB mask rule (SM.1541). When a proponent claims a narrow occupied bandwidth to minimize their OOB footprint, challenge them by demanding a 99% power measurement per RR 1.153.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR Appendix 3", "Radio Regulations Appendix 3 (Rev. WRC-12) — Spurious Emission Limits",
+         "Defines maximum permitted power levels for unwanted emissions in the spurious domain — the region beyond 250% of occupied bandwidth. The limits are: All services (general): 43 + 10·log(P) dB below carrier, or 70 dBc, whichever is less stringent. Space services (earth stations): same formula or 70 dBc. Space services (space stations): 43 + 10·log(P) dB or 60 dBc — whichever is less stringent. The formula scales with transmitter power P in watts. Example (ROSE-L satellite, 39 dBW peak): 43 + 39 = 82 dBc, but 60 dBc cap applies, so limit = 60 dBc below 39 dBW = −21 dBW spurious power. When a satellite's spurious product falls inside an FAA protected band, RR Appendix 3 is the quantitative limit you cite.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("SM.329", "ITU-R Recommendation SM.329 — Spurious Domain Measurement and Limits",
+         "Companion to RR Appendix 3. Provides the detailed measurement methodology for characterizing and verifying spurious emission levels. Defines the measurement procedures, test conditions, and how to apply the limits from RR Appendix 3. Cite SM.329 alongside Appendix 3 when challenging a proponent's spurious emission measurements or methodology — Appendix 3 gives the limit, SM.329 gives the method for verifying compliance.",
          "🌐 ITU-R & Regulatory"),
 
         ("Unwanted Emissions", "Unwanted Emissions",
