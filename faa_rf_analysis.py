@@ -776,70 +776,114 @@ if selected_tab == "📡 Protected Bands":
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 — LINK BUDGET
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🔗 Link Budget":
     st.title("🔗 Link Budget Calculator")
-    ex("The Friis transmission equation in log form: Pr = Pt + Gt − Lcable − FSPL + Gr. Every term must use consistent reference points — EIRP subsumes Pt + Gt − Lcable into a single radiated power figure.")
+    ex("The Friis transmission equation: Pr = Pt + Gt − L_tx_total − FSPL − L_rx_total + Gr. Every loss field on both Tx and Rx sides defaults to zero — enter only what applies to your scenario.")
 
     col_l, col_r = st.columns([1, 1])
 
     with col_l:
-        st.subheader("Transmitter (Interferer)")
-        ex("For a worst-case bound, use the maximum authorized EIRP from the relevant ITU-R Recommendation or WRC agenda item — proponents often use median or typical values, which is a common optimism to challenge.")
-        tx_power_dbm = st.number_input("Tx Power (dBm)", value=43.0, step=1.0,
-            help="e.g., 43 dBm = 20W typical LTE base station")
-        tx_gain_dbi = st.number_input("Tx Antenna Gain (dBi)", value=15.0, step=0.5,
-            help="Directional gain toward victim receiver")
-        cable_loss = st.number_input("Cable / Feeder Loss (dB)", value=2.0, step=0.5,
-            help="Losses between PA output and antenna port")
-        tx_height_m = st.number_input("Tx Height (m AGL)", value=30.0, step=5.0)
+        st.subheader("📡 Transmitter (Interferer)")
+        ex("For worst-case analysis use maximum authorized EIRP. EIRP = Pt + Gt − total Tx losses.")
+        tx_power_dbm     = st.number_input("Tx Power (dBm)", value=43.0, step=1.0,
+            help="Radio PA output power. 43 dBm = 20 W typical LTE base station; 30 dBm = 1 W small cell.")
+        tx_gain_dbi      = st.number_input("Tx Antenna Gain (dBi)", value=15.0, step=0.5,
+            help="Peak gain toward victim receiver. Use 0 dBi for isotropic worst-case bound.")
+        tx_height_m      = st.number_input("Tx Height (m AGL)", value=30.0, step=5.0)
 
-        st.subheader("Channel")
-        ex("FSPL assumes isotropic radiation into free space with no terrain, atmosphere, or clutter — it is the most optimistic model (least loss) and therefore represents the worst-case interference scenario.")
+        st.markdown("**Tx-Side Losses** *(enter 0 if not applicable)*")
+        ex("All losses between the PA output and the radiated signal. Each field defaults to 0 — enter only what is present in your scenario.")
+        tx_cable_loss     = st.number_input("Tx Cable / Coax Loss (dB)", value=2.0, step=0.5,
+            help="Transmission line loss between PA output and antenna connector. Typical: 0.5–3 dB.")
+        tx_connector_loss = st.number_input("Tx Connector / Adapter Loss (dB)", value=0.0, step=0.1,
+            help="Each RF connector contributes ~0.1–0.2 dB. Sum all connectors in the Tx path.")
+        tx_branching_loss = st.number_input("Tx Branching / Hybrid / Combiner Loss (dB)", value=0.0, step=0.5,
+            help="Diplexer, combiner, or hybrid coupler sharing one antenna. Typical: 3–4 dB for a 2-way combiner.")
+        tx_filter_loss    = st.number_input("Tx Filter / Duplexer Loss (dB)", value=0.0, step=0.5,
+            help="Bandpass filter or duplexer insertion loss. Used to limit OOB and spurious emissions. Typical: 0.5–2 dB.")
+        tx_jumper_loss    = st.number_input("Tx Jumper / Pigtail Loss (dB)", value=0.0, step=0.1,
+            help="Short flexible cable sections. Often overlooked — can add 0.2–0.5 dB.")
+        tx_misc_loss      = st.number_input("Tx Other Losses (dB)", value=0.0, step=0.1,
+            help="Circulators, lightning arrestors, splitters, or any other Tx-side hardware.")
+        tx_total_loss = round(tx_cable_loss + tx_connector_loss + tx_branching_loss +
+                              tx_filter_loss + tx_jumper_loss + tx_misc_loss, 2)
+        st.metric("Total Tx Losses", f"{tx_total_loss:.2f} dB",
+            help="Sum of all Tx-side losses. EIRP = Pt + Gt − this value.")
+
+        st.markdown("---")
+        st.subheader("🌐 Channel / Propagation")
+        ex("FSPL is the most optimistic model — least loss, worst-case interference. Always run FSPL first. If it shows compatibility, the system is protected.")
         propagation_model = st.selectbox("Propagation Model",
             ["Free Space (FSPL)", "P.452 (Terrestrial)", "P.528 (Aeronautical)"])
-        freq_mhz = st.number_input("Frequency (MHz)", value=4300.0, step=10.0,
-            help="Center frequency of the interfering emission")
-        dist_km = st.number_input("Distance (km)", value=5.0, step=0.5)
+        freq_mhz  = st.number_input("Frequency (MHz)", value=4300.0, step=10.0,
+            help="Center frequency of the interfering emission.")
+        dist_km   = st.number_input("Distance (km)", value=5.0, step=0.5)
 
         if propagation_model == "P.452 (Terrestrial)":
-            terrain_type = st.selectbox("Terrain / Clutter Type",
+            terrain_type    = st.selectbox("Terrain / Clutter Type",
                 ["open", "suburban", "urban", "dense_urban"])
-            rx_height_m = st.number_input("Rx Height (m AGL)", value=5.0, step=1.0)
+            rx_height_m     = st.number_input("Rx Height (m AGL)", value=5.0, step=1.0)
+            aircraft_alt_km = 0.0
         elif propagation_model == "P.528 (Aeronautical)":
             aircraft_alt_km = st.number_input("Aircraft Altitude (km)", value=3.0, step=0.5)
-            rx_height_m = 5.0
-            terrain_type = "suburban"
+            rx_height_m     = 5.0
+            terrain_type    = "suburban"
         else:
-            rx_height_m = 5.0
-            terrain_type = "suburban"
+            rx_height_m     = 5.0
+            terrain_type    = "suburban"
             aircraft_alt_km = 0.0
 
     with col_r:
-        st.subheader("Receiver (Victim)")
-        ex("Use 0 dBi receive antenna gain for worst-case (isotropic toward the interferer) unless you have a validated antenna pattern model — assumed directivity away from the interferer is a common proponent tactic to challenge.")
+        st.subheader("📻 Receiver (Victim)")
+        ex("Use 0 dBi Rx gain for worst-case. Assumed directivity away from interferer is a common proponent tactic to challenge if not supported by a measured antenna pattern.")
         rx_gain_dbi = st.number_input("Rx Antenna Gain (dBi)", value=0.0, step=0.5,
-            help="Toward interferer; 0 dBi = worst case omnidirectional")
+            help="Toward interferer. 0 dBi = isotropic worst-case.")
 
-        st.markdown("**— or select a protected FAA band —**")
+        st.markdown("**— or auto-fill from FAA band —**")
         band_select = st.selectbox("Auto-fill from FAA band:", ["(manual)"] + list(FAA_BANDS.keys()))
         if band_select != "(manual)":
-            b = FAA_BANDS[band_select]
-            rx_noise_floor_dbm_input = b["noise_floor_dbm"]
-            in_threshold_db = b["in_threshold_db"]
-            st.info(f"Loaded: Noise floor = {rx_noise_floor_dbm_input} dBm | I/N threshold = {in_threshold_db} dB")
+            b_sel = FAA_BANDS[band_select]
+            rx_noise_floor_dbm_input = b_sel["noise_floor_dbm"]
+            in_threshold_db = b_sel["in_threshold_db"]
+            sf_loaded = b_sel.get("aviation_safety_factor_db", 0)
+            eff_thresh = b_sel.get("effective_threshold_db", in_threshold_db)
+            st.info(f"Loaded: Noise floor = {rx_noise_floor_dbm_input} dBm | I/N threshold = {in_threshold_db} dB"
+                    + (f" | +{sf_loaded} dB aviation safety factor → effective {eff_thresh} dB" if sf_loaded else ""))
         else:
-            rx_bw_mhz = st.number_input("Rx Bandwidth (MHz)", value=100.0, step=10.0)
-            rx_nf_db = st.number_input("Receiver Noise Figure (dB)", value=5.0, step=0.5)
+            rx_bw_mhz   = st.number_input("Rx Bandwidth (MHz)", value=100.0, step=10.0)
+            rx_nf_db    = st.number_input("Receiver Noise Figure (dB)", value=5.0, step=0.5)
             rx_noise_floor_dbm_input = noise_floor_dbm(rx_bw_mhz * 1e6, rx_nf_db)
             in_threshold_db = st.number_input("I/N Threshold (dB)", value=-6.0, step=1.0,
-                help="Protection criterion: -6 dB typical aeronautical, -10 dB for GNSS")
+                help="Protection criterion: −6 dB typical ARNS, −10 dB for GNSS/ADS-B.")
+            sf_loaded = 0
+            eff_thresh = in_threshold_db
 
-    # Compute
+        st.markdown("**Rx-Side Losses** *(enter 0 if not applicable)*")
+        ex("All losses between the antenna and receiver input. Every dB here degrades sensitivity directly — Rx losses are just as damaging as the same amount of path loss.")
+        rx_cable_loss     = st.number_input("Rx Cable / Coax Loss (dB)", value=0.5, step=0.5,
+            help="Transmission line from antenna to LNA or receiver. Keep short in avionics — 1 dB here = 1 dB sensitivity loss.")
+        rx_connector_loss = st.number_input("Rx Connector / Adapter Loss (dB)", value=0.0, step=0.1,
+            help="Each connector in the Rx path adds ~0.1–0.2 dB.")
+        rx_branching_loss = st.number_input("Rx Branching / Splitter Loss (dB)", value=0.0, step=0.5,
+            help="If the antenna feeds multiple receivers via a splitter or diplexer. Typical: 3–4 dB for 2-way split.")
+        rx_filter_loss    = st.number_input("Rx Filter / Duplexer Loss (dB)", value=0.0, step=0.5,
+            help="Bandpass filter insertion loss on receive path. Rx filters protect the LNA but add loss before it — directly degrades noise figure.")
+        rx_limiter_loss   = st.number_input("Rx Limiter / Protection Device Loss (dB)", value=0.0, step=0.1,
+            help="PIN diode limiters or gas discharge tubes protecting the LNA. Typical insertion loss: 0.3–1.0 dB.")
+        rx_misc_loss      = st.number_input("Rx Other Losses (dB)", value=0.0, step=0.1,
+            help="Lightning arrestors, bias tees, long coax runs, or any other Rx-side hardware losses.")
+        rx_total_loss = round(rx_cable_loss + rx_connector_loss + rx_branching_loss +
+                              rx_filter_loss + rx_limiter_loss + rx_misc_loss, 2)
+        st.metric("Total Rx Losses", f"{rx_total_loss:.2f} dB",
+            help="Sum of all Rx-side losses. These reduce the effective signal reaching the receiver just like path loss.")
+
+    # ── Compute ───────────────────────────────────────────────────────────────
     st.markdown("---")
     if st.button("⚡ Run Link Budget", type="primary"):
-        eir = eirp_dbm(tx_power_dbm, tx_gain_dbi)
+        eir = round(tx_power_dbm + tx_gain_dbi - tx_total_loss, 2)
 
         if propagation_model == "Free Space (FSPL)":
             pl = free_space_path_loss_db(freq_mhz, dist_km)
@@ -848,105 +892,147 @@ elif selected_tab == "🔗 Link Budget":
             pl = p452_basic_loss_db(freq_mhz, dist_km, tx_height_m, rx_height_m, terrain_type)
             model_label = f"P.452 ({terrain_type})"
         else:
-            ac_alt = aircraft_alt_km if 'aircraft_alt_km' in dir() else 3.0
-            pl = p528_aero_path_loss_db(freq_mhz, dist_km, ac_alt)
-            model_label = f"P.528 (alt={ac_alt} km)"
+            pl = p528_aero_path_loss_db(freq_mhz, dist_km, aircraft_alt_km)
+            model_label = f"P.528 (alt={aircraft_alt_km} km)"
 
-        rx_pwr = received_power_dbm(tx_power_dbm, tx_gain_dbi, pl, rx_gain_dbi, cable_loss)
-        i_n = in_ratio_db(rx_pwr, rx_noise_floor_dbm_input)
+        rx_pwr = round(eir - pl + rx_gain_dbi - rx_total_loss, 2)
+        i_n    = in_ratio_db(rx_pwr, rx_noise_floor_dbm_input)
         margin = protection_margin_db(i_n, in_threshold_db)
+        use_eff   = sf_loaded > 0
+        eff_margin = protection_margin_db(i_n, eff_thresh) if use_eff else None
 
         col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("EIRP", f"{eir:.1f} dBm")
-        col2.metric("Path Loss", f"{pl:.1f} dB", help=model_label)
-        col3.metric("Rx Power", f"{rx_pwr:.1f} dBm")
-        col4.metric("I/N", f"{i_n:.1f} dB")
-        col5.metric("Protection Margin", f"{margin:.1f} dB",
-                    delta=f"{margin:.1f} dB",
+        col1.metric("EIRP", f"{eir:.2f} dBm",
+            help=f"Pt({tx_power_dbm}) + Gt({tx_gain_dbi}) − Tx losses({tx_total_loss})")
+        col2.metric("Path Loss", f"{pl:.2f} dB", help=model_label)
+        col3.metric("Rx Power", f"{rx_pwr:.2f} dBm",
+            help=f"EIRP({eir}) − PL({pl:.2f}) + Gr({rx_gain_dbi}) − Rx losses({rx_total_loss})")
+        col4.metric("I/N", f"{i_n:.2f} dB")
+        col5.metric("Protection Margin", f"{margin:.2f} dB",
+                    delta=f"{margin:.2f} dB",
                     delta_color="normal" if margin >= 0 else "inverse")
 
-        ex("Protection Margin = threshold − computed I/N. A negative margin means the aggregate noise floor rise exceeds the ITU-R criterion and you have grounds to cite harmful interference under RR No. 4.10.")
+        if use_eff:
+            st.info(f"⚠️ Aviation safety factor +{sf_loaded} dB applies. Effective threshold = {eff_thresh} dB → Effective margin = **{eff_margin:.2f} dB** ({'protected' if eff_margin >= 0 else 'VIOLATED'})")
+
+        ex("Protection Margin = threshold − I/N. Negative = threshold violated = grounds to cite harmful interference under RR No. 4.10.")
 
         if margin >= 10:
-            ok(f"PROTECTED with {margin:.1f} dB margin — system is well-protected at this distance.")
+            ok(f"PROTECTED with {margin:.2f} dB margin.")
         elif margin >= 0:
-            warn(f"MARGINALLY PROTECTED with only {margin:.1f} dB margin — consider conservative assumptions.")
+            warn(f"MARGINALLY PROTECTED — {margin:.2f} dB margin. Consider more conservative assumptions.")
         else:
-            warn(f"THRESHOLD VIOLATED by {abs(margin):.1f} dB — this scenario poses an interference risk to the protected service.")
+            warn(f"THRESHOLD VIOLATED by {abs(margin):.2f} dB — basis for citing harmful interference under RR No. 4.10.")
+
+        # Loss breakdown table
+        st.subheader("📋 Full Loss Breakdown")
+        ex("Every gain and loss itemized. Non-zero loss rows are highlighted red; gain rows green; milestones (EIRP, Rx Power, RSL) blue.")
+        loss_rows = [
+            ("Transmit Power (Pt)",              f"+{tx_power_dbm:.2f} dBm",     "Input"),
+            ("+ Tx Antenna Gain (Gt)",            f"+{tx_gain_dbi:.2f} dBi",      "Gain"),
+            ("− Tx Cable / Coax Loss",            f"−{tx_cable_loss:.2f} dB",     "TxL" if tx_cable_loss else "zero"),
+            ("− Tx Connector Loss",               f"−{tx_connector_loss:.2f} dB", "TxL" if tx_connector_loss else "zero"),
+            ("− Tx Branching / Combiner Loss",    f"−{tx_branching_loss:.2f} dB", "TxL" if tx_branching_loss else "zero"),
+            ("− Tx Filter / Duplexer Loss",       f"−{tx_filter_loss:.2f} dB",    "TxL" if tx_filter_loss else "zero"),
+            ("− Tx Jumper / Pigtail Loss",        f"−{tx_jumper_loss:.2f} dB",    "TxL" if tx_jumper_loss else "zero"),
+            ("− Tx Other Losses",                 f"−{tx_misc_loss:.2f} dB",      "TxL" if tx_misc_loss else "zero"),
+            ("★ EIRP",                            f"= {eir:.2f} dBm",             "Mile"),
+            (f"− Path Loss ({model_label})",      f"−{pl:.2f} dB",                "Path"),
+            ("+ Rx Antenna Gain (Gr)",            f"+{rx_gain_dbi:.2f} dBi",      "Gain"),
+            ("− Rx Cable / Coax Loss",            f"−{rx_cable_loss:.2f} dB",     "RxL" if rx_cable_loss else "zero"),
+            ("− Rx Connector Loss",               f"−{rx_connector_loss:.2f} dB", "RxL" if rx_connector_loss else "zero"),
+            ("− Rx Branching / Splitter Loss",    f"−{rx_branching_loss:.2f} dB", "RxL" if rx_branching_loss else "zero"),
+            ("− Rx Filter / Duplexer Loss",       f"−{rx_filter_loss:.2f} dB",    "RxL" if rx_filter_loss else "zero"),
+            ("− Rx Limiter / Protection Loss",    f"−{rx_limiter_loss:.2f} dB",   "RxL" if rx_limiter_loss else "zero"),
+            ("− Rx Other Losses",                 f"−{rx_misc_loss:.2f} dB",      "RxL" if rx_misc_loss else "zero"),
+            ("★ Received Power (Pr)",             f"= {rx_pwr:.2f} dBm",          "Mile"),
+            ("  Noise Floor",                     f"{rx_noise_floor_dbm_input:.2f} dBm","Ref"),
+            ("  I/N",                             f"{i_n:.2f} dB",                "Res"),
+            ("  I/N Threshold",                   f"{in_threshold_db:.1f} dB",    "Thr"),
+            ("★ Protection Margin",              f"= {margin:.2f} dB",            "Mile"),
+        ]
+        if use_eff:
+            loss_rows.append(("★ Effective Margin (incl. +{} dB safety factor)".format(sf_loaded),
+                              f"= {eff_margin:.2f} dB", "Mile"))
+
+        df_loss = pd.DataFrame(loss_rows, columns=["Item","Value","Cat"])
+
+        def style_loss(row):
+            if row["Cat"] == "Mile":
+                return ["background-color:#1a3560;font-weight:bold;color:#aaddff"]*3
+            if row["Cat"] in ("TxL","RxL"):
+                return ["background-color:#2a1a1a;color:#ffaaaa"]*3
+            if row["Cat"] == "Gain":
+                return ["background-color:#1a2a1a;color:#aaffaa"]*3
+            if row["Cat"] == "Path":
+                return ["background-color:#2a2a1a;color:#ffffaa"]*3
+            return [""]*3
+
+        st.dataframe(df_loss.style.apply(style_loss, axis=1),
+                     use_container_width=True, hide_index=True)
 
         # Waterfall chart
         st.subheader("Link Budget Waterfall")
-        ex("The waterfall visualization follows the Friis equation left to right: Pt → EIRP (add Gt, subtract cable) → Pr (subtract path loss, add Gr). The gap between Pr and the noise floor reference is your link margin.")
-        stages = ["Tx Power", "Tx Gain", "Cable Loss", "Path Loss", "Rx Gain", "Rx Power"]
-        values = [tx_power_dbm, tx_gain_dbi, -cable_loss, -pl, rx_gain_dbi, None]
+        ex("Green bars = gains, red bars = losses. Blue = Tx power start, orange = final Rx power.")
+        stages = ["Tx Power","Tx Gain","Tx Losses","Path Loss","Rx Gain","Rx Losses","Rx Power"]
+        deltas  = [0, tx_gain_dbi, -tx_total_loss, -pl, rx_gain_dbi, -rx_total_loss, 0]
+        starts  = [tx_power_dbm]
+        rw = tx_power_dbm
+        for d in deltas[1:-1]:
+            rw += d
+            starts.append(rw)
+        starts.append(rx_pwr)
 
-        running = tx_power_dbm
-        bar_bottoms, bar_heights, bar_colors = [], [], []
-        for i, v in enumerate(values[1:-1], 1):
-            if v >= 0:
-                bar_bottoms.append(running)
-                bar_heights.append(v)
-                bar_colors.append("#44bb44")
+        fig2, ax2 = plt.subplots(figsize=(12, 4))
+        fig2.patch.set_facecolor("#0e1117"); ax2.set_facecolor("#0e1117")
+        for idx in range(len(stages)):
+            if idx == 0:
+                ax2.bar(idx, tx_power_dbm, color="#4488ff", width=0.6)
+            elif idx == len(stages)-1:
+                ax2.bar(idx, rx_pwr, color="#ffaa00", width=0.6)
             else:
-                bar_bottoms.append(running + v)
-                bar_heights.append(-v)
-                bar_colors.append("#bb4444")
-            running += v
-
-        fig2, ax2 = plt.subplots(figsize=(10, 4))
-        fig2.patch.set_facecolor("#0e1117")
-        ax2.set_facecolor("#0e1117")
-
-        # Tx power base bar
-        ax2.bar(0, tx_power_dbm, color="#4488ff", label="Tx Power")
-        for i, (b_val, h_val, c) in enumerate(zip(bar_bottoms, bar_heights, bar_colors)):
-            ax2.bar(i + 1, h_val, bottom=b_val, color=c)
-
-        # Final Rx power
-        ax2.bar(len(stages) - 1, rx_pwr, color="#ffaa00")
-        ax2.axhline(rx_noise_floor_dbm_input, color='cyan', linestyle='--', linewidth=1.5,
+                d = deltas[idx]
+                if d >= 0:
+                    ax2.bar(idx, d, bottom=starts[idx-1], color="#44bb44", width=0.6, alpha=0.85)
+                else:
+                    ax2.bar(idx, -d, bottom=starts[idx-1]+d, color="#bb4444", width=0.6, alpha=0.85)
+            ax2.text(idx, starts[idx]+0.5, f"{starts[idx]:.1f}",
+                     ha="center", fontsize=7, color="white")
+        ax2.axhline(rx_noise_floor_dbm_input, color="cyan", linestyle="--", linewidth=1.5,
                     label=f"Noise Floor ({rx_noise_floor_dbm_input:.0f} dBm)")
-        ax2.axhline(rx_noise_floor_dbm_input + in_threshold_db, color='red',
-                    linestyle=':', linewidth=1.5,
-                    label=f"I/N Threshold ({in_threshold_db} dB above noise)")
-
+        ax2.axhline(rx_noise_floor_dbm_input + in_threshold_db, color="red",
+                    linestyle=":", linewidth=1.5,
+                    label=f"I/N Threshold ({in_threshold_db} dB)")
         ax2.set_xticks(range(len(stages)))
-        ax2.set_xticklabels(stages, color='white', fontsize=9)
-        ax2.set_ylabel("Power (dBm)", color='white')
-        ax2.tick_params(colors='white')
-        ax2.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='white')
-        for sp in ax2.spines.values():
-            sp.set_color('#444')
+        ax2.set_xticklabels(stages, color="white", fontsize=9)
+        ax2.set_ylabel("Power (dBm)", color="white")
+        ax2.tick_params(colors="white")
+        ax2.legend(fontsize=8, facecolor="#1a1a2e", labelcolor="white")
+        for sp in ax2.spines.values(): sp.set_color("#444")
         plt.tight_layout()
         st.pyplot(fig2)
 
         # Distance sweep
-        st.subheader("Path Loss vs. Distance")
-        ex("Required path loss = EIRP − noise floor − I/N threshold. This value on the FSPL curve gives the minimum separation distance — cite this in contributions as a coordination zone requirement.")
+        st.subheader("Path Loss vs Distance")
+        ex("Required path loss = EIRP + Rx Gain − Rx Losses − noise floor − I/N threshold. Where FSPL crosses that line = minimum safe coordination distance.")
         dists = np.linspace(0.1, max(50, dist_km * 3), 200)
         pls_fspl = [free_space_path_loss_db(freq_mhz, d) for d in dists]
         pls_p452 = [p452_basic_loss_db(freq_mhz, d, tx_height_m, rx_height_m, terrain_type) for d in dists]
-
+        req_pl = eir + rx_gain_dbi - rx_total_loss - rx_noise_floor_dbm_input - in_threshold_db
         fig3, ax3 = plt.subplots(figsize=(10, 4))
-        fig3.patch.set_facecolor("#0e1117")
-        ax3.set_facecolor("#0e1117")
-        ax3.plot(dists, pls_fspl, color='#4488ff', label='FSPL (best case / worst interference)')
-        ax3.plot(dists, pls_p452, color='#ffaa00', linestyle='--', label='P.452 simplified')
-
-        # Required path loss for protection
-        req_pl = eir - cable_loss + rx_gain_dbi - rx_noise_floor_dbm_input - in_threshold_db
-        ax3.axhline(req_pl, color='red', linestyle=':', label=f"Required PL for I/N≤{in_threshold_db} dB ({req_pl:.0f} dB)")
-        ax3.axvline(dist_km, color='white', linestyle=':', alpha=0.5, label=f"Current dist ({dist_km} km)")
-        ax3.set_xlabel("Distance (km)", color='white')
-        ax3.set_ylabel("Path Loss (dB)", color='white')
-        ax3.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='white')
-        ax3.tick_params(colors='white')
-        for sp in ax3.spines.values():
-            sp.set_color('#444')
+        fig3.patch.set_facecolor("#0e1117"); ax3.set_facecolor("#0e1117")
+        ax3.plot(dists, pls_fspl, color="#4488ff", linewidth=2, label="FSPL")
+        ax3.plot(dists, pls_p452, color="#ffaa00", linewidth=2, linestyle="--", label=f"P.452 ({terrain_type})")
+        ax3.axhline(req_pl, color="red", linestyle=":", label=f"Required PL ({req_pl:.0f} dB)")
+        ax3.axvline(dist_km, color="white", linestyle=":", alpha=0.5, label=f"Current ({dist_km} km)")
+        ax3.set_xlabel("Distance (km)", color="white")
+        ax3.set_ylabel("Path Loss (dB)", color="white")
+        ax3.legend(fontsize=8, facecolor="#1a1a2e", labelcolor="white")
+        ax3.tick_params(colors="white")
+        for sp in ax3.spines.values(): sp.set_color("#444")
         plt.tight_layout()
         st.pyplot(fig3)
 
-# ─────────────────────────────────────────────────────────────────────────────
 # TAB 3 — NOISE & I/N ANALYSIS
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "📊 Noise & I/N":
