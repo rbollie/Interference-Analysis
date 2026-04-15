@@ -19,6 +19,7 @@ import itur
 import itur.models.itu676 as itu676
 import warnings
 import anthropic
+import math
 from auth import (show_login_page, show_admin_panel, is_authenticated,
                   is_admin, current_user, logout)
 warnings.filterwarnings("ignore")
@@ -95,101 +96,223 @@ FAA_BANDS = {
         "f_low_mhz": 108.0, "f_high_mhz": 117.975,
         "system": "VOR / ILS Localizer",
         "allocation": "ARNS",
+        "service_category": "AM(R)S + ARNS",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -12,
         "noise_floor_dbm": -120,
         "safety_of_life": True,
-        "notes": "En-route navigation and precision approach guidance",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor for precision approach",
+        "spr_source": "Max EIRP toward airport; worst-case azimuth",
+        "spr_path": "FSPL; distances >20 km; free-space worst-case",
+        "spr_victim": "Receiver susceptibility mask per DO-196; −120 dBm noise floor",
+        "notes": "En-route navigation and precision approach guidance. ILS CAT III approach — 6 dB additional safety factor applies.",
         "rtca_doc": "DO-196",
     },
     "ILS Glide Slope": {
         "f_low_mhz": 328.6, "f_high_mhz": 335.4,
         "system": "ILS Glide Slope",
         "allocation": "ARNS",
+        "service_category": "ARNS",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -12,
         "noise_floor_dbm": -115,
         "safety_of_life": True,
-        "notes": "Vertical guidance for precision landings (CAT I/II/III)",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor; CAT III precision approach",
+        "spr_source": "Max EIRP interferer; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; free-space attenuation above 300 MHz",
+        "spr_victim": "Receiver susceptibility per DO-148; noise floor −115 dBm",
+        "notes": "Vertical guidance for precision landings (CAT I/II/III). Safety factor mandatory for CAT III.",
         "rtca_doc": "DO-148",
     },
     "DME / TACAN": {
         "f_low_mhz": 960.0, "f_high_mhz": 1215.0,
         "system": "DME / TACAN / SSR / TCAS",
         "allocation": "ARNS + ANS",
+        "service_category": "ARNS + ANS",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 0,
+        "effective_threshold_db": -6,
+        "epfd_threshold_dbw_m2_mhz": -121.5,
         "noise_floor_dbm": -106,
         "safety_of_life": True,
-        "notes": "Distance measuring, ATC surveillance, collision avoidance",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB; epfd ≤ −121.5 dBW/m² in any 1 MHz band (from slide)",
+        "spr_source": "Max Tx power; worst-case antenna gain toward aircraft",
+        "spr_path": "FSPL; distance separation >20 km worst-case",
+        "spr_victim": "Receiver susceptibility mask; antenna gain; noise power per DO-189",
+        "notes": "Distance measuring, ATC surveillance, collision avoidance. epfd limit applies to satellite downlinks.",
         "rtca_doc": "DO-189 / DO-185B",
     },
     "ADS-B / Mode-S (1090 MHz)": {
         "f_low_mhz": 1085.0, "f_high_mhz": 1095.0,
         "system": "ADS-B / Mode-S Transponder",
         "allocation": "ARNS + ANS",
+        "service_category": "ANS (Aeronautical Navigation Service)",
         "in_threshold_db": -10,
+        "aviation_safety_factor_db": 0,
+        "effective_threshold_db": -10,
         "noise_floor_dbm": -100,
         "safety_of_life": True,
-        "notes": "1090 MHz squitter — global ATC surveillance backbone",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −10 dB; ASR protection level per system protection table",
+        "spr_source": "Max EIRP; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; distances >20 km",
+        "spr_victim": "Receiver susceptibility per DO-260B; noise floor −100 dBm",
+        "notes": "1090 MHz squitter — global ATC surveillance backbone. ASR threshold −10 dB applies.",
         "rtca_doc": "DO-260B",
     },
     "GNSS L5 / ARNS": {
         "f_low_mhz": 1164.0, "f_high_mhz": 1215.0,
         "system": "GNSS L5 / Galileo E5",
         "allocation": "ARNS + RNSS",
+        "service_category": "RNSS + ARNS",
         "in_threshold_db": -10,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -16,
+        "delta_t_t_pct_aggregate": 6.0,
         "noise_floor_dbm": -130,
         "safety_of_life": True,
-        "notes": "Safety-of-life GNSS signal; aviation approach procedures",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −10 dB wideband; ΔT/T ≤ 6% single-entry for RNSS feeder links; +6 dB aviation safety factor for safety-of-life applications",
+        "spr_source": "Max EIRP; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; distances >20 km; aggregate sources",
+        "spr_victim": "Receiver susceptibility mask per DO-292; noise floor −130 dBm",
+        "notes": "Safety-of-life GNSS signal; aviation approach procedures. ΔT/T = 6% for RNSS feeder links.",
         "rtca_doc": "DO-292",
     },
     "GPS L1 / GNSS": {
         "f_low_mhz": 1559.0, "f_high_mhz": 1610.0,
         "system": "GPS L1 / GLONASS / Galileo E1",
         "allocation": "RNSS + ARNS",
+        "service_category": "RNSS + ARNS",
         "in_threshold_db": -10,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -16,
+        "psd_threshold_dbw_mhz": -146.5,
         "noise_floor_dbm": -130,
         "safety_of_life": True,
-        "notes": "Primary GNSS band — most sensitive; heavily protected",
+        "rr_1_59": True,
+        "protection_basis": "I < −146.5 dBW/MHz (L1 SBAS Type 1 acquisition); I/N ≈ −5 dB + 6 dB safety margin (wideband RFI); L2 SBAS Gnd Ref: I < −147.5 dBW/MHz, I/N ≈ −6 dB",
+        "spr_source": "Max EIRP; worst-case antenna gain; signal characteristics",
+        "spr_path": "FSPL worst-case; aggregate effect of multiple sources",
+        "spr_victim": "Receiver susceptibility per DO-235B/DO-253; noise floor −130 dBm",
+        "notes": "Primary GNSS band. SBAS/WAAS critical. PSD limit −146.5 dBW/MHz applies to wideband RFI per system protection table.",
         "rtca_doc": "DO-235B / DO-253",
     },
     "En-Route Radar": {
         "f_low_mhz": 2700.0, "f_high_mhz": 2900.0,
-        "system": "ATC En-Route Surveillance Radar",
+        "system": "ATC En-Route Surveillance Radar (ARSR / ASR)",
         "allocation": "ARNS + RN",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 0,
+        "effective_threshold_db": -6,
         "noise_floor_dbm": -100,
         "safety_of_life": True,
-        "notes": "ASR / ARSR long-range ATC radar",
+        "rr_1_59": True,
+        "protection_basis": "ARSR: I/N ≤ −6 dB; ASR: I/N ≤ −10 dB (per system protection levels table)",
+        "spr_source": "Max EIRP; worst-case azimuth toward radar",
+        "spr_path": "FSPL; worst-case for distances >20 km",
+        "spr_victim": "Radar receiver susceptibility; noise power; antenna gain",
+        "notes": "ARSR (long-range) I/N = −6 dB; ASR (short-range, airport) I/N = −10 dB. Both from FAA system protection table.",
         "rtca_doc": "N/A (ITU-R M.1849)",
     },
     "Radio Altimeter": {
         "f_low_mhz": 4200.0, "f_high_mhz": 4400.0,
         "system": "Radio Altimeter (Rad Alt)",
         "allocation": "ARNS",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -12,
         "noise_floor_dbm": -90,
         "safety_of_life": True,
-        "notes": "Critical for CAT III landings, TAWS, GPWS, helicopter ops",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor for CAT III precision approach and landing",
+        "spr_source": "Max EIRP interferer (e.g. 5G base station); OOB/spurious emissions",
+        "spr_path": "FSPL + possible blocking; distances >20 km worst-case; aggregate effect",
+        "spr_victim": "LNA susceptibility mask; blocking threshold; noise floor −90 dBm",
+        "notes": "Critical for CAT III landings, TAWS, GPWS, helicopter ops. 5G adjacent band (3.7–3.98 GHz) blocking risk.",
         "rtca_doc": "DO-155 / ETSO-C87",
     },
     "ARNS 5 GHz": {
         "f_low_mhz": 5000.0, "f_high_mhz": 5150.0,
         "system": "ARNS / Future Aeronautical Systems",
         "allocation": "ARNS",
+        "service_category": "ARNS",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -12,
         "noise_floor_dbm": -95,
         "safety_of_life": True,
-        "notes": "Protected for future aeronautical use; under pressure from IMT",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor; under pressure from IMT-2030 WP 5D studies",
+        "spr_source": "Potential IMT base station EIRP; OOB emissions from adjacent IMT bands",
+        "spr_path": "FSPL worst-case; P.528 for airborne victim",
+        "spr_victim": "Future ARNS receiver; noise floor −95 dBm",
+        "notes": "Protected for future aeronautical use; under pressure from IMT. WRC-27 WP 5D AI 1.2 threat.",
         "rtca_doc": "N/A",
     },
     "Airborne Weather Radar": {
         "f_low_mhz": 9000.0, "f_high_mhz": 9500.0,
         "system": "Airborne / Surface Movement Radar",
         "allocation": "ARNS + RN",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
         "in_threshold_db": -6,
+        "aviation_safety_factor_db": 0,
+        "effective_threshold_db": -6,
         "noise_floor_dbm": -95,
         "safety_of_life": True,
-        "notes": "X-band weather radar and airport surface detection",
+        "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB; safety service per RR 1.59",
+        "spr_source": "Max EIRP; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; gaseous absorption significant at X-band",
+        "spr_victim": "Radar receiver susceptibility; noise floor −95 dBm",
+        "notes": "X-band weather radar and airport surface detection. Governed by ITU-R M.1849.",
         "rtca_doc": "DO-220",
+    },
+    "MLS (Microwave Landing System)": {
+        "f_low_mhz": 5030.0, "f_high_mhz": 5091.0,
+        "system": "Microwave Landing System (MLS)",
+        "allocation": "ARNS",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
+        "in_threshold_db": -6,
+        "aviation_safety_factor_db": 6,
+        "effective_threshold_db": -12,
+        "pfd_threshold_dbw_m2_khz": -124.5,
+        "noise_floor_dbm": -110,
+        "safety_of_life": True,
+        "rr_1_59": True,
+        "protection_basis": "pfd ≤ −124.5 dBW/m² in 150 kHz band (from FAA system protection table); I/N ≤ −6 dB + 6 dB safety factor",
+        "spr_source": "Max EIRP; signal characteristics",
+        "spr_path": "FSPL; worst-case approach geometry",
+        "spr_victim": "MLS receiver susceptibility; noise floor −110 dBm",
+        "notes": "Precision approach system. PFD limit −124.5 dBW/m² in 150 kHz band.",
+        "rtca_doc": "N/A",
+    },
+    "L-band AMS(R)S": {
+        "f_low_mhz": 1525.0, "f_high_mhz": 1559.0,
+        "system": "L-band Aeronautical Mobile Satellite (Route) Service",
+        "allocation": "AMS(R)S",
+        "service_category": "AMS(R)S — Aeronautical Mobile Satellite (Route) Service",
+        "in_threshold_db": -6,
+        "aviation_safety_factor_db": 0,
+        "effective_threshold_db": -6,
+        "delta_t_t_pct_aggregate": 20.0,
+        "delta_t_t_pct_single": 6.0,
+        "noise_floor_dbm": -120,
+        "safety_of_life": True,
+        "rr_1_59": True,
+        "protection_basis": "ΔT/T ≤ 20% aggregate, ΔT/T ≤ 6% single-entry (from FAA system protection table)",
+        "spr_source": "Satellite downlink EIRP; terrestrial co-frequency EIRP",
+        "spr_path": "Slant path (P.619); FSPL worst-case for terrestrial",
+        "spr_victim": "Aircraft terminal; noise temperature; antenna gain",
+        "notes": "INMARSAT/IRIDIUM safety comms. ΔT/T metric used (not I/N). 20% aggregate = 6% single-entry per protection table.",
+        "rtca_doc": "N/A",
     },
 }
 
@@ -389,6 +512,7 @@ tab_names = [
     "📓 Meeting Notes",
     "🔬 Code Analyzer",
     "📖 Glossary",
+    "📻 Microwave Link Budget",
 ]
 
 # Admin-only tab
@@ -525,41 +649,97 @@ if selected_tab == "📡 Protected Bands":
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Lower Freq", f"{b['f_low_mhz']} MHz",
-        help="Bottom edge of the protected band in Megahertz (MHz) — new allocations must not encroach below this frequency. MHz = Megahertz, a unit of radio frequency equal to one million cycles per second.")
+        help="Bottom edge of the protected band in Megahertz (MHz) — new allocations must not encroach below this frequency.")
     col2.metric("Upper Freq", f"{b['f_high_mhz']} MHz",
-        help="Top edge of the protected band in Megahertz (MHz) — out-of-band emissions from systems operating above this frequency can still cause Low Noise Amplifier (LNA) desensitization or blocking in the protected receiver.")
+        help="Top edge of the protected band in Megahertz (MHz) — out-of-band emissions from systems above this frequency can still cause Low Noise Amplifier (LNA) desensitization or blocking in the protected receiver.")
     col3.metric("Bandwidth", f"{b['f_high_mhz'] - b['f_low_mhz']:.1f} MHz",
-        help="Total protected bandwidth in Megahertz (MHz). A wider bandwidth raises the thermal noise floor (because noise power = Boltzmann constant × Temperature × Bandwidth × Noise Figure), making the receiver less sensitive — but also means more spectrum to defend in ITU-R proceedings.")
+        help="Total protected bandwidth in Megahertz (MHz). Wider bandwidth raises the thermal noise floor (noise power = kTBF), making the receiver less sensitive — but also more spectrum to defend.")
     col4.metric("I/N Threshold", f"{b['in_threshold_db']} dB",
-        help="Interference-to-Noise (I/N) ratio threshold in decibels (dB) — the maximum tolerable interference power relative to the receiver noise floor. At I/N = −6 dB the noise floor rises by approximately 1 decibel; at −10 dB (used for Global Navigation Satellite System / GNSS receivers) it rises by 0.4 dB. Exceeding this threshold is the technical basis for citing harmful interference under Radio Regulations (RR) No. 4.10.")
+        help="Interference-to-Noise (I/N) ratio threshold — the maximum tolerable interference power relative to the receiver noise floor. Exceeding this threshold is the basis for citing harmful interference under Radio Regulations No. 4.10.")
 
     col5, col6, col7 = st.columns(3)
     col5.metric("Allocation", b["allocation"],
-        help="International Telecommunication Union (ITU) Radio Regulations frequency allocation type for this band. ARNS = Aeronautical Radionavigation Service (ground-based navigation aids for aircraft). RNSS = Radionavigation Satellite Service (GPS, GLONASS, Galileo). ANS = Aeronautical Navigation Service. A Primary allocation has stronger regulatory protection than a Secondary allocation.")
+        help="ITU Radio Regulations allocation type. ARNS = Aeronautical Radionavigation Service. RNSS = Radionavigation Satellite Service. ANS = Aeronautical Navigation Service. Primary allocation has stronger protection than secondary.")
     col6.metric("Noise Floor (est.)", f"{b['noise_floor_dbm']} dBm",
-        help="Estimated receiver thermal noise floor in decibels relative to one milliwatt (dBm), calculated as: Noise Floor = −174 + 10·log10(Bandwidth in Hz) + Noise Figure in dB, where −174 dBm/Hz is the thermal noise spectral density at 290 Kelvin (room temperature). Interference must remain below the Interference-to-Noise (I/N) threshold relative to this level. Verify the exact value against the applicable RTCA (Radio Technical Commission for Aeronautics) Minimum Operational Performance Standard (MOPS) before citing in a contribution.")
+        help="Estimated receiver thermal noise floor (kTBF). Verify exact value against applicable RTCA Minimum Operational Performance Standard (MOPS) before citing in a contribution.")
     col7.metric("RTCA Standard", b["rtca_doc"],
-        help="Radio Technical Commission for Aeronautics (RTCA) Minimum Operational Performance Standard (MOPS) document number governing this receiver type. RTCA MOPS define the minimum receiver sensitivity, selectivity, and immunity to interference that avionics must meet for certification. These documents are the primary source for the protection criteria, noise floor values, and Interference-to-Noise (I/N) thresholds cited in ITU-R Working Party contributions.")
+        help="Radio Technical Commission for Aeronautics (RTCA) Minimum Operational Performance Standard governing this receiver type. Primary source for protection criteria cited in ITU-R contributions.")
+
+    # New fields from slides
+    col8, col9, col10 = st.columns(3)
+    safety_factor = b.get("aviation_safety_factor_db", 0)
+    effective_thresh = b.get("effective_threshold_db", b["in_threshold_db"])
+    col8.metric("Aviation Safety Factor", f"{safety_factor} dB" if safety_factor > 0 else "0 dB (N/A)",
+        help="Per FAA slides: 'Some aeronautical applications (e.g. precision approach and landing) are critical, meriting an additional safety factor of not less than 6 dB.' Applies on top of the base I/N threshold.")
+    col9.metric("Effective Threshold (incl. safety factor)", f"{effective_thresh} dB",
+        help="Base I/N threshold plus the aviation safety factor. This is the operationally applied protection criterion for safety-critical precision approach and landing applications.")
+    col10.metric("Service Category (ITU-R)", b.get("service_category", b["allocation"]),
+        help="ITU service category. AM(R)S = Aeronautical Mobile (Route) Service — safety and regularity. AMS(R)S = satellite variant. ARNS = Aeronautical Radionavigation Service.")
 
     st.markdown(f"**System:** {b['system']}")
     st.markdown(f"**Notes:** {b['notes']}")
-    if b["safety_of_life"]:
-        st.markdown("🔴 **Safety-of-Life Service** — protected under RR No. 4.10")
+    st.markdown(f"**Protection Basis:** {b.get('protection_basis', '—')}")
 
-    # Full table
+    # Special protection values (ΔT/T, PFD, epfd)
+    special_vals = []
+    if b.get("delta_t_t_pct_aggregate"):
+        special_vals.append(f"ΔT/T aggregate: {b['delta_t_t_pct_aggregate']}%")
+    if b.get("delta_t_t_pct_single"):
+        special_vals.append(f"ΔT/T single-entry: {b['delta_t_t_pct_single']}%")
+    if b.get("psd_threshold_dbw_mhz"):
+        special_vals.append(f"PSD threshold: {b['psd_threshold_dbw_mhz']} dBW/MHz")
+    if b.get("epfd_threshold_dbw_m2_mhz"):
+        special_vals.append(f"epfd limit: {b['epfd_threshold_dbw_m2_mhz']} dBW/m²/MHz")
+    if b.get("pfd_threshold_dbw_m2_khz"):
+        special_vals.append(f"pfd limit: {b['pfd_threshold_dbw_m2_khz']} dBW/m² in 150 kHz")
+    if special_vals:
+        st.markdown("**Additional Protection Criteria:** " + "  |  ".join(special_vals))
+
+    if b.get("rr_1_59"):
+        st.markdown("🔴 **Safety Service (RR 1.59)** — any radiocommunication service used permanently or temporarily for the safeguarding of human life and property. Protected under RR No. 4.10.")
+
+    # Source-Path-Receiver model
+    with st.expander("🔍 Source-Path-Receiver (SPR) Analysis Framework for this band"):
+        ex("The SPR model is the formal FAA methodology for aviation interference analysis (per FAA slides). Worst-case limits must be applied on all three elements.")
+        spr1, spr2, spr3 = st.columns(3)
+        with spr1:
+            st.markdown(f"""
+<div style='background:#2a1a0a;border-left:4px solid #ff8844;padding:10px;border-radius:4px'>
+<b style='color:#ff8844'>📡 SOURCE (Interferer)</b><br>
+<span style='color:#ffddaa;font-size:0.85em'>{b.get('spr_source','Max Tx power; worst-case antenna gain; signal characteristics')}</span>
+</div>""", unsafe_allow_html=True)
+        with spr2:
+            st.markdown(f"""
+<div style='background:#0a0a2a;border-left:4px solid #4488ff;padding:10px;border-radius:4px'>
+<b style='color:#4488ff'>🌐 PATH (Propagation)</b><br>
+<span style='color:#aaddff;font-size:0.85em'>{b.get('spr_path','FSPL worst-case; free-space attenuation especially >1 GHz; distance separation >20 km')}</span>
+</div>""", unsafe_allow_html=True)
+        with spr3:
+            st.markdown(f"""
+<div style='background:#0a2a0a;border-left:4px solid #44bb44;padding:10px;border-radius:4px'>
+<b style='color:#44bb44'>📻 VICTIM (Receiver)</b><br>
+<span style='color:#aaffaa;font-size:0.85em'>{b.get('spr_victim','Receiver susceptibility mask; antenna gain; receiver noise power')}</span>
+</div>""", unsafe_allow_html=True)
+        st.markdown("")
+        st.caption("Per FAA guidance: use worst-case limits on all aspects. Aggregate effect of multiple interference sources must be considered. Max interference threshold is used as protection criteria taking into account all environmental conditions.")
+
+    # Full table — updated with new columns
     st.subheader("All Bands Summary Table")
-    ex("Noise floor estimates here are representative — always verify against the applicable RTCA DO standard or ICAO Annex 10 minimum operational performance specification for the specific receiver generation.")
+    ex("Now includes aviation safety factor and effective threshold per FAA system protection levels. Noise floor estimates are representative — verify against applicable RTCA MOPS.")
     rows = []
-    for name, b in FAA_BANDS.items():
+    for name, b_row in FAA_BANDS.items():
         rows.append({
             "Band": name,
-            "Low (MHz)": b["f_low_mhz"],
-            "High (MHz)": b["f_high_mhz"],
-            "BW (MHz)": round(b["f_high_mhz"] - b["f_low_mhz"], 3),
-            "Allocation": b["allocation"],
-            "I/N Threshold (dB)": b["in_threshold_db"],
-            "Noise Floor (dBm)": b["noise_floor_dbm"],
-            "Safety-of-Life": "✅" if b["safety_of_life"] else "—",
+            "Low (MHz)": b_row["f_low_mhz"],
+            "High (MHz)": b_row["f_high_mhz"],
+            "BW (MHz)": round(b_row["f_high_mhz"] - b_row["f_low_mhz"], 3),
+            "Allocation": b_row["allocation"],
+            "I/N Threshold (dB)": b_row["in_threshold_db"],
+            "Aviation Safety Factor (dB)": b_row.get("aviation_safety_factor_db", 0),
+            "Effective Threshold (dB)": b_row.get("effective_threshold_db", b_row["in_threshold_db"]),
+            "Noise Floor (dBm)": b_row["noise_floor_dbm"],
+            "RR 1.59 Safety Service": "✅" if b_row.get("rr_1_59") else "—",
+            "RTCA": b_row["rtca_doc"],
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
@@ -1768,6 +1948,78 @@ Once configured, the analyzer will work every time you visit the app.
 Even a partial paste (e.g., just the conclusions section) will produce useful guidance."""
     )
 
+    # ── Interference Classification Reference Card ────────────────────────────
+    with st.expander("📋 ITU-R Interference Classification Reference — Applied in Every Analysis"):
+        ex("The AI uses this exact framework from your slide to characterize interference in every contribution it analyzes.")
+
+        st.markdown("### Unwanted Emissions — Source Characterization")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            st.markdown("""
+<div style='background:#1a2a3a;border-left:4px solid #4488ff;padding:10px 14px;border-radius:4px;margin-bottom:8px'>
+<b style='color:#4488ff'>SPURIOUS EMISSIONS</b><br>
+<span style='color:#cce;font-size:0.88em'>
+Frequencies just outside the necessary bandwidth whose level <b>may be reduced without 
+affecting the corresponding transmission of information.</b><br><br>
+Includes: harmonics, parasitic emissions, intermodulation products, frequency conversion products.<br>
+<b>Explicitly EXCLUDES out-of-band emissions.</b><br><br>
+Regulatory handle: RR Appendix 3 spurious emission limits
+</span>
+</div>""", unsafe_allow_html=True)
+        with col_r2:
+            st.markdown("""
+<div style='background:#1a2a3a;border-left:4px solid #ff8844;padding:10px 14px;border-radius:4px;margin-bottom:8px'>
+<b style='color:#ff8844'>OUT-OF-BAND (OOB) EMISSIONS</b><br>
+<span style='color:#cce;font-size:0.88em'>
+Frequencies <b>immediately outside the necessary bandwidth</b> which result from 
+<b>the modulation process itself</b>, but excluding spurious emissions.<br><br>
+Key distinction: OOB = caused by modulation. Spurious = hardware non-idealities.<br><br>
+Regulatory handle: Emission designator masks and guard band requirements
+</span>
+</div>""", unsafe_allow_html=True)
+
+        st.markdown("### Interference Classification — RR Article 1.166")
+        col_i1, col_i2, col_i3 = st.columns(3)
+        with col_i1:
+            st.markdown("""
+<div style='background:#3a1a1a;border-left:4px solid #ff4444;padding:10px 14px;border-radius:4px'>
+<b style='color:#ff6666'>🔴 HARMFUL INTERFERENCE</b><br>
+<span style='color:#aaa;font-size:0.82em'>RR 1.169</span><br><br>
+<span style='color:#ffaaaa;font-size:0.88em'>
+Interference which <b>endangers the functioning</b> of a radionavigation service or 
+other safety services, OR <b>seriously degrades, obstructs, or repeatedly interrupts</b> 
+a radiocommunication service operating in accordance with the RR.<br><br>
+<b>→ Triggers RR No. 4.10<br>→ US must oppose<br>→ Demand cessation</b>
+</span>
+</div>""", unsafe_allow_html=True)
+        with col_i2:
+            st.markdown("""
+<div style='background:#1a3a1a;border-left:4px solid #44bb44;padding:10px 14px;border-radius:4px'>
+<b style='color:#66dd66'>🟢 PERMISSIBLE INTERFERENCE</b><br>
+<span style='color:#aaa;font-size:0.82em'>RR 1.167</span><br><br>
+<span style='color:#aaffaa;font-size:0.88em'>
+Observed or predicted interference which <b>complies with quantitative interference 
+and sharing criteria</b> in the Radio Regulations or in ITU-R Recommendations or 
+in special agreements.<br><br>
+<b>→ Acceptable if within criteria<br>→ Used in frequency coordination<br>→ Monitor the criteria</b>
+</span>
+</div>""", unsafe_allow_html=True)
+        with col_i3:
+            st.markdown("""
+<div style='background:#2a2a1a;border-left:4px solid #ffbb44;padding:10px 14px;border-radius:4px'>
+<b style='color:#ffdd66'>🟡 ACCEPTED INTERFERENCE</b><br>
+<span style='color:#aaa;font-size:0.82em'>RR 1.168</span><br><br>
+<span style='color:#ffffaa;font-size:0.88em'>
+Interference at a <b>higher level than permissible</b>, which has been <b>agreed upon 
+between two or more administrations</b> without prejudice to other administrations.<br><br>
+<b>→ Requires explicit bilateral agreement<br>→ Cannot bind other admins<br>→ Verify scope carefully</b>
+</span>
+</div>""", unsafe_allow_html=True)
+
+        st.caption("Both permissible interference and accepted interference are used in the coordination of frequency assignments between administrations (RR 1.167/1.168).")
+
+    st.markdown("---")
+
     # Optional context
     with st.expander("➕ Additional Context (optional but helpful)"):
         user_concern = st.text_area("Specific FAA concern you want addressed:",
@@ -1796,9 +2048,38 @@ Even a partial paste (e.g., just the conclusions section) will produce useful gu
         }[analysis_depth]
 
         faa_bands_summary = "\n".join([
-            f"- {name}: {b['f_low_mhz']}–{b['f_high_mhz']} MHz ({b['allocation']}), I/N threshold {b['in_threshold_db']} dB, Safety-of-Life: {b['safety_of_life']}"
+            f"- {name}: {b['f_low_mhz']}–{b['f_high_mhz']} MHz ({b['allocation']}), "
+            f"I/N threshold {b['in_threshold_db']} dB, "
+            f"Aviation safety factor {b.get('aviation_safety_factor_db',0)} dB, "
+            f"Effective threshold {b.get('effective_threshold_db', b['in_threshold_db'])} dB, "
+            f"Safety Service (RR 1.59): {b.get('rr_1_59', True)}"
             for name, b in FAA_BANDS.items()
         ])
+
+        system_protection_table = """
+FAA SYSTEM PROTECTION LEVELS (from FAA Interference Protection Considerations slides):
+| System | Protection Level | Notes |
+|--------|-----------------|-------|
+| ARSR (Air Route Surveillance Radar) | I/N = −6 dB | Long-range ATC radar |
+| ASR (Airport Surveillance Radar) | I/N = −10 dB | Short-range terminal radar |
+| RNSS Feeder Links | ΔT/T = 6% | Noise temperature rise metric |
+| L1 SBAS Type 1 | I < −146.5 dBW/MHz; I/N ≈ −5 dB + 6 dB safety margin | Wideband RFI; acquisition threshold |
+| L2 SBAS Ground Reference Rx | I < −147.5 dBW/MHz; I/N ≈ −6 dB | Wideband RFI |
+| L-band AMS(R)S Service & Feeder Links | ΔT/T = 20% aggregate = 6% single-entry | Noise temperature metric |
+| DME | epfd ≤ −121.5 dBW/m² in any 1 MHz band | Effective power flux density limit |
+| MLS | pfd ≤ −124.5 dBW/m² in 150 kHz band | Power flux density limit |
+
+AVIATION SAFETY FACTOR: Some aeronautical applications (e.g. precision approach and landing) are critical,
+meriting an additional safety factor of not less than 6 dB on top of the base I/N threshold.
+
+AERONAUTICAL SPECTRUM FUNCTIONS (per FAA slides):
+1. Communications — AM(R)S & AMS(R)S: voice and data between aircraft and ground; safety requiring high integrity and rapid response; "(R)" = safety and regularity
+2. Navigation — ARNS, RNSS, RNS (Radionavigation Service), RDSS (Radiodetermination-satellite), Aeronautical RNSS
+3. Surveillance — SSR, ADS-B, TCAS for ATC separation
+
+SAFETY SERVICE (RR 1.59): Any radiocommunication service used permanently or temporarily for the safeguarding of human life and property. ALL aeronautical bands listed above qualify.
+
+FREQUENCY SHARING BASIS: Permissible interference / non-interference basis. Permissible interference results in acceptable minimal performance change and is typically a change in the noise floor or received signal-to-noise ratio."""
 
         system_prompt = f"""You are a senior RF spectrum policy advisor supporting the FAA and NTIA in ITU-R proceedings. 
 Your role is to analyze ITU-R contributions from Working Party 5D (IMT/Mobile) and Working Party 5B (Maritime/Radiodetermination) 
@@ -1807,23 +2088,109 @@ and provide precise, actionable policy guidance to protect US aeronautical inter
 The following FAA frequency bands are protected and must be defended:
 {faa_bands_summary}
 
+{system_protection_table}
+
 Key regulatory instruments available:
 - RR No. 4.10: No harmful interference to safety-of-life services
+- RR No. 1.59: Safety service — any radiocommunication service used for safeguarding human life and property
 - RR No. 5.444: ARNS protection at 960-1215 MHz
+- RR No. 5.328: ARNS at 108-137 MHz; RNSS cannot claim protection from ARNS in 1164-1215 MHz
 - RR Resolution 233/236: RNSS/GNSS protection
 - RR Resolution 750: IMT and safety services coexistence
+- ITU-R M.1318: c = a − b methodology for GNSS aggregate interference
+- ITU-R M.1477: 6 dB aeronautical safety margin; +10 dB for narrowband (≤700 Hz) interferers
+- ITU-R M.1904 / M.1905: GLONASS and RNSS 6 dB safety margin doctrine
 - ITU-R M.1642: Methodology for IMT/ARNS compatibility assessments
 - ITU-R SM.2028: Monte Carlo simulation methodology
 - ICAO Annex 10: Aeronautical telecommunications standards
 - RTCA standards: DO-235B (GNSS), DO-260B (ADS-B), DO-155 (Radio Altimeter)
 
-Your analysis must be technically grounded and policy-actionable. Always be specific about which FAA bands are threatened, 
-what the technical mechanism of interference is, and what concrete regulatory language the US should pursue.
+SOURCE-PATH-RECEIVER (SPR) ANALYSIS FRAMEWORK — MANDATORY:
+Aviation interference analysis uses the SPR model with worst-case limits on ALL three elements:
+- SOURCE: Max transmit power, worst-case antenna gain, worst-case signal characteristics (e.g. max EIRP, highest OOB emission level)
+- PATH: Free-space attenuation especially above 1 GHz; distance separation >20 km; worst-case propagation (P.528 for airborne, P.452 for ground; time %=1%)
+- VICTIM: Receiver susceptibility mask, worst-case antenna gain toward interferer, receiver noise power
+AGGREGATE EFFECT: The aggregate effect of multiple interference sources must be considered and due allowance made (Monte Carlo per SM.2028).
+PROTECTION CRITERIA: Max interference threshold limit is used as a protection criterion, taking into account all environmental conditions.
+AVIATION SAFETY FACTOR: Precision approach and landing applications require an ADDITIONAL 6 dB safety factor on top of the base I/N threshold.
+PERMISSIBLE INTERFERENCE: Results in acceptable minimal performance change — typically a change in the noise floor or received signal-to-noise ratio.
+
+═══════════════════════════════════════════════════════════════════════════
+MANDATORY INTERFERENCE CLASSIFICATION FRAMEWORK
+Based on ITU Radio Regulations — apply to EVERY analysis without exception
+═══════════════════════════════════════════════════════════════════════════
+
+LAYER 1 — UNWANTED EMISSIONS (characterize the SOURCE of interfering energy):
+
+SPURIOUS EMISSIONS
+Definition: Emissions at frequency or frequencies just outside the necessary bandwidth,
+the level of which MAY BE REDUCED without affecting the corresponding transmission of
+information. Spurious emissions include: harmonic emissions, parasitic emissions,
+intermodulation products, and frequency conversion products.
+IMPORTANT: Spurious emissions EXPLICITLY EXCLUDE out-of-band emissions.
+Regulatory handle: RR Appendix 3 spurious emission limits. Argue for tighter masks.
+
+OUT-OF-BAND (OOB) EMISSIONS
+Definition: Emissions at frequency or frequencies IMMEDIATELY outside the necessary
+bandwidth, which result from the MODULATION PROCESS itself, but excluding spurious emissions.
+Key distinction from spurious: OOB is an inherent consequence of modulation;
+spurious is caused by hardware non-idealities (harmonics, intermod, parasitics).
+Regulatory handle: Emission designator/mask requirements. Argue for tighter OOB masks
+and larger guard bands between the interfering service and the protected band.
+
+LAYER 2 — INTERFERENCE CLASSIFICATION (RR Article 1.166 — classify by IMPACT level):
+
+HARMFUL INTERFERENCE (RR 1.169)
+Definition: Interference which endangers the functioning of a radionavigation service
+OR of other safety services OR seriously degrades, obstructs, or repeatedly interrupts
+a radiocommunication service operating in accordance with the Radio Regulations.
+Policy trigger: This is the threshold that invokes RR No. 4.10.
+Action: The US MUST oppose and demand cessation or mitigation.
+For ARNS/RNSS: ANY degradation that exceeds the I/N threshold (−6 dB or −10 dB)
+constitutes harmful interference to a safety-of-life service (RR 1.59).
+
+PERMISSIBLE INTERFERENCE (RR 1.167)
+Definition: Observed or predicted interference which complies with quantitative
+interference and sharing criteria contained in the Radio Regulations OR in ITU-R
+Recommendations OR in special agreements as provided for in these Regulations.
+Policy implication: Acceptable by definition if within agreed criteria.
+Used in coordination of frequency assignments between administrations.
+Caution: The US must ensure the agreed criteria are conservative enough — 
+"permissible" is only as protective as the criteria it references.
+
+ACCEPTED INTERFERENCE (RR 1.168)
+Definition: Interference at a higher level than that defined as permissible interference
+and which has been AGREED UPON between two or more administrations,
+without prejudice to other administrations.
+Policy implication: Requires explicit bilateral agreement. The US must ensure
+acceptance by one administration does not bind other administrations (including FAA).
+Both permissible and accepted interference are used in coordination of frequency
+assignments between administrations.
+
+LAYER 3 — TECHNICAL MECHANISMS (physical interference path):
+- IN-BAND: Interfering energy falls within the allocated protected band spectrum
+- OOB COUPLING: Interfering energy via modulation sidebands enters adjacent protected band
+- RECEIVER BLOCKING/DESENSITIZATION: Strong out-of-band signal compresses the LNA,
+  raising the effective noise floor — NO spectral overlap required
+- INTERMODULATION: Non-linear mixing produces products at new in-band frequencies
+- SPURIOUS RESPONSE: Receiver responds at image or IF frequencies due to poor selectivity
+
+CLASSIFICATION DECISION TREE:
+Step 1 → What is the emission type? (Spurious or OOB?)
+Step 2 → What is the technical mechanism? (In-band, blocking, intermod, OOB coupling?)
+Step 3 → What is the impact level? (Harmful 1.169, Permissible 1.167, or Accepted 1.168?)
+Step 4 → Does it rise to Harmful under 1.169? → If yes: RR 4.10 applies → OPPOSE
+Step 5 → Is it safety-of-life (RR 1.59)? → Lower threshold applies; 6 dB aviation safety factor for precision approach
+Step 6 → Apply SPR framework: are worst-case source, path, AND victim parameters used?
+
+For each analysis you MUST produce a formal interference characterization block
+that answers all six steps explicitly before proceeding to policy recommendations.
+═══════════════════════════════════════════════════════════════════════════
 
 {depth_instruction}
 
-Structure your response with clear headers. Use plain language that a policy official can act on immediately.
-Flag anything that requires urgent escalation to NTIA or ICAO."""
+Structure your response with clear headers. Use plain language that a policy official 
+can act on immediately. Flag anything requiring urgent escalation to NTIA or ICAO."""
 
         user_message = f"""Please analyze the following ITU-R contribution and provide FAA-focused policy guidance.
 
@@ -1842,16 +2209,35 @@ CONTRIBUTION TEXT:
 {f"PRIOR US POSITION: {prior_us_position}" if prior_us_position else ""}
 
 Please provide comprehensive policy guidance including:
-1. THREAT ASSESSMENT — Which FAA protected bands are at risk and how
-2. SUBMITTER'S OBJECTIVE — What the submitting administration is actually trying to achieve
-3. TECHNICAL CONCERNS — Specific interference mechanisms and vulnerable systems
-4. RECOMMENDED US POSITION — Oppose / Support / Propose amendments (with rationale)
-5. COUNTER-ARGUMENTS — Technical and regulatory arguments to raise in the Working Party
-6. REGULATORY CITATIONS — Specific RR articles, Resolutions, and ITU-R Recommendations to invoke
-7. COALITION STRATEGY — Which administrations/organizations to coordinate with
-8. REQUIRED ANALYSIS — What technical studies the US should conduct or commission
-9. URGENCY & TIMELINE — How quickly must the US respond and through what mechanism
-10. DRAFT RESPONSE LANGUAGE — Key phrases/text for the US contribution or intervention"""
+
+1. INTERFERENCE CHARACTERIZATION (apply ITU-RR taxonomy + SPR framework)
+   a) SPR Analysis: Source worst-case parameters, Path worst-case model, Victim worst-case receiver — are all three applied correctly?
+   b) Emission type: Spurious emissions, out-of-band (OOB) emissions, or in-band operation? Cite which RR definition applies.
+   c) Interference classification: Harmful (RR 1.169), permissible (RR 1.167), or accepted (RR 1.168)? Justify with quantitative threshold from the system protection table.
+   d) Technical mechanism: In-band, adjacent band OOB coupling, receiver blocking/desensitization, intermodulation, or spurious response?
+   e) Aviation safety factor: Does the 6 dB precision approach safety factor apply? Is it accounted for in the analysis?
+   f) Is RR No. 4.10 triggered? Is this a safety service per RR 1.59? State explicitly.
+
+2. THREAT ASSESSMENT — Which FAA protected bands are at risk and how
+
+3. SUBMITTER'S OBJECTIVE — What the submitting administration is actually trying to achieve
+
+4. TECHNICAL CONCERNS — Specific interference mechanisms and vulnerable aeronautical systems
+
+5. RECOMMENDED US POSITION — Oppose / Support / Propose amendments (with rationale)
+
+6. COUNTER-ARGUMENTS — Technical and regulatory arguments to raise in the Working Party
+
+7. REGULATORY CITATIONS — Specific RR articles, Resolutions, and ITU-R Recommendations to invoke
+
+8. COALITION STRATEGY — Which administrations/organizations to coordinate with
+
+9. REQUIRED ANALYSIS — What technical studies the US should conduct or commission
+
+10. URGENCY & TIMELINE — How quickly must the US respond and through what mechanism
+
+11. DRAFT RESPONSE LANGUAGE — Key phrases/text for the US contribution or intervention,
+    including precise interference characterization language using the ITU-RR taxonomy"""
 
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
@@ -1865,6 +2251,41 @@ Please provide comprehensive policy guidance including:
                 analysis_text = response.content[0].text
 
                 st.success("✅ Analysis complete")
+                st.markdown("---")
+
+                # Interference characterization quick-badge at top
+                st.subheader("⚡ Interference Classification (ITU-RR Taxonomy)")
+                ex("The AI has characterized the interference using the formal ITU Radio Regulations definitions from RR Articles 1.166–1.169. This framing is what Working Party rapporteurs and experienced delegations use to assess the regulatory weight of a contribution.")
+
+                ic1, ic2, ic3 = st.columns(3)
+                with ic1:
+                    st.markdown("""
+<div style='background:#1a2a3a;border-left:4px solid #4488ff;padding:10px;border-radius:4px'>
+<b style='color:#4488ff'>📡 Emission Type</b><br>
+<span style='color:#aaddff;font-size:0.85em'>
+Spurious (RR 1.145) — hardware non-linearity<br>
+Out-of-Band / OOB — from modulation process<br>
+In-band — co-frequency operation
+</span></div>""", unsafe_allow_html=True)
+                with ic2:
+                    st.markdown("""
+<div style='background:#1a3a1a;border-left:4px solid #44bb44;padding:10px;border-radius:4px'>
+<b style='color:#44bb44'>⚖️ RR Classification</b><br>
+<span style='color:#aaffaa;font-size:0.85em'>
+Harmful (RR 1.169) → triggers RR 4.10<br>
+Permissible (RR 1.167) → within criteria<br>
+Accepted (RR 1.168) → bilateral agreement
+</span></div>""", unsafe_allow_html=True)
+                with ic3:
+                    st.markdown("""
+<div style='background:#3a1a1a;border-left:4px solid #ff4444;padding:10px;border-radius:4px'>
+<b style='color:#ff4444'>🔧 Mechanism</b><br>
+<span style='color:#ffaaaa;font-size:0.85em'>
+In-band / Adjacent band coupling<br>
+Receiver blocking / desensitization<br>
+Intermodulation / spurious response
+</span></div>""", unsafe_allow_html=True)
+                st.caption("See full definitions in the 📖 Glossary module under 'ITU-R & Regulatory' category.")
                 st.markdown("---")
                 st.subheader("Policy Guidance")
                 st.markdown(analysis_text)
@@ -4372,6 +4793,50 @@ elif selected_tab == "📖 Glossary":
          "The document produced by the ITU-R Conference Preparatory Meeting (CPM) summarizing all technical studies and presenting one or more 'methods' for each WRC Agenda Item. The CPM Report is the primary input to the WRC negotiation process.",
          "🌐 ITU-R & Regulatory"),
 
+        ("Harmful Interference", "Harmful Interference — RR Article 1.169",
+         "Interference which endangers the functioning of a radionavigation service or other safety service, OR seriously degrades, obstructs, or repeatedly interrupts a radiocommunication service operating in accordance with the Radio Regulations. This is the legally defined threshold for regulatory action under RR No. 4.10. When interference rises to this level, affected administrations have the right to require cessation of the interfering transmission. For FAA aeronautical systems, demonstrating that a new proposal causes harmful interference under RR 1.169 is the strongest possible policy lever.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Permissible Interference", "Permissible Interference — RR Article 1.167",
+         "Observed or predicted interference which complies with quantitative interference and sharing criteria contained in the Radio Regulations or in ITU-R Recommendations or in special agreements as provided for in these Regulations. Permissible interference is below the harmful threshold — it is legally acceptable under the treaty framework. Both permissible interference and accepted interference are used in the coordination of frequency assignments between administrations.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Accepted Interference", "Accepted Interference — RR Article 1.168",
+         "Interference at a higher level than that defined as permissible interference, which has been agreed upon between two or more administrations without prejudice to other administrations. Accepted interference is used in bilateral frequency coordination agreements where administrations choose to tolerate higher interference levels than the standard criteria in exchange for operational flexibility. It cannot be imposed on a third administration — only agreed bilaterally.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Interference (RR 1.166)", "Interference — RR Article 1.166",
+         "The effect of unwanted energy due to one or a combination of emissions, radiations, or inductions upon reception in a radiocommunication system, manifested by any performance degradation, misinterpretation, or loss of information which could be extracted in the absence of such unwanted energy. The three regulatory categories — harmful (1.169), permissible (1.167), and accepted (1.168) — all fall under this parent definition.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Spurious Emissions", "Spurious Emissions (ITU-R definition)",
+         "Emissions at frequencies outside the necessary bandwidth whose level can be reduced without affecting the corresponding transmission of information. Spurious emissions include harmonic emissions, parasitic emissions, intermodulation products, and frequency conversion products, but explicitly EXCLUDE out-of-band (OOB) emissions. Spurious emissions arise from hardware non-idealities (non-linearities, oscillator leakage) rather than the modulation process itself. They are regulated by ITU-R Recommendation SM.329 and are subject to limits in the Radio Regulations Appendix 3.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Out-of-Band (OOB) Emissions", "Out-of-Band Emissions (ITU-R definition)",
+         "Emissions at frequencies immediately outside the necessary bandwidth which result from the modulation process, but excluding spurious emissions. OOB emissions are an unavoidable consequence of the modulation waveform — they arise from the spectral sidebands of the modulated signal. Unlike spurious emissions, OOB emissions cannot be eliminated without affecting the information content of the transmission. They can be reduced by filtering (at the cost of signal distortion) or by reducing modulation bandwidth. OOB emissions are the primary mechanism for interference into adjacent aeronautical bands — for example, 5G New Radio OOB emissions near the Radio Altimeter band (4200–4400 MHz).",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Unwanted Emissions", "Unwanted Emissions",
+         "The combination of spurious emissions and out-of-band (OOB) emissions. This is the umbrella category under which both emission types fall. In interference analysis for ITU-R contributions, you must characterize which type of unwanted emission is causing the problem, as they are subject to different regulatory limits and different mitigation approaches: OOB can be reduced by transmitter filtering or guard bands; spurious can be reduced by improving transmitter linearity or adding cavity filters.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("In-Band Interference", "In-Band Interference (technical mechanism)",
+         "Interference where the interfering signal's carrier or main lobe falls within the allocated frequency band of the victim service. In-band interference is the most direct form — the interferer and victim are co-frequency or co-channel. For FAA systems, in-band interference means the new service is proposed for allocation within a band already assigned to ARNS or RNSS. This is the most straightforward case for citing harmful interference under RR No. 4.10.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Adjacent Band Interference", "Adjacent Band / Near-Band Interference (technical mechanism)",
+         "Interference where the interfering system operates in a different band but its out-of-band (OOB) or spurious emissions, or the victim receiver's finite selectivity, allow coupling of interfering energy into the victim receiver. The 5G C-band (3.7–3.98 GHz) / Radio Altimeter (4.2–4.4 GHz) case is a classic adjacent-band interference scenario: the 5G signal was outside the altimeter band, but OOB emissions and receiver front-end selectivity limitations allowed destructive coupling.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Intermodulation", "Intermodulation Interference (technical mechanism)",
+         "Interference produced when two or more signals are applied to a non-linear device (amplifier, mixer, or antenna), producing new signals at frequencies that are sums and differences of the input frequencies and their harmonics. The most troublesome are third-order intermodulation products (2f1−f2 and 2f2−f1) which can fall in-band even when the original signals are outside the protected band. Intermodulation is particularly important at sites with multiple co-located transmitters.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Receiver Blocking", "Receiver Blocking / Desensitization (technical mechanism)",
+         "A form of adjacent-band or out-of-band interference where a strong signal overloads the victim receiver's Low Noise Amplifier (LNA) or front-end stages, compressing their gain and raising the effective noise floor. Unlike intermodulation, blocking does not require the interferer to be at a specific frequency relationship to the victim — it only requires the interferer to be sufficiently powerful. Blocking is characterized by the receiver's 1 dB compression point (P1dB). The Radio Altimeter / 5G interference problem was primarily a blocking mechanism, not an in-band interference problem.",
+         "🌐 ITU-R & Regulatory"),
+
         ("ITU", "International Telecommunication Union",
          "A United Nations specialized agency for information and communication technologies, headquartered in Geneva, Switzerland. The ITU-R (Radiocommunication Sector) manages the global radio frequency spectrum and satellite orbits through international treaty — the Radio Regulations.",
          "🌐 ITU-R & Regulatory"),
@@ -4518,6 +4983,487 @@ elif selected_tab == "📖 Glossary":
 
     st.markdown("---")
     st.caption(f"FAA RF Interference Analysis Tool Glossary — {len(GLOSSARY)} terms across 6 categories.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 14 — MICROWAVE LINK BUDGET CALCULATOR
+# ─────────────────────────────────────────────────────────────────────────────
+elif selected_tab == "📻 Microwave Link Budget":
+    st.title("📻 Microwave Link Budget Calculator")
+    st.markdown("*Enter your site parameters and the tool instantly calculates EIRP, Free Space Path Loss, atmospheric absorption, and Received Signal Level (RSL) in both directions.*")
+    ex("RSL = EIRP − Free Space Path Loss − Absorption + Rx Antenna Gain − Rx Losses. Enter any combination of sites — this calculator is not tied to any specific report format.")
+
+    # ── Session state for saved links ─────────────────────────────────────────
+    if "mw_saved_links" not in st.session_state:
+        st.session_state.mw_saved_links = {}
+
+    # ── Load saved link ───────────────────────────────────────────────────────
+    saved_names = list(st.session_state.mw_saved_links.keys())
+    load_choice = "(new link)"
+    if saved_names:
+        load_choice = st.selectbox("📂 Load saved link:", ["(new link)"] + saved_names)
+    else:
+        st.caption("No saved links yet — fill in parameters below and save.")
+
+    # Defaults — load from saved if chosen
+    D = {
+        "site_a": "", "site_b": "",
+        "location_a": "", "location_b": "",
+        "lat_a": "", "lon_a": "", "lat_b": "", "lon_b": "",
+        "elev_a": 0.0, "elev_b": 0.0,
+        "struct_a": 0.0, "struct_b": 0.0,
+        "path_override": False, "path_km_manual": 10.0,
+        "band_ghz": 7.0, "freq_a": 7902.5, "freq_b": 8262.5,
+        "tx_pwr_a": 30.0, "tx_pwr_b": 30.0,
+        "ant_gain_a": 40.0, "ant_gain_b": 40.0,
+        "ant_model_a": "", "ant_model_b": "",
+        "other_loss_a": 2.0, "other_loss_b": 2.0,
+        "branch_a": 0.0, "branch_b": 0.0,
+        "radio_model": "", "bandwidth_mhz": 30.0,
+        "modulation": "256QAM", "bitrate_mbps": 100.0,
+        "spec_atten": 0.0102, "link_id": "",
+    }
+    if load_choice != "(new link)" and load_choice in st.session_state.mw_saved_links:
+        for k, v in st.session_state.mw_saved_links[load_choice].items():
+            D[k] = v
+
+    # ── Coordinate helpers ────────────────────────────────────────────────────
+    def parse_latlon(s):
+        if not s or not s.strip(): return None
+        s = s.strip().upper()
+        hemi = None
+        for suffix, sign in [(' N','N','N'),(' S','S','S'),(' E','E','E'),(' W','W','W')]:
+            pass
+        for ch, sign in [('N',1),('S',-1),('E',1),('W',-1)]:
+            if s.endswith(' '+ch) or s.endswith(ch):
+                hemi = sign; s = s.rstrip(ch).strip(); break
+        s = s.replace('-',' ').replace('°',' ').replace("'",' ').replace('"',' ')
+        parts = s.split()
+        try:
+            if len(parts)==1:   val = float(parts[0])
+            elif len(parts)==2: val = float(parts[0]) + float(parts[1])/60
+            else:               val = float(parts[0]) + float(parts[1])/60 + float(parts[2])/3600
+            return -val if hemi==-1 else val
+        except: return None
+
+    def haversine_km(la, lo, lb, lb2):
+        R = 6371.0
+        p1,p2 = math.radians(la), math.radians(lb)
+        dp,dl = math.radians(lb-la), math.radians(lb2-lo)
+        a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+        return R*2*math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+    def dms(dd, is_lat):
+        h = ("N" if dd>=0 else "S") if is_lat else ("E" if dd>=0 else "W")
+        dd=abs(dd); d=int(dd); m=int((dd-d)*60); s=((dd-d)*60-m)*60
+        return f"{d}°{m}'{s:.1f}\"{h}"
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — SITE IDENTITY & LOCATION
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("📍 Section 1 — Site Identity & Location")
+    ex("Enter any site names and optional coordinates. Coordinates auto-calculate path length via the Haversine great-circle formula. All fields are free-form — not tied to any specific report.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Site A**")
+        site_a     = st.text_input("Site A — Name / Identifier", value=D["site_a"], placeholder="e.g. BEDFORD or TX Site")
+        location_a = st.text_input("Site A — Location Description", value=D["location_a"], placeholder="e.g. Bedford, Virginia, USA")
+        lat_a_s    = st.text_input("Latitude A (optional)", value=D["lat_a"], placeholder="e.g. 37-31-21.9 N  or  37.5261")
+        lon_a_s    = st.text_input("Longitude A (optional)", value=D["lon_a"], placeholder="e.g. 79-30-36.5 W  or  -79.5101")
+        elev_a     = st.number_input("Ground Elevation A (m)", value=float(D["elev_a"]), step=1.0, help="Meters above mean sea level")
+        struct_a   = st.number_input("Structure Height A (m AGL)", value=float(D["struct_a"]), step=0.5, help="Tower height above ground")
+    with c2:
+        st.markdown("**Site B**")
+        site_b     = st.text_input("Site B — Name / Identifier", value=D["site_b"], placeholder="e.g. ROANOKE or RX Site")
+        location_b = st.text_input("Site B — Location Description", value=D["location_b"], placeholder="e.g. Roanoke, Virginia, USA")
+        lat_b_s    = st.text_input("Latitude B (optional)", value=D["lat_b"], placeholder="e.g. 37-18-32.7 N  or  37.3091")
+        lon_b_s    = st.text_input("Longitude B (optional)", value=D["lon_b"], placeholder="e.g. 80-09-36.5 W  or  -80.1601")
+        elev_b     = st.number_input("Ground Elevation B (m)", value=float(D["elev_b"]), step=1.0)
+        struct_b   = st.number_input("Structure Height B (m AGL)", value=float(D["struct_b"]), step=0.5)
+
+    # Parse coords
+    la = parse_latlon(lat_a_s); lo = parse_latlon(lon_a_s)
+    lb = parse_latlon(lat_b_s); lb2= parse_latlon(lon_b_s)
+    coords_ok = all(v is not None for v in [la, lo, lb, lb2])
+    auto_km = round(haversine_km(la, lo, lb, lb2), 3) if coords_ok else None
+
+    if any([lat_a_s, lon_a_s, lat_b_s, lon_b_s]):
+        st.markdown("**Coordinate Status**")
+        cs1, cs2, cs3 = st.columns(3)
+        with cs1:
+            if la is not None and lo is not None:
+                ok(f"Site A: {dms(la,True)}, {dms(lo,False)}")
+            else:
+                warn("Site A coordinates not parseable")
+        with cs2:
+            if lb is not None and lb2 is not None:
+                ok(f"Site B: {dms(lb,True)}, {dms(lb2,False)}")
+            else:
+                warn("Site B coordinates not parseable")
+        with cs3:
+            if auto_km:
+                ok(f"Path (Haversine): **{auto_km:.3f} km**")
+            else:
+                st.info("Enter both sites for auto path length")
+
+    # Path length entry
+    path_override = st.checkbox("Enter path length manually (override coordinate calculation)",
+                                value=D["path_override"])
+    if path_override or not auto_km:
+        path_km = st.number_input("Path Length (km)",
+                                  value=float(D["path_km_manual"]) if D["path_km_manual"] else (auto_km or 10.0),
+                                  min_value=0.001, step=0.001, format="%.3f")
+        if auto_km and abs(path_km - auto_km) > 0.1:
+            warn(f"Manual path ({path_km:.3f} km) differs from coordinate calculation ({auto_km:.3f} km) by {abs(path_km-auto_km):.3f} km")
+    else:
+        path_km = auto_km
+        st.metric("Path Length", f"{path_km:.3f} km", help="Haversine great-circle distance from coordinates")
+
+    # Map
+    if coords_ok:
+        st.markdown("**🗺️ Link Map**")
+        st.map(pd.DataFrame({'lat':[la,lb],'lon':[lo,lb2]}), zoom=7, use_container_width=True)
+        st.caption(f"📍 {site_a or 'Site A'}: {la:.5f}°, {lo:.5f}°   |   📍 {site_b or 'Site B'}: {lb:.5f}°, {lb2:.5f}°   |   Path: {path_km:.3f} km")
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — RF PARAMETERS
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("📡 Section 2 — RF & Antenna Parameters")
+    ex("Enter parameters for each end independently — supports asymmetric links where sites have different antennas, power levels, or losses.")
+
+    c3, c4 = st.columns(2)
+    with c3:
+        st.markdown(f"**{site_a or 'Site A'} — Transmitter**")
+        ant_model_a  = st.text_input("Antenna Model A", value=D["ant_model_a"], placeholder="e.g. Andrew HP6-71W")
+        ant_gain_a   = st.number_input("Antenna Gain A (dBi)", value=float(D["ant_gain_a"]), step=0.1,
+                                        help="Peak gain toward Site B. Use 0 dBi for isotropic worst-case.")
+        tx_pwr_a     = st.number_input("Tx Power A (dBm)", value=float(D["tx_pwr_a"]), step=0.5,
+                                        help="Radio output power in dBm. 30 dBm = 1 W, 43 dBm = 20 W")
+        other_loss_a = st.number_input("Feeder / Connector Loss A (dB)", value=float(D["other_loss_a"]), step=0.1,
+                                        help="Cable, connectors, jumpers between radio and antenna")
+        branch_a     = st.number_input("Branching / Hybrid Loss A (dB)", value=float(D["branch_a"]), step=0.1,
+                                        help="Combiner or branching losses. Zero for direct antenna connection.")
+    with c4:
+        st.markdown(f"**{site_b or 'Site B'} — Transmitter**")
+        ant_model_b  = st.text_input("Antenna Model B", value=D["ant_model_b"], placeholder="e.g. Andrew HP10-71W")
+        ant_gain_b   = st.number_input("Antenna Gain B (dBi)", value=float(D["ant_gain_b"]), step=0.1,
+                                        help="Peak gain toward Site A")
+        tx_pwr_b     = st.number_input("Tx Power B (dBm)", value=float(D["tx_pwr_b"]), step=0.5)
+        other_loss_b = st.number_input("Feeder / Connector Loss B (dB)", value=float(D["other_loss_b"]), step=0.1)
+        branch_b     = st.number_input("Branching / Hybrid Loss B (dB)", value=float(D["branch_b"]), step=0.1)
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — PATH & SYSTEM PARAMETERS
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("🌐 Section 3 — Path & System Parameters")
+    ex("Band and path length drive the dominant Free Space Path Loss term. Specific attenuation is from ITU-R P.676 — 0.010 dB/km is a good starting value for 7 GHz under standard conditions.")
+
+    c5, c6, c7 = st.columns(3)
+    with c5:
+        band_ghz   = st.number_input("Band (GHz)", value=float(D["band_ghz"]), step=0.5, min_value=0.1,
+                                      help="Nominal band center frequency used for FSPL calculation")
+        freq_a     = st.number_input("Tx Frequency A→B (MHz)", value=float(D["freq_a"]), step=0.5)
+        freq_b     = st.number_input("Tx Frequency B→A (MHz)", value=float(D["freq_b"]), step=0.5)
+    with c6:
+        spec_atten = st.number_input("P.676 Attenuation (dB/km)", value=float(D["spec_atten"]),
+                                      step=0.0001, format="%.4f",
+                                      help="ITU-R P.676 specific gaseous attenuation. Typical values: 7 GHz ≈ 0.010, 15 GHz ≈ 0.015, 23 GHz ≈ 0.18, 60 GHz ≈ 15")
+        radio_model= st.text_input("Radio Model", value=D["radio_model"], placeholder="e.g. Aviat ODU600v2")
+        link_id    = st.text_input("Link ID / Reference", value=D["link_id"], placeholder="e.g. MW-001 or any identifier")
+    with c7:
+        bandwidth_mhz = st.number_input("Channel Bandwidth (MHz)", value=float(D["bandwidth_mhz"]), step=1.0)
+        modulation    = st.text_input("Modulation", value=D["modulation"], placeholder="e.g. 256QAM, QPSK, 4096QAM")
+        bitrate_mbps  = st.number_input("Bit Rate (Mb/s)", value=float(D["bitrate_mbps"]), step=1.0)
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # CALCULATIONS — run when path_km > 0
+    # ══════════════════════════════════════════════════════════════════════════
+    if path_km and path_km > 0 and band_ghz > 0:
+
+        # Core link budget calculations
+        eirp_a   = round(tx_pwr_a + ant_gain_a - other_loss_a - branch_a, 2)
+        eirp_b   = round(tx_pwr_b + ant_gain_b - other_loss_b - branch_b, 2)
+        fspl     = round(20*np.log10(path_km) + 20*np.log10(band_ghz*1000) + 32.44, 2)
+        abs_db   = round(spec_atten * path_km, 3)
+        tpl      = round(fspl + abs_db, 2)
+        rsl_ab   = round(eirp_a - tpl + ant_gain_b - other_loss_b - branch_b, 2)
+        rsl_ba   = round(eirp_b - tpl + ant_gain_a - other_loss_a - branch_a, 2)
+        balanced = abs(rsl_ab - rsl_ba) < 0.05
+        sA = site_a or "Site A"
+        sB = site_b or "Site B"
+
+        # ── TOP METRICS ───────────────────────────────────────────────────────
+        st.subheader("⚡ Results")
+        ex("All values recalculate instantly when any input changes. EIRP is the effective radiated power; RSL is the power arriving at the receiver input.")
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("EIRP — "+sA, f"{eirp_a:.2f} dBm",
+            help=f"Pt({tx_pwr_a}) + Gt({ant_gain_a}) − Feeder({other_loss_a}) − Branching({branch_a}) = {eirp_a}")
+        m2.metric("EIRP — "+sB, f"{eirp_b:.2f} dBm",
+            help=f"Pt({tx_pwr_b}) + Gt({ant_gain_b}) − Feeder({other_loss_b}) − Branching({branch_b}) = {eirp_b}")
+        m3.metric("Free Space Path Loss", f"{fspl:.2f} dB",
+            help=f"20·log({path_km}) + 20·log({band_ghz*1000:.0f}) + 32.44")
+        m4.metric("Absorption (P.676)", f"{abs_db:.3f} dB",
+            help=f"{spec_atten} dB/km × {path_km} km")
+        m5.metric(f"RSL at {sB}", f"{rsl_ab:.2f} dBm",
+            delta_color="normal" if rsl_ab > -80 else "inverse",
+            help=f"Power arriving at {sB} receiver input")
+        m6.metric(f"RSL at {sA}", f"{rsl_ba:.2f} dBm",
+            delta_color="normal" if rsl_ba > -80 else "inverse",
+            help=f"Power arriving at {sA} receiver input (reverse path)")
+
+        # Balance / capacity callouts
+        if balanced:
+            ok(f"Link is balanced — RSL is equal in both directions ({rsl_ab:.2f} dBm). Both sites use equal effective EIRP.")
+        else:
+            diff = abs(rsl_ab - rsl_ba)
+            if diff < 1.0:
+                warn(f"Link is slightly unbalanced — {diff:.2f} dB difference between forward and reverse RSL. Usually acceptable for ACM systems.")
+            else:
+                warn(f"Link imbalance of {diff:.2f} dB — check antenna gains and losses at each end. Significant imbalance reduces overall link availability.")
+
+        # Capacity sanity
+        mod_bits = {"4096QAM":12,"2048QAM":11,"1024QAM":10,"512QAM":9,"256QAM":8,
+                    "128QAM":7,"64QAM":6,"32QAM":5,"16QAM":4,"QPSK":2,"BPSK":1}
+        mod_key = modulation.strip().upper().split()[0] if modulation else ""
+        bits = mod_bits.get(mod_key)
+        if bits and bandwidth_mhz > 0:
+            theo_max = bandwidth_mhz * bits
+            if bitrate_mbps > theo_max:
+                warn(f"Bit rate {bitrate_mbps:.0f} Mb/s exceeds theoretical {mod_key} maximum of {theo_max:.0f} Mb/s over {bandwidth_mhz:.0f} MHz — check inputs.")
+
+        # ── STEP BY STEP WATERFALL ─────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📊 Step-by-Step Link Budget")
+        ex("Running total tracks cumulative signal power from transmitter output through to the receiver. Blue highlighted rows are EIRP and RSL — the two engineering milestones.")
+
+        dir_tab_a, dir_tab_b = st.tabs([
+            f"➡️  {sA} → {sB}",
+            f"⬅️  {sB} → {sA}",
+        ])
+
+        def make_waterfall(tx_pwr, tx_gain, feeder, branch, fspl_v, abs_v,
+                           rx_gain, rx_feeder, rx_branch, rsl_v, tx_name, rx_name):
+            running = tx_pwr
+            rows = []
+            steps = [
+                ("1", f"Transmit Power — {tx_name}",       f"+{tx_pwr:.2f}",     tx_pwr,       f"{running:.2f} dBm",   "Radio PA output"),
+                ("2", "＋ Tx Antenna Gain",                  f"+{tx_gain:.2f}",    tx_gain,      None,                   "Peak gain toward far end (dBi)"),
+                ("3", "－ Feeder / Connector Loss (Tx)",     f"−{feeder:.2f}",     -feeder,      None,                   "Cable, connectors, jumpers"),
+                ("4", "－ Branching / Hybrid Loss (Tx)",     f"−{branch:.2f}",     -branch,      None,                   "Combiner losses (0 if direct)"),
+                ("★", f"EIRP",                               f"{tx_pwr+tx_gain-feeder-branch:.2f} dBm", None, f"{tx_pwr+tx_gain-feeder-branch:.2f} dBm", "Effective Isotropic Radiated Power"),
+                ("5", "－ Free Space Path Loss (FSPL)",      f"−{fspl_v:.2f}",     -fspl_v,      None,                   f"20·log({path_km})+20·log({band_ghz*1000:.0f})+32.44"),
+                ("6", "－ Atmospheric Absorption (P.676)",   f"−{abs_v:.3f}",      -abs_v,       None,                   f"{spec_atten} dB/km × {path_km} km"),
+                ("7", "Total Propagation Loss",              f"−{fspl_v+abs_v:.2f} dB", None,   "—",                    "FSPL + Absorption"),
+                ("8", "＋ Rx Antenna Gain",                   f"+{rx_gain:.2f}",    rx_gain,      None,                   f"Peak gain toward {tx_name} (dBi)"),
+                ("9", "－ Feeder / Connector Loss (Rx)",     f"−{rx_feeder:.2f}",  -rx_feeder,   None,                   "Rx side cable and connectors"),
+                ("10","－ Branching / Hybrid Loss (Rx)",     f"−{rx_branch:.2f}",  -rx_branch,   None,                   "Rx combiner losses"),
+                ("★", f"RSL at {rx_name}",                   f"{rsl_v:.2f} dBm",   None,         f"{rsl_v:.2f} dBm",     "Power at receiver input"),
+            ]
+            for snum, label, value, delta, run_override, note in steps:
+                if delta is not None:
+                    running = round(running + delta, 2)
+                run_str = run_override if run_override is not None else f"{running:.2f} dBm"
+                rows.append({"Step": snum, "Description": label,
+                             "Value": value, "Running Total": run_str, "Notes": note})
+
+            df = pd.DataFrame(rows)
+
+            def style_row(row):
+                if row["Step"] == "★" and "EIRP" in row["Description"]:
+                    return ["background-color:#1a3560;font-weight:bold;color:#aaddff"]*len(row)
+                if row["Step"] == "★" and "RSL" in row["Description"]:
+                    return ["background-color:#1a4a1a;font-weight:bold;color:#aaffaa"]*len(row)
+                if row["Step"] == "7":
+                    return ["background-color:#3a1a1a;color:#ffaaaa"]*len(row)
+                return [""]*len(row)
+
+            st.dataframe(df.style.apply(style_row, axis=1),
+                         use_container_width=True, hide_index=True)
+
+        with dir_tab_a:
+            make_waterfall(tx_pwr_a, ant_gain_a, other_loss_a, branch_a,
+                           fspl, abs_db, ant_gain_b, other_loss_b, branch_b,
+                           rsl_ab, sA, sB)
+        with dir_tab_b:
+            make_waterfall(tx_pwr_b, ant_gain_b, other_loss_b, branch_b,
+                           fspl, abs_db, ant_gain_a, other_loss_a, branch_a,
+                           rsl_ba, sB, sA)
+
+        # ── P.676 SECTION ─────────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("🌡️ Atmospheric Absorption (ITU-R P.676)")
+        ex("Specific attenuation × path length = total absorption loss. At 7 GHz this is small (≈0.6 dB over 60 km). At 23 GHz or 60 GHz it becomes the dominant loss term.")
+
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Specific Attenuation", f"{spec_atten:.4f} dB/km",
+            help="Change B56 to model different frequencies, temperatures, or humidity")
+        p2.metric("Path Length", f"{path_km:.3f} km")
+        p3.metric("Total Absorption", f"{abs_db:.3f} dB")
+        p4.metric("% of Total Path Loss", f"{100*abs_db/tpl:.1f}%",
+            help="Absorption as a fraction of total propagation loss")
+
+        # P.676 reference table
+        with st.expander("📋 P.676 Reference — Specific Attenuation at Common Frequencies"):
+            st.markdown("""
+| Frequency | Specific Attenuation | Notes |
+|---|---|---|
+| 2 GHz | ~0.003 dB/km | Negligible |
+| 7 GHz | ~0.010 dB/km | Standard microwave backbone |
+| 11 GHz | ~0.012 dB/km | Common microwave band |
+| 15 GHz | ~0.015 dB/km | Upper microwave |
+| 23 GHz | ~0.18 dB/km | Rain scatter starts to matter |
+| 38 GHz | ~0.12 dB/km | Short-haul millimeter wave |
+| 60 GHz | ~14 dB/km | Oxygen absorption peak — very short range |
+| 80 GHz | ~0.5 dB/km | E-band license-free |
+
+*Values at standard atmosphere (290K, 50% relative humidity, sea level)*
+            """)
+
+        # ── RSL SWEEP CHART ───────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📉 RSL vs Path Length")
+        ex("Shows how RSL degrades as distance increases at the current settings. The vertical marker shows your current path. Use this to find the maximum path length before RSL falls below a minimum threshold.")
+
+        max_sweep = max(path_km * 3, 50.0)
+        d_sw = np.linspace(0.1, max_sweep, 500)
+        rsl_ab_sw = eirp_a - (20*np.log10(d_sw)+20*np.log10(band_ghz*1000)+32.44) \
+                    - spec_atten*d_sw + ant_gain_b - other_loss_b - branch_b
+        rsl_ba_sw = eirp_b - (20*np.log10(d_sw)+20*np.log10(band_ghz*1000)+32.44) \
+                    - spec_atten*d_sw + ant_gain_a - other_loss_a - branch_a
+
+        min_thresh = st.number_input("Minimum RSL threshold (dBm)",
+                                      value=-75.0, step=1.0,
+                                      help="Typical minimum receive threshold for operation. Enter your radio's threshold for the chosen modulation.")
+
+        fig_sw, ax_sw = plt.subplots(figsize=(12, 4))
+        fig_sw.patch.set_facecolor("#0e1117"); ax_sw.set_facecolor("#0e1117")
+        ax_sw.plot(d_sw, rsl_ab_sw, color="#4488ff", lw=2, label=f"RSL at {sB} ({sA}→{sB})")
+        if not balanced:
+            ax_sw.plot(d_sw, rsl_ba_sw, color="#ff8844", lw=2, ls="--",
+                       label=f"RSL at {sA} ({sB}→{sA})")
+        ax_sw.axvline(path_km, color="white", lw=1.2, ls=":", label=f"Current: {path_km:.1f} km")
+        ax_sw.axhline(rsl_ab,  color="#4488ff", lw=0.8, ls=":", alpha=0.5)
+        ax_sw.axhline(min_thresh, color="red", lw=1.2, ls="--", alpha=0.8,
+                      label=f"Min threshold: {min_thresh:.0f} dBm")
+
+        # Mark max range at threshold
+        try:
+            cross_idx = np.where(rsl_ab_sw < min_thresh)[0][0]
+            max_range = d_sw[cross_idx]
+            ax_sw.axvline(max_range, color="red", lw=1, ls=":", alpha=0.6)
+            ax_sw.annotate(f"  Max range\n  {max_range:.1f} km",
+                           xy=(max_range, min_thresh+3), color="red", fontsize=8)
+        except IndexError:
+            pass
+
+        ax_sw.annotate(f"  {rsl_ab:.2f} dBm",
+                       xy=(path_km, rsl_ab), color="white", fontsize=8, va="bottom")
+        ax_sw.set_xlabel("Path Length (km)", color="white", fontsize=10)
+        ax_sw.set_ylabel("RSL (dBm)", color="white", fontsize=10)
+        ax_sw.set_title(f"RSL vs Distance — {sA} ↔ {sB}  |  {band_ghz} GHz  |  EIRP={eirp_a:.1f}/{eirp_b:.1f} dBm",
+                        color="white", fontsize=11)
+        ax_sw.legend(facecolor="#1a1a2e", labelcolor="white", fontsize=9)
+        ax_sw.tick_params(colors="white"); ax_sw.grid(color="#333", alpha=0.4)
+        for sp in ax_sw.spines.values(): sp.set_color("#444")
+        plt.tight_layout()
+        st.pyplot(fig_sw)
+
+        # ── SYSTEM SUMMARY CARD ───────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📋 Link Summary")
+        ex("Quick-reference card for this link showing all key parameters and results.")
+
+        summary_data = {
+            "Link ID": link_id or "—",
+            f"Site A": f"{sA}{' — '+location_a if location_a else ''}",
+            f"Site B": f"{sB}{' — '+location_b if location_b else ''}",
+            "Path Length": f"{path_km:.3f} km",
+            "Band / Frequency": f"{band_ghz} GHz  ({freq_a:.1f}/{freq_b:.1f} MHz)",
+            "Free Space Path Loss": f"{fspl:.2f} dB",
+            "Atmospheric Absorption": f"{abs_db:.3f} dB",
+            "Total Propagation Loss": f"{tpl:.2f} dB",
+            f"EIRP — {sA}": f"{eirp_a:.2f} dBm  ({ant_model_a or 'antenna'} {ant_gain_a} dBi)",
+            f"EIRP — {sB}": f"{eirp_b:.2f} dBm  ({ant_model_b or 'antenna'} {ant_gain_b} dBi)",
+            f"RSL at {sB} (A→B)": f"{rsl_ab:.2f} dBm",
+            f"RSL at {sA} (B→A)": f"{rsl_ba:.2f} dBm",
+            "Link Balance": f"{'Balanced ✓' if balanced else f'Unbalanced — {abs(rsl_ab-rsl_ba):.2f} dB difference'}",
+            "Radio": radio_model or "—",
+            "Bandwidth / Modulation": f"{bandwidth_mhz:.0f} MHz  /  {modulation}",
+            "Bit Rate": f"{bitrate_mbps:.0f} Mb/s",
+        }
+        if bits:
+            summary_data["Spectral Efficiency"] = f"{bitrate_mbps/bandwidth_mhz:.2f} b/s/Hz  (max for {mod_key}: {bits:.0f})"
+
+        for k, v in summary_data.items():
+            highlight = "RSL" in k or "EIRP" in k
+            bg = "#1a3560" if "EIRP" in k else ("#1a4a1a" if "RSL" in k else "#1a1a2e")
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;"
+                f"padding:5px 12px;margin:2px 0;border-radius:4px;"
+                f"background:{bg};border-left:3px solid {'#4488ff' if 'EIRP' in k else '#44bb44' if 'RSL' in k else '#2a2a3a'}'>"
+                f"<span style='color:#aaa;font-size:0.85em'>{k}</span>"
+                f"<span style='color:white;font-weight:{'bold' if highlight else 'normal'};font-size:0.9em'>{v}</span>"
+                f"</div>", unsafe_allow_html=True
+            )
+
+        # ── FORMULA REFERENCE ─────────────────────────────────────────────────
+        with st.expander("📐 Formula Reference"):
+            st.latex(r"\text{EIRP (dBm)} = P_t + G_t - L_{feeder} - L_{branch}")
+            st.latex(r"\text{FSPL (dB)} = 20\log_{10}(d_{km}) + 20\log_{10}(f_{MHz}) + 32.44")
+            st.latex(r"\text{Absorption (dB)} = \gamma \times d_{km} \quad (\gamma = \text{specific attenuation, dB/km})")
+            st.latex(r"\text{RSL (dBm)} = \text{EIRP} - \text{FSPL} - \text{Absorption} + G_r - L_{feeder,Rx} - L_{branch,Rx}")
+
+    else:
+        st.info("👆 Enter your path length and band in Section 3 above to see results.")
+
+    # ── SAVE / DELETE ─────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("💾 Save This Link")
+    ex("Save all current parameters to session memory. Reload any saved link from the dropdown at the top.")
+    sv1, sv2 = st.columns([3, 1])
+    with sv1:
+        save_name = st.text_input("Save as:",
+            value=f"{(site_a or 'Site A')}–{(site_b or 'Site B')}",
+            placeholder="Give this link a name")
+    with sv2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 Save", type="primary", use_container_width=True):
+            st.session_state.mw_saved_links[save_name] = {
+                "site_a": site_a, "site_b": site_b,
+                "location_a": location_a, "location_b": location_b,
+                "lat_a": lat_a_s, "lon_a": lon_a_s,
+                "lat_b": lat_b_s, "lon_b": lon_b_s,
+                "elev_a": elev_a, "elev_b": elev_b,
+                "struct_a": struct_a, "struct_b": struct_b,
+                "path_override": path_override,
+                "path_km_manual": float(path_km),
+                "band_ghz": band_ghz, "freq_a": freq_a, "freq_b": freq_b,
+                "tx_pwr_a": tx_pwr_a, "tx_pwr_b": tx_pwr_b,
+                "ant_gain_a": ant_gain_a, "ant_gain_b": ant_gain_b,
+                "ant_model_a": ant_model_a, "ant_model_b": ant_model_b,
+                "other_loss_a": other_loss_a, "other_loss_b": other_loss_b,
+                "branch_a": branch_a, "branch_b": branch_b,
+                "radio_model": radio_model, "bandwidth_mhz": bandwidth_mhz,
+                "modulation": modulation, "bitrate_mbps": bitrate_mbps,
+                "spec_atten": spec_atten, "link_id": link_id,
+            }
+            ok(f"'{save_name}' saved. Select from the dropdown at top to reload.")
+
+    if saved_names and load_choice != "(new link)":
+        if st.button(f"🗑️ Delete '{load_choice}'"):
+            del st.session_state.mw_saved_links[load_choice]
+            st.rerun()
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 13 — ADMIN PANEL (admin only)
