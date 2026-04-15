@@ -550,24 +550,22 @@ if selected_tab == "📡 Protected Bands":
     band_list = list(FAA_BANDS.items())
     n_bands   = len(band_list)
 
-    # ── Swimlane layout: one row per band ─────────────────────────────────────
-    ROW_H    = 0.90        # taller rows give more breathing room
-    ROW_GAP  = 0.20
+    ROW_H    = 1.10
+    ROW_GAP  = 0.30
     ROW_STEP = ROW_H + ROW_GAP
-    FIG_H    = n_bands * ROW_STEP + 1.2
+    FIG_H    = n_bands * ROW_STEP + 1.5
 
-    # High-DPI rendering
-    plt.rcParams['figure.dpi'] = 150
-    plt.rcParams['font.family'] = 'DejaVu Sans'
+    plt.rcParams['figure.dpi']   = 180
+    plt.rcParams['font.family']  = 'DejaVu Sans'
+    plt.rcParams['text.antialiased'] = True
 
-    fig, ax = plt.subplots(figsize=(18, FIG_H))
+    fig, ax = plt.subplots(figsize=(20, FIG_H))
     fig.patch.set_facecolor("#0e1117")
     ax.set_facecolor("#0e1117")
 
     log_min, log_max = np.log10(90), np.log10(12000)
     min_log_w = (log_max - log_min) * 0.018
 
-    # Subtle frequency grid
     for kf in [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000]:
         ax.axvline(kf, color='#1e1e2e', linewidth=0.8, zorder=0)
 
@@ -575,7 +573,6 @@ if selected_tab == "📡 Protected Bands":
         col   = band_colors[i % len(band_colors)]
         row_y = (n_bands - 1 - i) * ROW_STEP
 
-        # Alternating row bg
         row_bg = "#111118" if i % 2 == 0 else "#0e0e15"
         ax.fill_betweenx(
             [row_y, row_y + ROW_H],
@@ -583,7 +580,6 @@ if selected_tab == "📡 Protected Bands":
             color=row_bg, linewidth=0, zorder=1
         )
 
-        # Band bar
         log_fl = np.log10(b["f_low_mhz"])
         log_fh = np.log10(b["f_high_mhz"])
         if (log_fh - log_fl) < min_log_w:
@@ -591,77 +587,74 @@ if selected_tab == "📡 Protected Bands":
             log_fl = lm - min_log_w / 2
             log_fh = lm + min_log_w / 2
 
-        bar_bot = row_y + ROW_H * 0.12
-        bar_top = row_y + ROW_H * 0.88
+        bar_bot = row_y + ROW_H * 0.10
+        bar_top = row_y + ROW_H * 0.90
 
         ax.fill_betweenx([bar_bot, bar_top], 10**log_fl, 10**log_fh,
                          color=col, alpha=0.92, linewidth=0, zorder=3)
         ax.plot([10**log_fl, 10**log_fh, 10**log_fh, 10**log_fl, 10**log_fl],
                 [bar_bot, bar_bot, bar_top, bar_top, bar_bot],
-                color='white', linewidth=0.8, alpha=0.5, zorder=4)
+                color='white', linewidth=1.0, alpha=0.55, zorder=4)
 
-        # Number badge
         log_mid = (log_fl + log_fh) / 2
         bar_cy  = (bar_bot + bar_top) / 2
         ax.text(10**log_mid, bar_cy, str(i+1),
                 ha='center', va='center',
-                fontsize=9, fontweight='bold',
+                fontsize=10, fontweight='bold',
                 color='#0a0a0a', zorder=5)
 
-        # LEFT — band name (larger, sharper)
-        label_x = 10**log_min * 1.015
-        ax.text(label_x, bar_cy + 0.09, name,
-                ha='left', va='center',
-                fontsize=11, fontweight='bold',
-                color=col, zorder=5,
-                fontproperties=None)
+        label_x = 10**log_min * 1.012
 
-        # LEFT — frequency range
-        ax.text(label_x, bar_cy - 0.13,
+        # Band name — large, bold, bright
+        ax.text(label_x, bar_cy + 0.13, name,
+                ha='left', va='center',
+                fontsize=13, fontweight='bold',
+                color=col, zorder=5)
+
+        # Frequency range — clearly readable grey
+        ax.text(label_x, bar_cy - 0.16,
                 f"{b['f_low_mhz']:.0f} – {b['f_high_mhz']:.0f} MHz",
                 ha='left', va='center',
-                fontsize=9.5, color='#aaaaaa', zorder=5)
+                fontsize=11, color='#cccccc', zorder=5)
 
-        # RIGHT — I/N threshold
+        # I/N threshold — large, prominent
         sf = b.get("aviation_safety_factor_db", 0)
-        thresh_str = f"I/N {b['in_threshold_db']} dB"
+        thresh_str = f"I/N  {b['in_threshold_db']} dB"
         if sf > 0:
-            thresh_str += f"  +{sf} dB safety"
-        ax.text(10**log_max * 0.984, bar_cy + 0.09,
+            thresh_str += f"   +{sf} dB safety"
+        ax.text(10**log_max * 0.983, bar_cy + 0.13,
                 thresh_str,
                 ha='right', va='center',
-                fontsize=10.5, fontweight='bold',
-                color='#ffd966' if sf > 0 else '#88ff99', zorder=5)
+                fontsize=12, fontweight='bold',
+                color='#ffd966' if sf > 0 else '#77ff99', zorder=5)
 
-        # RIGHT — service category
-        svc = b.get("service_category", b["allocation"]).split(" —")[0][:24]
-        ax.text(10**log_max * 0.984, bar_cy - 0.13,
+        # Service category
+        svc = b.get("service_category", b["allocation"]).split(" —")[0][:26]
+        ax.text(10**log_max * 0.983, bar_cy - 0.16,
                 svc,
                 ha='right', va='center',
-                fontsize=9, color='#888888', zorder=5)
+                fontsize=10, color='#999999', zorder=5)
 
-        # Row separator
         ax.axhline(row_y, color='#1a1a2a', linewidth=0.6, zorder=2)
 
-    # Axis
     ax.set_xscale("log")
     ax.set_xlim(10**log_min, 10**log_max)
-    ax.set_ylim(-0.15, n_bands * ROW_STEP + 0.2)
+    ax.set_ylim(-0.2, n_bands * ROW_STEP + 0.3)
     ax.set_yticks([])
 
     key_ticks = [100, 200, 330, 500, 960, 1090, 1176, 1575, 2000, 2800, 4300, 5000, 9375]
     ax.set_xticks(key_ticks)
     ax.set_xticklabels([str(k) for k in key_ticks],
-                       fontsize=9.5, fontweight='semibold',
-                       color='#aaaaaa', rotation=45, ha='right')
+                       fontsize=11, fontweight='bold',
+                       color='#cccccc', rotation=45, ha='right')
 
-    ax.tick_params(axis='x', colors='#555', pad=5, length=4)
-    ax.spines['bottom'].set_color('#444')
+    ax.tick_params(axis='x', colors='#555', pad=6, length=5)
+    ax.spines['bottom'].set_color('#555')
     for sp in ['top','left','right']:
         ax.spines[sp].set_visible(False)
 
     ax.set_title("FAA Protected Aeronautical Frequency Bands",
-                 color='white', fontsize=15, fontweight='bold', pad=12, loc='left')
+                 color='white', fontsize=17, fontweight='bold', pad=14, loc='left')
     ax.set_xlabel("Frequency (MHz) — log scale", color='#666', fontsize=9, labelpad=6)
 
     plt.tight_layout(rect=[0, 0, 1, 0.98])
