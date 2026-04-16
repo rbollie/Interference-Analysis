@@ -2583,18 +2583,24 @@ Once configured, the analyzer will work every time you visit the app.
         ])
 
     st.subheader("Contribution Input")
-    ex("Upload a PDF or Word document, or paste text directly. Both methods feed the same AI analysis — the file is converted to text automatically.")
+    ex("Upload a PDF or Word document, paste text, or upload multiple files for batch analysis — all feed the same AI engine.")
 
     # ── Input method tabs ─────────────────────────────────────────────────────
-    input_tab_paste, input_tab_file = st.tabs(["📋 Paste Text", "📎 Upload File (PDF / Word / Text)"])
+    input_tab_paste, input_tab_file, input_tab_batch = st.tabs([
+        "📋 Paste Text",
+        "📎 Upload Single File",
+        "📦 Batch Upload (multiple documents)",
+    ])
 
-    contrib_from_file = ""
+    contrib_from_file  = ""
+    batch_mode_active  = False
+    batch_files        = []
 
     with input_tab_file:
         uploaded_file = st.file_uploader(
             "Upload ITU-R contribution document",
             type=["pdf", "txt", "docx", "doc"],
-            help="Accepts PDF, Word (.docx), or plain text files. The document text is extracted automatically and sent to the AI."
+            help="Accepts PDF, Word (.docx), or plain text files."
         )
 
         if uploaded_file is not None:
@@ -2608,59 +2614,41 @@ Once configured, the analyzer will work every time you visit the app.
                         contrib_from_file = raw_bytes.decode("utf-8", errors="replace")
 
                     elif file_type == "pdf":
-                        import io, struct, zlib, re as _re
-
-                        # Try PyPDF2 first, then pdfminer, then raw extraction
                         pdf_bytes = uploaded_file.read()
                         extracted = []
-
-                        # Method 1: PyMuPDF (fitz) — best quality
                         try:
-                            import fitz  # PyMuPDF
+                            import fitz
                             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                            for page in doc:
-                                extracted.append(page.get_text())
+                            for page in doc: extracted.append(page.get_text())
                             doc.close()
                             contrib_from_file = "\n\n".join(extracted)
                         except ImportError:
                             pass
-
-                        # Method 2: PyPDF2
                         if not contrib_from_file:
                             try:
                                 import PyPDF2
                                 reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
                                 for page in reader.pages:
                                     t = page.extract_text()
-                                    if t:
-                                        extracted.append(t)
+                                    if t: extracted.append(t)
                                 contrib_from_file = "\n\n".join(extracted)
                             except Exception:
                                 pass
-
-                        # Method 3: pdfminer
                         if not contrib_from_file:
                             try:
                                 from pdfminer.high_level import extract_text as pdfminer_extract
                                 contrib_from_file = pdfminer_extract(io.BytesIO(pdf_bytes))
                             except Exception:
                                 pass
-
                         if not contrib_from_file:
-                            contrib_from_file = ""
-                            st.warning("⚠️ Could not extract text from this PDF automatically. Try copying and pasting the text using the Paste Text tab instead.")
+                            st.warning("⚠️ Could not extract text from this PDF. Try the Paste Text tab.")
 
                     elif file_type in ("docx", "doc"):
                         docx_bytes = uploaded_file.read()
                         contrib_from_file = ""
-                        track_change_summary = ""
+                        tc_summary_single = ""
 
-                        # ── Track change extractor ────────────────────────────
                         def extract_track_changes(raw_bytes):
-                            """
-                            Parse OOXML track changes (w:ins / w:del) and return
-                            clean final text + structured summary of all changes.
-                            """
                             import zipfile as _zf
                             from xml.etree import ElementTree as _ET
                             W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -2670,14 +2658,11 @@ Once configured, the analyzer will work every time you visit the app.
                                     xml_bytes = z.read("word/document.xml")
                                 root = _ET.fromstring(xml_bytes)
                                 xml_str = xml_bytes.decode("utf-8", errors="replace")
-
                                 has_ins = f'{{{W}}}ins' in xml_str
                                 has_del = f'{{{W}}}del' in xml_str
                                 has_tc  = has_ins or has_del
-
                                 insertions, deletions = [], []
                                 authors = set()
-
                                 for elem in root.iter(f'{{{W}}}ins'):
                                     text = "".join(t.text or "" for t in elem.iter(f'{{{W}}}t'))
                                     author = elem.get(f'{{{W}}}author', '')
@@ -2685,7 +2670,6 @@ Once configured, the analyzer will work every time you visit the app.
                                     if text.strip():
                                         insertions.append({'author': author, 'date': date, 'text': text.strip()})
                                         if author: authors.add(author)
-
                                 for elem in root.iter(f'{{{W}}}del'):
                                     text = "".join(t.text or "" for t in elem.iter(f'{{{W}}}delText'))
                                     author = elem.get(f'{{{W}}}author', '')
@@ -2693,8 +2677,6 @@ Once configured, the analyzer will work every time you visit the app.
                                     if text.strip():
                                         deletions.append({'author': author, 'date': date, 'text': text.strip()})
                                         if author: authors.add(author)
-
-                                # Clean final text: paragraphs, include ins, exclude del
                                 clean_paras = []
                                 for para in root.iter(f'{{{W}}}p'):
                                     parts = []
@@ -2704,166 +2686,114 @@ Once configured, the analyzer will work every time you visit the app.
                                         elif elem.tag == f'{{{W}}}delText':
                                             parts.append(('del', elem.text or ''))
                                     text = "".join(t for kind, t in parts if kind == 'keep').strip()
-                                    if text:
-                                        clean_paras.append(text)
+                                    if text: clean_paras.append(text)
                                 clean_text = "\n".join(clean_paras)
-
-                                # Build summary for AI prompt
                                 if not has_tc:
-                                    summary = "TRACK CHANGES: None detected — this is a new document. Analyze full text normally."
+                                    summary = "TRACK CHANGES: None detected."
                                 else:
                                     author_str = ", ".join(sorted(authors)) if authors else "unknown"
-                                    lines = [
-                                        f"TRACK CHANGES DETECTED: {len(insertions)} insertions, {len(deletions)} deletions",
-                                        f"Editors: {author_str}",
-                                        "",
-                                        "INSERTED TEXT (new content added in this revision):",
-                                    ]
-                                    for idx, item in enumerate(insertions[:40], 1):
+                                    lines = [f"TRACK CHANGES: {len(insertions)} insertions, {len(deletions)} deletions. Editors: {author_str}", "", "INSERTED:"]
+                                    for idx, item in enumerate(insertions[:30], 1):
                                         a = f" [{item['author']}]" if item['author'] else ""
-                                        d = f" ({item['date']})" if item['date'] else ""
-                                        lines.append(f"  +[{idx}]{a}{d}: {item['text'][:300]}")
-                                    if len(insertions) > 40:
-                                        lines.append(f"  ... and {len(insertions)-40} more insertions")
-                                    lines += ["", "DELETED TEXT (content removed in this revision):"]
-                                    for idx, item in enumerate(deletions[:40], 1):
+                                        lines.append(f"  +[{idx}]{a}: {item['text'][:250]}")
+                                    lines += ["", "DELETED:"]
+                                    for idx, item in enumerate(deletions[:30], 1):
                                         a = f" [{item['author']}]" if item['author'] else ""
-                                        d = f" ({item['date']})" if item['date'] else ""
-                                        lines.append(f"  -[{idx}]{a}{d}: {item['text'][:300]}")
-                                    if len(deletions) > 40:
-                                        lines.append(f"  ... and {len(deletions)-40} more deletions")
+                                        lines.append(f"  -[{idx}]{a}: {item['text'][:250]}")
                                     summary = "\n".join(lines)
-
                                 return clean_text, summary, has_tc, len(insertions), len(deletions)
-
                             except Exception:
                                 return None, "", False, 0, 0
 
-                        # Run track change extraction first
-                        tc_clean, tc_summary, has_tc, n_ins, n_del = extract_track_changes(docx_bytes)
-
-                        # Method 1: mammoth (best paragraph/table handling)
+                        tc_clean, tc_summary_single, has_tc, n_ins, n_del = extract_track_changes(docx_bytes)
                         if not contrib_from_file:
                             try:
                                 import mammoth
-                                buf = io.BytesIO(docx_bytes)
-                                result = mammoth.extract_raw_text(buf)
+                                result = mammoth.extract_raw_text(io.BytesIO(docx_bytes))
                                 if result and result.value and result.value.strip():
                                     contrib_from_file = result.value.strip()
-                            except Exception:
-                                pass
-
-                        # Method 2: python-docx (includes table cells)
+                            except Exception: pass
                         if not contrib_from_file:
                             try:
                                 from docx import Document as DocxDocument
-                                buf = io.BytesIO(docx_bytes)
-                                doc = DocxDocument(buf)
-                                paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-                                for table in doc.tables:
+                                doc2 = DocxDocument(io.BytesIO(docx_bytes))
+                                paras = [p.text.strip() for p in doc2.paragraphs if p.text.strip()]
+                                for table in doc2.tables:
                                     for row in table.rows:
                                         for cell in row.cells:
-                                            if cell.text.strip():
-                                                paras.append(cell.text.strip())
+                                            if cell.text.strip(): paras.append(cell.text.strip())
                                 contrib_from_file = "\n".join(paras)
-                            except Exception:
-                                pass
-
-                        # Method 3: XML zipfile raw extraction (last resort)
-                        if not contrib_from_file:
-                            if tc_clean:
-                                contrib_from_file = tc_clean
-                            else:
-                                try:
-                                    import zipfile as _zf2, re as _re2
-                                    buf = io.BytesIO(docx_bytes)
-                                    with _zf2.ZipFile(buf) as z:
-                                        xml = z.read("word/document.xml").decode("utf-8", errors="replace")
-                                    text = _re2.sub(r'<[^>]+>', ' ', xml)
-                                    text = _re2.sub(r'\s+', ' ', text).strip()
-                                    if len(text) > 50:
-                                        contrib_from_file = text
-                                except Exception:
-                                    pass
-
-                        # Store track change info in session state for use in analysis
-                        st.session_state["tc_summary"]  = tc_summary
-                        st.session_state["tc_has_tc"]   = has_tc
-                        st.session_state["tc_n_ins"]    = n_ins
-                        st.session_state["tc_n_del"]    = n_del
-
-                        # Show track change badge
+                            except Exception: pass
+                        if not contrib_from_file and tc_clean:
+                            contrib_from_file = tc_clean
+                        st.session_state["tc_summary"] = tc_summary_single
+                        st.session_state["tc_has_tc"]  = has_tc
+                        st.session_state["tc_n_ins"]   = n_ins
+                        st.session_state["tc_n_del"]   = n_del
                         if has_tc:
-                            st.markdown(
-                                f"<div style='background:#1a2a1a;border-left:4px solid #44bb44;"
-                                f"padding:8px 12px;border-radius:4px;margin:6px 0'>"
-                                f"<b style='color:#44bb44'>📝 Track Changes Detected</b> — "
-                                f"<span style='color:#aaffaa'>{n_ins} insertions, {n_del} deletions found. "
-                                f"AI will also scan text for revision language and cite supporting phrases.</span></div>",
-                                unsafe_allow_html=True
-                            )
+                            st.markdown(f"<div style='background:#1a2a1a;border-left:4px solid #44bb44;padding:8px 12px;border-radius:4px;margin:6px 0'><b style='color:#44bb44'>📝 Track Changes Detected</b> — <span style='color:#aaffaa'>{n_ins} insertions, {n_del} deletions. AI will also scan text for revision language and cite supporting phrases.</span></div>", unsafe_allow_html=True)
                         else:
                             st.caption("📄 No track changes in Word file — AI will scan document text for 'new' vs 'revision' signals and cite 1–2 supporting phrases.")
-
                         if not contrib_from_file:
-                            st.warning("⚠️ Could not extract text from this Word document. Please use the **Paste Text** tab.")
-
+                            st.warning("⚠️ Could not extract text. Please use the Paste Text tab.")
                 except Exception as e:
-                    st.error(f"Error reading file: {e}. Please use the Paste Text tab.")
+                    st.error(f"Error reading file: {e}")
 
             if contrib_from_file:
-                word_count = len(contrib_from_file.split())
-                char_count = len(contrib_from_file)
-                ok(f"Text extracted successfully — {word_count:,} words, {char_count:,} characters")
-
-                # Truncation warning for very long documents
+                wc = len(contrib_from_file.split()); cc = len(contrib_from_file)
+                ok(f"Extracted: {wc:,} words, {cc:,} characters")
                 MAX_CHARS = 28000
-                if char_count > MAX_CHARS:
-                    warn(f"Document is {char_count:,} characters — truncating to {MAX_CHARS:,} characters (first ~{MAX_CHARS // 5} words) to fit AI context window. Consider pasting only the key technical and regulatory sections for best results.")
-                    contrib_from_file = contrib_from_file[:MAX_CHARS] + "\n\n[... document truncated for AI context window ...]"
-
-                # Preview
-                with st.expander("👁️ Preview extracted text (first 800 characters)"):
+                if cc > MAX_CHARS:
+                    warn(f"Document truncated to {MAX_CHARS:,} characters to fit AI context window.")
+                    contrib_from_file = contrib_from_file[:MAX_CHARS] + "\n\n[... truncated ...]"
+                with st.expander("👁️ Preview extracted text"):
                     st.text(contrib_from_file[:800] + ("..." if len(contrib_from_file) > 800 else ""))
-
         else:
-            st.markdown(
-                "<div style='background:#1a1a2a;border:1px dashed #444;padding:20px;border-radius:6px;"
-                "text-align:center;color:#888'>"
-                "📎 Drag and drop a PDF, Word, or text file here<br>"
-                "<small>ITU-R contributions are typically PDF — download from TIES and upload directly</small>"
-                "</div>",
-                unsafe_allow_html=True
-            )
+            st.markdown("<div style='background:#1a1a2a;border:1px dashed #444;padding:20px;border-radius:6px;text-align:center;color:#888'>📎 Drag and drop a PDF, Word, or text file here<br><small>ITU-R contributions are typically PDF — download from TIES and upload directly</small></div>", unsafe_allow_html=True)
+
+    with input_tab_batch:
+        st.markdown("**📦 Batch Document Analysis**")
+        ex("Upload multiple contribution files at once. Each is analyzed in sequence. A summary triage table is produced first, followed by the full analysis for each document — and a combined Word report to download.")
+        warn("Batch analysis uses one API call per document. A batch of 10 documents takes approximately 5–8 minutes. Use Quick Assessment depth for fastest triage.")
+
+        batch_files_uploaded = st.file_uploader(
+            "Upload multiple ITU-R contribution documents",
+            type=["pdf", "txt", "docx", "doc"],
+            accept_multiple_files=True,
+            help="Upload all documents you want to triage in one session. Each is analyzed separately.",
+            key="batch_uploader"
+        )
+
+        if batch_files_uploaded:
+            batch_mode_active = True
+            batch_files = batch_files_uploaded
+            st.success(f"✅ {len(batch_files)} file(s) queued for batch analysis")
+            for f in batch_files:
+                st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
 
     with input_tab_paste:
         contrib_pasted = st.text_area(
             "Paste contribution text here:",
             height=280,
-            placeholder="""Paste the ITU-R contribution text here. You can include:
-- The executive summary or introduction
-- Technical analysis sections (methodology, results, propagation calculations)
+            placeholder="""Paste the ITU-R contribution text here. Include:
+- Executive summary / introduction
+- Technical analysis sections (frequencies, propagation, results)
 - Proposed regulatory text or amendments
-- Conclusions and proposals
-
-Even a partial paste (e.g., just the conclusions section) will produce useful guidance.
-For WP 4C satellite contributions: include the propagation model used and EIRP values.
-For WP 7C passive: include the proposed allocation status (secondary vs co-primary)."""
+- Conclusions and proposals"""
         )
 
-    # ── Resolve which input to use ────────────────────────────────────────────
+    # ── Resolve single-document input ─────────────────────────────────────────
     contrib_input = contrib_from_file.strip() if contrib_from_file.strip() else (
         contrib_pasted.strip() if 'contrib_pasted' in dir() else ""
     )
-
     if contrib_from_file.strip() and 'contrib_pasted' in dir() and contrib_pasted.strip():
-        st.info("📄 Both a file and pasted text are provided — the **file text** will be used for analysis. Clear the file upload to use pasted text instead.")
+        st.info("📄 Both file and pasted text provided — file text will be used.")
         contrib_input = contrib_from_file.strip()
-
-    if contrib_input:
-        st.caption(f"✅ Ready to analyze — {len(contrib_input.split()):,} words from {'uploaded file' if contrib_from_file.strip() else 'pasted text'}")
-    else:
-        st.caption("⬆️ Upload a file or paste text above to enable analysis")
+    if not batch_mode_active:
+        if contrib_input:
+            st.caption(f"✅ Ready — {len(contrib_input.split()):,} words from {'uploaded file' if contrib_from_file.strip() else 'pasted text'}")
+        else:
+            st.caption("⬆️ Upload a file, paste text, or use Batch Upload above")
 
     # ── Interference Classification Reference Card ────────────────────────────
     with st.expander("📋 ITU-R Interference Classification Reference — Applied in Every Analysis"):
@@ -2952,7 +2882,301 @@ between two or more administrations</b> without prejudice to other administratio
         "Deep dive (comprehensive brief + draft response contribution outline)",
     ])
 
-    if st.button("🔍 Analyze Contribution", type="primary", disabled=not contrib_input.strip()):
+    # ── Analyze buttons ───────────────────────────────────────────────────────
+    btn_col1, btn_col2 = st.columns([1, 1])
+    with btn_col1:
+        single_btn = st.button(
+            "🔍 Analyze Contribution",
+            type="primary",
+            disabled=not contrib_input.strip(),
+            use_container_width=True,
+        )
+    with btn_col2:
+        batch_btn = st.button(
+            f"📦 Run Batch Analysis ({len(batch_files)} files)" if batch_files else "📦 Batch Analysis",
+            type="secondary",
+            disabled=not batch_files,
+            use_container_width=True,
+        )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # BATCH ANALYSIS ENGINE
+    # ══════════════════════════════════════════════════════════════════════════
+    if batch_btn and batch_files:
+
+        def extract_text_from_file(uploaded_f):
+            """Extract text from any uploaded file type. Returns (text, tc_summary)."""
+            ft = uploaded_f.name.lower().split(".")[-1]
+            text = ""
+            tc_sum = ""
+            try:
+                raw = uploaded_f.read()
+                if ft == "txt":
+                    text = raw.decode("utf-8", errors="replace")
+                elif ft == "pdf":
+                    extracted = []
+                    try:
+                        import fitz
+                        doc = fitz.open(stream=raw, filetype="pdf")
+                        for page in doc: extracted.append(page.get_text())
+                        doc.close()
+                        text = "\n\n".join(extracted)
+                    except Exception: pass
+                    if not text:
+                        try:
+                            import PyPDF2
+                            reader = PyPDF2.PdfReader(io.BytesIO(raw))
+                            for page in reader.pages:
+                                t = page.extract_text()
+                                if t: extracted.append(t)
+                            text = "\n\n".join(extracted)
+                        except Exception: pass
+                elif ft in ("docx", "doc"):
+                    import zipfile as _zf2
+                    from xml.etree import ElementTree as _ET2
+                    W2 = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+                    try:
+                        buf2 = io.BytesIO(raw)
+                        with _zf2.ZipFile(buf2) as z2:
+                            xml2 = z2.read("word/document.xml")
+                        root2 = _ET2.fromstring(xml2)
+                        xml_str2 = xml2.decode("utf-8", errors="replace")
+                        has_tc2 = f'{{{W2}}}ins' in xml_str2 or f'{{{W2}}}del' in xml_str2
+                        ins2, del2 = [], []
+                        for elem in root2.iter(f'{{{W2}}}ins'):
+                            t = "".join(x.text or "" for x in elem.iter(f'{{{W2}}}t'))
+                            if t.strip(): ins2.append(t.strip())
+                        for elem in root2.iter(f'{{{W2}}}del'):
+                            t = "".join(x.text or "" for x in elem.iter(f'{{{W2}}}delText'))
+                            if t.strip(): del2.append(t.strip())
+                        clean2 = []
+                        for para in root2.iter(f'{{{W2}}}p'):
+                            parts2 = []
+                            for elem in para.iter():
+                                if elem.tag == f'{{{W2}}}t':
+                                    parts2.append(elem.text or '')
+                            t2 = "".join(parts2).strip()
+                            if t2: clean2.append(t2)
+                        text = "\n".join(clean2)
+                        if has_tc2:
+                            tc_sum = f"TRACK CHANGES: {len(ins2)} insertions, {len(del2)} deletions."
+                        else:
+                            tc_sum = "TRACK CHANGES: None detected."
+                    except Exception: pass
+                    if not text:
+                        try:
+                            import mammoth
+                            r2 = mammoth.extract_raw_text(io.BytesIO(raw))
+                            text = r2.value.strip() if r2.value else ""
+                        except Exception: pass
+            except Exception:
+                pass
+            MAX = 22000
+            if len(text) > MAX:
+                text = text[:MAX] + "\n[truncated]"
+            return text.strip(), tc_sum
+
+        def run_single_analysis(text, tc_summary_text, fname, client_obj, sys_prompt, analysis_qs, depth_inst):
+            """Run one API call for a single document. Returns analysis text."""
+            um = f"""Analyze this ITU-R contribution. Filename: {fname}
+{f"TRACK CHANGES:{chr(10)}{tc_summary_text}{chr(10)}" if tc_summary_text else ""}
+CONTRIBUTION TEXT:
+{text}
+
+{analysis_qs}
+
+{depth_inst.replace('OUTPUT FORMAT: ','').replace('CONCISE — ','Concise — ')}
+
+{'''═══════════════════════════════════════════════════════════════════
+REQUIRED OUTPUT STRUCTURE
+═══════════════════════════════════════════════════════════════════
+
+## ⚡ FREQUENCY RELEVANCE SUMMARY
+Compact table with actual MHz/GHz numbers:
+| Proposed Frequency | FAA Band | FAA System | Gap/Overlap | Relationship | Study Type |
+|---|---|---|---|---|---|
+
+**REVIEW VERDICT: [REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION]**
+One sentence.
+
+## A) Document Overview + Status
+- Title, source, date (only if in document)
+- WRC-27 AI reference (if stated)
+- 📋 STATUS: [NEW DOCUMENT / REVISION / UNCLEAR] — [confidence]
+- Evidence: cite 1–2 verbatim phrases from document
+
+## B) Key FAA Concerns (3 bullets max for batch mode)
+## C) Recommended Actions (top 2 only)'''}"""
+            response = client_obj.messages.create(
+                model="claude-opus-4-5",
+                max_tokens=2500,
+                messages=[{"role": "user", "content": um}],
+                system=sys_prompt,
+            )
+            return response.content[0].text
+
+        # Build shared system prompt
+        wp_profile_key_b = WP_PROFILE_MAP.get(working_party)
+        wp_profile_b     = WP_ANALYSIS_PROFILES.get(wp_profile_key_b) if wp_profile_key_b else None
+        wp_framework_b   = f"Working Party: {working_party}. Apply appropriate analysis framework." if not wp_profile_b else f"Working Party: {working_party} — {wp_profile_b['primary_threat']}"
+        faa_bands_b      = "\n".join([f"- {n}: {b['f_low_mhz']}–{b['f_high_mhz']} MHz ({b['allocation']}), I/N {b['in_threshold_db']} dB" for n,b in FAA_BANDS.items()])
+        depth_b = {"Quick assessment (key risks + recommended US position)": "OUTPUT FORMAT: Concise — 2–3 bullets per section.",
+                   "Standard analysis (full policy brief with citations)": "OUTPUT FORMAT: Standard structured analysis.",
+                   "Deep dive (comprehensive brief + draft response contribution outline)": "OUTPUT FORMAT: Full detail."}[analysis_depth]
+        sys_prompt_batch = f"You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings.\n{wp_framework_b}\nFAA PROTECTED BANDS:\n{faa_bands_b}\nACCURACY RULE: Never fabricate citations or frequency values. If uncertain, say 'Cannot confirm.'"
+
+        client_b = anthropic.Anthropic(api_key=api_key)
+
+        st.markdown("---")
+        st.subheader("📊 Batch Analysis Progress")
+
+        # Progress bar and status
+        progress_bar = st.progress(0)
+        status_text  = st.empty()
+
+        batch_results = []  # list of dicts
+
+        for idx, f in enumerate(batch_files):
+            fname = f.name
+            status_text.text(f"Analyzing {idx+1}/{len(batch_files)}: {fname}...")
+            progress_bar.progress((idx) / len(batch_files))
+
+            text_b, tc_b = extract_text_from_file(f)
+            if not text_b:
+                batch_results.append({"file": fname, "text": "", "tc": tc_b, "analysis": f"⚠️ Could not extract text from {fname}", "error": True})
+                continue
+
+            analysis_questions_b = analysis_questions if 'analysis_questions' in dir() else ""
+            try:
+                result_b = run_single_analysis(text_b, tc_b, fname, client_b, sys_prompt_batch, analysis_questions_b, depth_b)
+                batch_results.append({"file": fname, "text": text_b, "tc": tc_b, "analysis": result_b, "error": False})
+            except Exception as e:
+                batch_results.append({"file": fname, "text": text_b, "tc": tc_b, "analysis": f"❌ API error: {e}", "error": True})
+
+        progress_bar.progress(1.0)
+        status_text.text(f"✅ Complete — {len(batch_files)} document(s) analyzed")
+
+        # ── Triage summary table ──────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("🗂️ Triage Summary")
+        ex("Quick-scan table — review verdict is extracted from each analysis. Documents flagged REQUIRES HUMAN REVIEW need manual follow-up.")
+
+        import re as _re_b
+        triage_rows = []
+        for res in batch_results:
+            if res["error"]:
+                triage_rows.append({"File": res["file"], "Verdict": "ERROR", "Status": "—", "Key Finding": res["analysis"][:80]})
+                continue
+            # Extract verdict from analysis
+            verdict_match = _re_b.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', res["analysis"])
+            verdict = verdict_match.group(1).strip() if verdict_match else "SEE FULL ANALYSIS"
+            status_match = _re_b.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', res["analysis"], _re_b.IGNORECASE)
+            status = status_match.group(1).upper() if status_match else "—"
+            # Extract first frequency table row if present
+            freq_match = _re_b.search(r'\|\s*(\d[\d.,\-–\s]*(?:MHz|GHz)[^\|]*)\|', res["analysis"])
+            freq_str = freq_match.group(1).strip()[:40] if freq_match else "—"
+            triage_rows.append({"File": res["file"], "Verdict": verdict, "Doc Status": status, "Proposed Freq": freq_str})
+
+        triage_df = pd.DataFrame(triage_rows)
+
+        def color_verdict(val):
+            if "HUMAN REVIEW" in str(val): return "background-color:#3a1a1a;color:#ff8888;font-weight:bold"
+            if "NOT RELEVANT" in str(val):  return "background-color:#1a3a1a;color:#88ff88"
+            if "CLARIFICATION" in str(val): return "background-color:#3a3a1a;color:#ffff88"
+            return ""
+
+        st.dataframe(triage_df.style.applymap(color_verdict, subset=["Verdict"]),
+                     use_container_width=True, hide_index=True)
+
+        # ── Individual results ────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📋 Full Analysis — Each Document")
+        for res in batch_results:
+            with st.expander(f"{'🔴' if 'HUMAN REVIEW' in res['analysis'] else '🟢'} {res['file']}"):
+                st.markdown(res["analysis"])
+
+        # ── Combined Word report ──────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📄 Download Combined Batch Report (.docx)")
+        ex("Single Word document containing the triage table and full analysis for every document in the batch.")
+
+        try:
+            from docx import Document as _BD
+            from docx.shared import Pt, Inches, RGBColor
+            from docx.oxml.ns import qn
+            from docx.oxml import OxmlElement
+            from datetime import date as _bdate
+            import re as _bre
+
+            bdoc = _BD()
+            bsec = bdoc.sections[0]
+            bsec.page_width  = Inches(8.5); bsec.page_height = Inches(11)
+            bsec.top_margin = bsec.bottom_margin = Inches(1)
+            bsec.left_margin = bsec.right_margin = Inches(1.2)
+
+            FAA_B = RGBColor(0x1F,0x4E,0x79); MED_B = RGBColor(0x2E,0x75,0xB6)
+            RED_B = RGBColor(0xC0,0x00,0x00); GRN_B = RGBColor(0x37,0x56,0x23)
+
+            # Title
+            tp = bdoc.add_paragraph()
+            tr = tp.add_run("FAA RF INTERFERENCE ANALYSIS TOOL — BATCH REPORT")
+            tr.bold = True; tr.font.size = Pt(14); tr.font.color.rgb = FAA_B
+            bdoc.add_paragraph(f"Working Party: {working_party}  |  Analysis Depth: {analysis_depth}  |  Date: {_bdate.today()}  |  Documents: {len(batch_files)}").runs[0].font.size = Pt(9)
+
+            # Triage table
+            hdr = bdoc.add_paragraph()
+            hr = hdr.add_run("TRIAGE SUMMARY"); hr.bold = True; hr.font.size = Pt(12); hr.font.color.rgb = FAA_B
+            tbl = bdoc.add_table(rows=len(triage_rows)+1, cols=4)
+            tbl.style = "Table Grid"
+            for ci, ch in enumerate(["File", "Verdict", "Doc Status", "Proposed Freq"]):
+                c = tbl.rows[0].cells[ci]; c.paragraphs[0].clear()
+                cr = c.paragraphs[0].add_run(ch); cr.bold = True; cr.font.size = Pt(8); cr.font.color.rgb = RGBColor(0xFF,0xFF,0xFF)
+                shd = OxmlElement('w:shd'); shd.set(qn('w:fill'),'2E75B6'); shd.set(qn('w:val'),'clear')
+                c._element.get_or_add_tcPr().append(shd)
+            for ri, row in enumerate(triage_rows):
+                for ci, key in enumerate(["File","Verdict","Doc Status","Proposed Freq"]):
+                    cell = tbl.rows[ri+1].cells[ci]; cell.paragraphs[0].clear()
+                    val = str(row.get(key,""))
+                    cr = cell.paragraphs[0].add_run(val); cr.font.size = Pt(8)
+                    if "HUMAN REVIEW" in val: cr.font.color.rgb = RED_B
+                    elif "NOT RELEVANT" in val: cr.font.color.rgb = GRN_B
+
+            # Individual analyses
+            for res in batch_results:
+                bdoc.add_page_break()
+                fp = bdoc.add_paragraph()
+                fr_r = fp.add_run(f"📄 {res['file']}")
+                fr_r.bold = True; fr_r.font.size = Pt(13); fr_r.font.color.rgb = FAA_B
+                if res.get("tc"): bdoc.add_paragraph(res["tc"]).runs[0].font.size = Pt(8)
+                # Render analysis text
+                for line in res["analysis"].split("\n"):
+                    ls = line.strip()
+                    if ls.startswith("## "):
+                        p = bdoc.add_paragraph(); r2 = p.add_run(ls[3:]); r2.bold = True; r2.font.size = Pt(11); r2.font.color.rgb = MED_B
+                    elif ls.startswith("| ") and "|" in ls[2:]:
+                        p = bdoc.add_paragraph(ls); p.runs[0].font.size = Pt(8)
+                    elif ls.startswith("- ") or ls.startswith("* "):
+                        p = bdoc.add_paragraph(style="List Bullet")
+                        parts = _bre.split(r'\*\*(.+?)\*\*', ls[2:])
+                        for pi, pt in enumerate(parts):
+                            r3 = p.add_run(pt); r3.font.size = Pt(9); r3.bold = (pi%2==1)
+                            if "HUMAN REVIEW" in pt or "⚠️" in pt: r3.font.color.rgb = RED_B
+                    elif ls:
+                        p = bdoc.add_paragraph(ls); p.runs[0].font.size = Pt(9) if p.runs else None
+
+            buf_b = io.BytesIO(); bdoc.save(buf_b); buf_b.seek(0)
+            st.download_button(
+                label=f"📄 Download Batch Report — {len(batch_files)} documents (.docx)",
+                data=buf_b.getvalue(),
+                file_name=f"FAA_Batch_Analysis_{working_party.replace(' ','_')[:20]}_{str(_bdate.today())}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True,
+            )
+        except Exception as be:
+            st.warning(f"Word report generation failed: {be}")
+
+    if single_btn and contrib_input.strip():
 
         # ── Resolve WP profile ──────────────────────────────────────────────
         wp_profile_key = WP_PROFILE_MAP.get(working_party)
@@ -3779,9 +4003,10 @@ Intermodulation / spurious response
                     "analysis_depth":  analysis_depth,
                 }
 
+                safe_name = (doc_number or "contribution").replace("/","_").replace(" ","_")
+
                 try:
                     docx_bytes = build_analysis_docx(analysis_text, docx_meta)
-                    safe_name = (doc_number or "contribution").replace("/","_").replace(" ","_")
                     st.download_button(
                         label="📄 Download Analysis Report (.docx)",
                         data=docx_bytes,
@@ -3791,7 +4016,6 @@ Intermodulation / spurious response
                         use_container_width=True,
                     )
                 except Exception as docx_err:
-                    # Fallback to plain text if docx generation fails
                     st.warning(f"Word document generation failed ({docx_err}) — offering plain text instead.")
                     export_text = f"""FAA RF INTERFERENCE ANALYSIS TOOL
 Document: {doc_number or 'N/A'} | WP: {working_party} | Admin: {submitting_admin or 'N/A'}
