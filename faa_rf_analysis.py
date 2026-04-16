@@ -2652,17 +2652,53 @@ Once configured, the analyzer will work every time you visit the app.
 
                     elif file_type in ("docx", "doc"):
                         docx_bytes = uploaded_file.read()
-                        try:
-                            import mammoth
-                            result = mammoth.extract_raw_text(io.BytesIO(docx_bytes))
-                            contrib_from_file = result.value
-                        except ImportError:
+                        contrib_from_file = ""
+
+                        # Method 1: mammoth (best — preserves paragraph structure cleanly)
+                        if not contrib_from_file:
+                            try:
+                                import mammoth
+                                buf = io.BytesIO(docx_bytes)
+                                result = mammoth.extract_raw_text(buf)
+                                if result and result.value and result.value.strip():
+                                    contrib_from_file = result.value.strip()
+                            except Exception:
+                                pass
+
+                        # Method 2: python-docx (fallback)
+                        if not contrib_from_file:
                             try:
                                 from docx import Document as DocxDocument
-                                doc = DocxDocument(io.BytesIO(docx_bytes))
-                                contrib_from_file = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                                buf = io.BytesIO(docx_bytes)
+                                doc = DocxDocument(buf)
+                                paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+                                # Also extract from tables
+                                for table in doc.tables:
+                                    for row in table.rows:
+                                        for cell in row.cells:
+                                            if cell.text.strip():
+                                                paras.append(cell.text.strip())
+                                contrib_from_file = "\n".join(paras)
                             except Exception:
-                                st.warning("⚠️ Could not extract text from Word document. Try the Paste Text tab.")
+                                pass
+
+                        # Method 3: zipfile raw XML extraction (last resort — handles corrupt/unusual docx)
+                        if not contrib_from_file:
+                            try:
+                                import zipfile, re as _re
+                                buf = io.BytesIO(docx_bytes)
+                                with zipfile.ZipFile(buf) as z:
+                                    xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+                                # Strip XML tags, keep text
+                                text = _re.sub(r'<[^>]+>', ' ', xml)
+                                text = _re.sub(r'\s+', ' ', text).strip()
+                                if len(text) > 50:
+                                    contrib_from_file = text
+                            except Exception:
+                                pass
+
+                        if not contrib_from_file:
+                            st.warning("⚠️ Could not extract text from this Word document. Please use the **Paste Text** tab and paste the document content directly.")
 
                 except Exception as e:
                     st.error(f"Error reading file: {e}. Please use the Paste Text tab.")
