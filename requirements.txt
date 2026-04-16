@@ -6,3 +6,8 @@ pandas
 scipy
 anthropic
 bcrypt
+PyPDF2
+pymupdf
+pdfminer.six
+python-docx
+mammoth
