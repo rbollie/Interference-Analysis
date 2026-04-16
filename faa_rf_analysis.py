@@ -413,6 +413,250 @@ WRC27_AGENDA_ITEMS = {
     },
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# WP ANALYSIS PROFILES — WP-SPECIFIC ANALYTICAL FRAMEWORKS
+# Each profile provides the correct lens, metrics, models, and questions
+# for contributions from that Working Party. Used to construct WP-aware
+# system prompts so the AI applies the right analysis framework.
+# ─────────────────────────────────────────────────────────────────────────────
+WP_ANALYSIS_PROFILES = {
+
+    "WP 5D (IMT/Mobile)": {
+        "label": "WP 5D — IMT/Mobile (5G/6G)",
+        "interferer_type": "Terrestrial IMT base station or UE (ground-based)",
+        "victim_type": "Airborne or ground-based aeronautical receiver",
+        "primary_threat": "IMT identification in bands adjacent to or overlapping aeronautical allocations",
+        "propagation_models": ["FSPL (worst-case)", "ITU-R P.452 (terrestrial)", "ITU-R P.528 (airborne victim)"],
+        "interference_metrics": ["I/N (dB) — primary metric", "pfd (dBW/m²) for field strength limits"],
+        "key_recommendations": ["ITU-R M.1642", "ITU-R SM.2028", "ITU-R P.452", "ITU-R P.528",
+                                  "ITU-R M.1477", "ITU-R SM.1540", "ITU-R SM.1541"],
+        "protection_criteria": "I/N thresholds from FAA system protection table; aviation safety factor +6 dB for precision approach",
+        "aggregate_method": "Monte Carlo per SM.2028; aggregate I/N from all IMT base stations within coordination zone",
+        "specific_checks": [
+            "What frequency range is proposed for IMT identification?",
+            "What is the maximum base station EIRP and antenna gain toward victim?",
+            "Is worst-case deployment scenario (urban dense, rooftop) considered?",
+            "Is the OOB emission mask defined? Does it comply with SM.1541 (23 dB at band edge)?",
+            "Is the coordination zone / exclusion zone adequate for RA and GNSS?",
+            "Does the analysis use P.452 or a more optimistic model? Challenge if FSPL not used for worst case.",
+            "Is the aviation safety factor (+6 dB) applied for precision approach systems?",
+            "Is aggregate interference from all base stations within radio horizon assessed?",
+        ],
+        "common_proponent_tactics": [
+            "Using median/typical EIRP instead of maximum — demand worst-case",
+            "Using P.452 clutter models that assume building attenuation — invalid for airborne victim",
+            "Claiming OOB mask compliance without providing the actual mask",
+            "Using separation distance from a single base station instead of aggregate analysis",
+            "Assuming directional antenna nulling toward victim — not guaranteed in real deployments",
+        ],
+        "wrc27_items": ["AI 1.7"],
+        "policy_levers": ["SM.1541 OOB mask compliance", "Coordination zones", "PFD limits", "Power limits near airports", "RR No. 4.10 harmful interference", "RR Resolution 750"],
+    },
+
+    "WP 5B (Maritime/Radiodetermination)": {
+        "label": "WP 5B — Maritime / Radiodetermination",
+        "interferer_type": "Ship-borne, coastal, or radiodetermination transmitter",
+        "victim_type": "Airborne or ground aeronautical receiver",
+        "primary_threat": "Radiolocation / maritime allocations near DME, ATC radar, or ARNS bands",
+        "propagation_models": ["FSPL", "ITU-R P.452", "ITU-R P.528 for airborne victim"],
+        "interference_metrics": ["I/N (dB)", "pfd (dBW/m²)"],
+        "key_recommendations": ["ITU-R M.1849 (ATC radar)", "ITU-R P.528", "ITU-R SM.2028"],
+        "protection_criteria": "ARSR I/N = −6 dB; ASR I/N = −10 dB per system protection table",
+        "aggregate_method": "Monte Carlo per SM.2028 for multiple maritime/coastal transmitters",
+        "specific_checks": [
+            "Is the maritime allocation adjacent to ATC radar bands (2700–2900 MHz)?",
+            "What is the ship/coastal station EIRP and emission mask?",
+            "Is the radar-to-radar separation geometry properly modeled?",
+            "Does the analysis account for airborne geometry (aircraft at altitude has greater exposure)?",
+        ],
+        "common_proponent_tactics": [
+            "Assuming sea-surface propagation only — ignores airborne victim above radio horizon",
+            "Using average power instead of peak power for pulsed radiolocation systems",
+        ],
+        "wrc27_items": [],
+        "policy_levers": ["I/N thresholds for ASR/ARSR", "Coordination distances from airports", "RR No. 4.10"],
+    },
+
+    "WP 4C (MSS / DC-MSS-IMT)": {
+        "label": "WP 4C — Mobile Satellite Service / DC-MSS-IMT",
+        "interferer_type": "Satellite downlink (space-to-Earth) — LEO/MEO/GEO constellation",
+        "victim_type": "Ground-based or airborne aeronautical receiver",
+        "primary_threat": "MSS satellite downlinks in candidate bands adjacent to DME (960 MHz), AMS(R)S (1525 MHz), ASR (2700 MHz)",
+        "propagation_models": [
+            "ITU-R P.619 (Earth-space propagation) — CORRECT model for satellite downlinks",
+            "NOT P.452 — P.452 is for terrestrial links only",
+            "ITU-R P.676 for atmospheric absorption on slant path",
+            "ITU-R P.618 for rain attenuation on slant path",
+        ],
+        "interference_metrics": [
+            "epfd (effective power flux density, dBW/m²/MHz) — PRIMARY metric for satellite downlinks",
+            "ΔT/T (%) — noise temperature rise, especially for RNSS and AMS(R)S",
+            "I/N (dB) — can be used but epfd is more appropriate for distributed satellite constellations",
+            "pfd (dBW/m²) — for individual satellite or aggregate limits at Earth surface",
+        ],
+        "key_recommendations": [
+            "ITU-R P.619 (Earth-space propagation)",
+            "ITU-R SM.2028 (Monte Carlo for aggregate satellite interference)",
+            "ITU-R M.1319 (MSS interference to aeronautical)",
+            "ITU-R S.1586 (epfd methodology)",
+            "ITU-R M.1477 (aeronautical safety margin)",
+            "RR No. 5.444 (ARNS 960–1215 MHz protection)",
+        ],
+        "protection_criteria": [
+            "DME/TACAN (960–1215 MHz): epfd ≤ −121.5 dBW/m²/MHz in any 1 MHz band",
+            "L-band AMS(R)S (1525–1559 MHz): ΔT/T ≤ 20% aggregate, ≤ 6% single-entry",
+            "ASR (2700–2900 MHz): I/N ≤ −10 dB",
+            "Aviation safety factor +6 dB applies to AMS(R)S safety communications",
+        ],
+        "aggregate_method": "epfd Monte Carlo simulation per S.1586/SM.2028; all visible satellites in constellation contribute simultaneously — this is the critical difference from terrestrial analysis",
+        "specific_checks": [
+            "Is the propagation model P.619 (correct for satellite)? If P.452 is used, that is WRONG — flag immediately",
+            "Is epfd (not just pfd) calculated? epfd accounts for aggregate interference from entire constellation",
+            "Is the full constellation density (number of satellites, orbital parameters) stated?",
+            "Is the satellite EIRP toward Earth surface stated at worst-case (nadir pointing)?",
+            "Are all three candidate bands (925–960, 1475–1518, 2620–2690 MHz) analyzed separately?",
+            "Does the epfd for 925–960 MHz candidate band comply with the −121.5 dBW/m²/MHz DME limit?",
+            "Does the ΔT/T for 1475–1518 MHz candidate band comply with 6% single-entry AMS(R)S limit?",
+            "Is the aggregate from all simultaneously visible satellites calculated (not just one)?",
+            "Does the analysis account for aircraft at altitude (higher elevation angle = stronger downlink signal)?",
+        ],
+        "common_proponent_tactics": [
+            "Using single-satellite pfd instead of full-constellation epfd — dramatically understates interference",
+            "Using P.452 or FSPL instead of P.619 — wrong model for satellite-to-Earth path",
+            "Citing average satellite EIRP rather than maximum (nadir) EIRP",
+            "Analyzing interference to ground-only victim — ignores aircraft at altitude which see stronger downlinks",
+            "Claiming ΔT/T compliance for aggregate but not showing single-entry compliance",
+            "Proposing one candidate band analysis while glossing over the others",
+        ],
+        "wrc27_items": ["AI 1.13"],
+        "policy_levers": [
+            "epfd limits per RR Appendix 5 / epfd coordination",
+            "ΔT/T limits for AMS(R)S per system protection table",
+            "ASR I/N = −10 dB",
+            "RR No. 5.444 (960–1215 MHz ARNS)",
+            "RR No. 4.10 harmful interference to safety service",
+            "ITU-R S.1586 for epfd methodology challenge",
+        ],
+    },
+
+    "WP 7B (Space Radiocommunication / Lunar SRS)": {
+        "label": "WP 7B — Space Research Service / Lunar Communications",
+        "interferer_type": "SRS transmitter — Earth-based uplink to lunar relay, or lunar surface transmitter (space-to-space)",
+        "victim_type": "Terrestrial aeronautical receivers in ASR, radar, ARNS bands",
+        "primary_threat": "Novel use case — SRS space-to-space links for lunar communications in bands that overlap FAA allocations",
+        "propagation_models": [
+            "Novel geometry — no established ITU-R model for lunar surface → Earth interference",
+            "Earth-Moon path: ~384,000 km — geometric spreading is enormous but EIRPs can be very high",
+            "For uplink (Earth→Moon): P.452 / FSPL for terrestrial portion; then no established model",
+            "KEY POINT: The lack of an established methodology is itself a FAA policy argument",
+        ],
+        "interference_metrics": [
+            "pfd (dBW/m²) at Earth surface from lunar transmitters",
+            "I/N (dB) if interference reaches terrestrial FAA receiver",
+            "NOTE: Metrics and thresholds are not yet established for lunar SRS — this is a gap to exploit",
+        ],
+        "key_recommendations": [
+            "ITU-R SA.509 (SRS protection criteria — terrestrial SRS)",
+            "ITU-R SM.2028 (Monte Carlo — if applicable)",
+            "NOTE: No ITU-R Recommendation specifically addresses lunar surface SRS interference to terrestrial ARNS",
+        ],
+        "protection_criteria": "ASR I/N = −10 dB; ARNS 5350–5470 MHz I/N = −6 dB; FAA fixed links per coordination",
+        "aggregate_method": "Not yet established for lunar SRS — FAA should argue this methodology must be developed BEFORE any allocation",
+        "specific_checks": [
+            "Does the contribution propose an interference methodology? If not, object on grounds that no methodology exists",
+            "What is the SRS transmitter EIRP from lunar surface toward Earth?",
+            "Is the Earth-surface pfd from lunar SRS calculated? Does it exceed terrestrial coordination thresholds?",
+            "Are Earth-based SRS uplink transmissions analyzed for interference to co-frequency aeronautical?",
+            "Does the proposal include any coordination mechanism with aeronautical services?",
+            "CRITICAL: Argue that methodology must be established before allocation — precedent from terrestrial SRS studies",
+        ],
+        "common_proponent_tactics": [
+            "Claiming lunar SRS is 'passive' or 'low power' without quantitative analysis",
+            "Using Earth-Moon path loss to argue interference is negligible — valid for average case but not worst-case uplink",
+            "Proposing allocation before methodology is established — FAA should oppose this sequencing",
+        ],
+        "wrc27_items": ["AI 1.15"],
+        "policy_levers": [
+            "Methodology gap argument — no established coordination method for lunar SRS vs terrestrial ARNS",
+            "Precautionary principle — allocation before methodology = wrong order",
+            "RR No. 4.10 for any co-frequency interference to safety service",
+            "Demand SRS coordination procedures as condition of any allocation",
+        ],
+    },
+
+    "WP 7C (EESS / Space Weather Sensors)": {
+        "label": "WP 7C — EESS / Science Services (Passive)",
+        "interferer_type": "PASSIVE — receive-only sensors, NO transmission",
+        "victim_type": "EESS sensor is the victim of terrestrial/aeronautical interference; but FAA concern is ALLOCATION PRECEDENT",
+        "primary_threat": "NOT interference — ALLOCATION POLICY. Adding EESS co-primary allocation in 4.2–4.4 GHz RA band (AI 1.19) weakens FAA's exclusive ARNS status for AI 1.7 (IMT)",
+        "propagation_models": ["NOT APPLICABLE — passive sensors do not interfere with FAA systems directly"],
+        "interference_metrics": [
+            "NOT APPLICABLE for direct interference analysis",
+            "For AI 1.19: the analysis must focus on ALLOCATION TABLE CONSEQUENCES, not interference",
+            "For AI 1.17: monitor whether passive allocation creates coordination obligations on FAA transmitters",
+        ],
+        "key_recommendations": [
+            "ITU Radio Regulations — Table of Frequency Allocations",
+            "RR Resolution 750 (coexistence)",
+            "NOTE: Do NOT apply M.1642 or SM.2028 to passive EESS — they are irrelevant here",
+        ],
+        "protection_criteria": "N/A for interference analysis. FAA concern is regulatory — maintaining ARNS exclusivity",
+        "aggregate_method": "N/A — passive sensors do not transmit",
+        "specific_checks": [
+            "AI 1.19 ONLY: Does the EESS passive allocation propose CO-PRIMARY status in 4.2–4.4 GHz?",
+            "If co-primary: will this set a precedent that 4.2–4.4 GHz is not exclusively ARNS? YES — this is the FAA risk",
+            "Does co-primary EESS weaken FAA's argument against AI 1.7 IMT? ASSESS THIS STRATEGICALLY",
+            "AI 1.17: Does the passive allocation create any coordination or notification requirements on FAA HF comms or ILS?",
+            "Is the allocation SECONDARY or CO-PRIMARY? Secondary is less threatening than co-primary",
+            "Does the contribution attempt to use passive EESS as a stepping stone to future active allocation?",
+        ],
+        "common_proponent_tactics": [
+            "Arguing passive = harmless = should be allowed — true for direct interference but ignores allocation precedent",
+            "Using passive allocation as a foot-in-the-door for future active allocation in the same band",
+            "Downplaying the allocation table consequences by focusing only on the passive sensor's technical benign nature",
+        ],
+        "wrc27_items": ["AI 1.17", "AI 1.19"],
+        "policy_levers": [
+            "Allocation table exclusivity argument — co-primary dilutes ARNS exclusive status",
+            "Strategic linkage to AI 1.7 — oppose AI 1.19 to strengthen AI 1.7 position",
+            "If passive allocation is unavoidable: demand SECONDARY status, not co-primary",
+            "Ensure no coordination obligation is placed on FAA ARNS transmitters",
+        ],
+    },
+
+    "WP 4A (Fixed Satellite Service)": {
+        "label": "WP 4A — Fixed Satellite Service (FSS)",
+        "interferer_type": "FSS satellite downlink or Earth station uplink",
+        "victim_type": "FAA fixed microwave links (7 GHz backbone), ARNS",
+        "primary_threat": "FSS downlinks or uplinks in bands shared with FAA fixed microwave links",
+        "propagation_models": ["ITU-R P.619 (Earth-space)", "ITU-R P.452 (Earth station → terrestrial)"],
+        "interference_metrics": ["pfd (dBW/m²)", "epfd", "I/N (dB)"],
+        "key_recommendations": ["ITU-R S.1586 (epfd)", "ITU-R P.619", "ITU-R SM.2028"],
+        "protection_criteria": "FAA fixed links: coordination per national frequency assignment",
+        "aggregate_method": "epfd per S.1586 for downlink; I/N for uplink-to-fixed",
+        "specific_checks": [
+            "Does FSS downlink pfd comply with RR Appendix 5 limits at Earth surface?",
+            "Are FAA fixed microwave links (7 GHz, 14 GHz) included in the victim analysis?",
+            "Is the Earth station uplink EIRP mask defined?",
+        ],
+        "common_proponent_tactics": ["Using coordination distance from populated areas only — ignores FAA remote sites"],
+        "wrc27_items": [],
+        "policy_levers": ["RR Appendix 5 pfd limits", "Coordination with FAA fixed link network", "RR No. 4.10"],
+    },
+}
+
+# Map selectbox display names to profile keys
+WP_PROFILE_MAP = {
+    "WP 5D (IMT/Mobile)":                        "WP 5D (IMT/Mobile)",
+    "WP 5B (Maritime/Radiodetermination)":        "WP 5B (Maritime/Radiodetermination)",
+    "WP 5A (Land Mobile)":                        "WP 5B (Maritime/Radiodetermination)",  # use 5B as closest
+    "WP 4C (MSS / DC-MSS-IMT)":                  "WP 4C (MSS / DC-MSS-IMT)",
+    "WP 7B (Space Radiocommunication / Lunar SRS)":"WP 7B (Space Radiocommunication / Lunar SRS)",
+    "WP 7C (EESS / Space Weather Sensors)":       "WP 7C (EESS / Space Weather Sensors)",
+    "WP 4A (Fixed Satellite Service)":            "WP 4A (Fixed Satellite Service)",
+    "WP 4B (Satellite News Gathering / ESIM)":    "WP 4A (Fixed Satellite Service)",  # use 4A as closest
+    "CPM (Conference Preparatory Meeting)":       "WP 5D (IMT/Mobile)",  # CPM synthesizes all — default to broadest
+}
 
 
 def noise_floor_dbm(bandwidth_hz: float, noise_figure_db: float) -> float:
@@ -578,7 +822,7 @@ def monte_carlo_aggregate(
 # ─────────────────────────────────────────────────────────────────────────────
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/FAA_seal.svg/200px-FAA_seal.svg.png", width=80)
 st.sidebar.title("FAA RF Interference\nAnalysis Tool")
-st.sidebar.markdown("*For ITU-R WP 5D / 5B Policy Support*")
+st.sidebar.markdown("*For ITU-R WP 5D / 5B / 4C / 7B / 7C Policy Support*")
 
 # ── User info bar ─────────────────────────────────────────────────────────────
 user = current_user()
@@ -1508,11 +1752,109 @@ elif selected_tab == "🌐 Propagation":
     guidance = pd.DataFrame([
         ["Terrestrial base station → ground receiver", "P.452", "Point-to-point interference, terrain profile needed for full implementation"],
         ["Terrestrial base station → airborne receiver", "P.528", "Specific to aeronautical scenarios; slant path + atmosphere"],
-        ["Satellite → airborne receiver", "P.619 / P.618", "Earth-space path; use itur.atmospheric_attenuation_slant_path"],
+        ["Satellite downlink → ground/airborne receiver", "P.619 / P.618", "Earth-space path; REQUIRED for WP 4C satellite contributions — P.452 is WRONG here"],
         ["Quick worst-case bound", "FSPL", "Always optimistic (most interference); use to bound the problem first"],
         ["High freq (>6 GHz) atmospheric loss", "P.676", "Gaseous absorption becomes significant above ~6 GHz"],
     ], columns=["Scenario", "Model", "Notes"])
     st.table(guidance)
+
+    # ── P.619 Satellite Slant-Path Calculator ─────────────────────────────────
+    st.markdown("---")
+    st.subheader("🛰️ ITU-R P.619 Satellite Slant-Path Calculator")
+    ex("P.619 is the correct propagation model for WP 4C satellite downlink contributions (DC-MSS-IMT, AI 1.13). Using P.452 or FSPL alone for a satellite-to-Earth path is a fundamental methodology error — flag it in any contribution you review.")
+
+    col_619a, col_619b = st.columns(2)
+    with col_619a:
+        sat_freq_mhz   = st.number_input("Satellite Frequency (MHz)", value=950.0, step=10.0,
+            help="Center frequency of the satellite downlink — e.g. 925–960 MHz for AI 1.13 candidate band")
+        sat_eirp_dbw   = st.number_input("Satellite EIRP (dBW)", value=20.0, step=1.0,
+            help="Peak EIRP toward Earth surface at nadir. Use worst-case (nadir-pointing, max power) for interference analysis.")
+        sat_alt_km     = st.number_input("Satellite Altitude (km)", value=550.0, step=50.0,
+            help="Orbital altitude. LEO: 400–1200 km. MEO: 8000–20000 km. GEO: 35786 km.")
+        elev_angle_deg = st.number_input("Elevation Angle (°)", value=30.0, step=5.0, min_value=0.1, max_value=90.0,
+            help="Elevation angle from ground/aircraft to satellite. 90° = directly overhead. Lower = longer path through atmosphere.")
+        victim_alt_km  = st.number_input("Victim Altitude (km)", value=0.0, step=0.5,
+            help="0 = ground receiver. Enter aircraft cruising altitude (e.g. 10 km) for airborne victim. Aircraft see stronger downlinks at altitude.")
+
+    with col_619b:
+        # Slant range from geometry
+        R_e = 6371.0  # Earth radius km
+        elev_rad = np.radians(elev_angle_deg)
+        sat_orbit_r = R_e + sat_alt_km
+        victim_r    = R_e + victim_alt_km
+        # Slant range via law of cosines: r² = R_v² + R_s² - 2·R_v·R_s·cos(θ)
+        # Using elevation angle: slant_range = sqrt(R_s² - (R_v·cos(el))²) - R_v·sin(el)
+        cos_elev = np.cos(elev_rad); sin_elev = np.sin(elev_rad)
+        slant_km = np.sqrt(sat_orbit_r**2 - (victim_r * cos_elev)**2) - victim_r * sin_elev
+
+        # Free-space path loss at slant range
+        fspl_619 = round(20*np.log10(slant_km) + 20*np.log10(sat_freq_mhz) + 32.44, 2)
+
+        # Atmospheric attenuation (simplified P.619 / P.676)
+        try:
+            atm_atten_zenith = float(itu676.gaseous_attenuation_terrestrial_path(
+                sat_freq_mhz/1000, p=50, T=15, H=50, P=1013.25, d=10, mode="approx"
+            ).value)
+            # Scale by elevation angle (zenith path × 1/sin(elev))
+            path_factor = min(1.0/max(sin_elev, 0.1), 10)  # cap at 10× zenith
+            atm_atten_slant = round(atm_atten_zenith * path_factor, 2)
+        except Exception:
+            atm_atten_slant = round(0.010 * slant_km * 0.1, 2)  # rough fallback
+
+        total_path_loss = round(fspl_619 + atm_atten_slant, 2)
+        pfd_dbw_m2 = round(sat_eirp_dbw - 10*np.log10(4 * np.pi * (slant_km*1e3)**2), 2)
+        rx_pwr_isotropic = round(sat_eirp_dbw - total_path_loss, 2)
+
+        st.metric("Slant Range", f"{slant_km:.1f} km",
+            help="Geometric distance from satellite to victim. Longer than orbital altitude due to off-nadir geometry.")
+        st.metric("Free Space Path Loss (P.619)", f"{fspl_619:.2f} dB",
+            help="FSPL at slant range and frequency. This is the CORRECT metric for satellite downlinks — not P.452.")
+        st.metric("Atmospheric Attenuation (P.676 approx)", f"{atm_atten_slant:.2f} dB",
+            help="Gaseous attenuation along slant path. Increases at lower elevation angles.")
+        st.metric("Total Path Loss", f"{total_path_loss:.2f} dB",
+            help="FSPL + atmospheric absorption along slant path.")
+        st.metric("PFD at victim (dBW/m²)", f"{pfd_dbw_m2:.2f} dBW/m²",
+            help=f"Power Flux Density at receiver. For DME protection: epfd must not exceed −121.5 dBW/m²/MHz.")
+        st.metric("Rx Power (isotropic antenna)", f"{rx_pwr_isotropic:.2f} dBW",
+            help="Received power for a 0 dBi isotropic antenna at the victim. Add victim antenna gain for actual received power.")
+
+        # DME/AMS(R)S compliance checks
+        st.markdown("**Compliance Checks**")
+        if 925 <= sat_freq_mhz <= 960:
+            ok_dme = pfd_dbw_m2 <= -121.5
+            status_color = "✅" if ok_dme else "❌"
+            st.markdown(f"{status_color} DME band (925–960 MHz): PFD = {pfd_dbw_m2:.1f} dBW/m²  vs  limit −121.5 dBW/m²/MHz  →  {'COMPLIANT' if ok_dme else 'EXCEEDS LIMIT — INCOMPATIBLE'}")
+        elif 1475 <= sat_freq_mhz <= 1518:
+            st.info(f"AMS(R)S adjacent band (1475–1518 MHz): Use ΔT/T analysis, not PFD. ΔT/T single-entry limit = 6%. Compute: T_noise_rise / T_sys where T_noise_rise = S_interference / k.")
+        elif 2620 <= sat_freq_mhz <= 2690:
+            st.info(f"ASR adjacent band (2620–2690 MHz): ASR I/N threshold = −10 dB. Compute I/N from received interference power vs ASR noise floor.")
+
+    # P.619 distance sweep
+    st.markdown("**PFD vs Elevation Angle**")
+    ex("Lower elevation angles = longer slant path = more path loss = less PFD at victim. BUT aircraft at altitude always see the satellite at a higher effective elevation angle than ground receivers — airborne victims receive stronger downlinks.")
+
+    elev_sweep = np.linspace(5, 90, 200)
+    pfd_sweep  = []
+    for el in elev_sweep:
+        el_r = np.radians(el)
+        s_r  = np.sqrt(sat_orbit_r**2 - (victim_r * np.cos(el_r))**2) - victim_r * np.sin(el_r)
+        fl   = 20*np.log10(s_r) + 20*np.log10(sat_freq_mhz) + 32.44
+        pfd_sweep.append(sat_eirp_dbw - 10*np.log10(4 * np.pi * (s_r*1e3)**2))
+
+    fig_619, ax_619 = plt.subplots(figsize=(10, 3))
+    fig_619.patch.set_facecolor("#0e1117"); ax_619.set_facecolor("#0e1117")
+    ax_619.plot(elev_sweep, pfd_sweep, color="#ce93d8", linewidth=2)
+    ax_619.axvline(elev_angle_deg, color="white", linestyle=":", alpha=0.7, label=f"Current: {elev_angle_deg}°")
+    if 925 <= sat_freq_mhz <= 960:
+        ax_619.axhline(-121.5, color="red", linestyle="--", linewidth=1.5, label="DME limit (−121.5 dBW/m²)")
+    ax_619.set_xlabel("Elevation Angle (°)", color="white", fontsize=10)
+    ax_619.set_ylabel("PFD (dBW/m²)", color="white", fontsize=10)
+    ax_619.set_title(f"Satellite PFD vs Elevation Angle — {sat_freq_mhz:.0f} MHz, {sat_alt_km:.0f} km orbit", color="white")
+    ax_619.legend(facecolor="#1a1a2e", labelcolor="white", fontsize=9)
+    ax_619.tick_params(colors="white"); ax_619.grid(color="#333", alpha=0.4)
+    for sp in ax_619.spines.values(): sp.set_color("#444")
+    plt.tight_layout()
+    st.pyplot(fig_619)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5 — MONTE CARLO
@@ -1673,7 +2015,8 @@ elif selected_tab == "📋 Contribution Summary":
     st.subheader("Scenario Setup")
     contrib_title = st.text_input("Analysis Title", value="Interference Assessment: New IMT Allocation vs. Radio Altimeter Band")
     submitter = st.text_input("Submitting Administration", value="United States of America")
-    meeting = st.text_input("Target Meeting", value="ITU-R WP 5D Meeting, [Date]")
+    meeting = st.text_input("Target Meeting", value="ITU-R WP 5D Meeting, [Date]",
+        help="e.g. 'WP 5D #44, Oct 2025' or 'WP 4C #38, Nov 2025' or 'WP 7C #30, Mar 2026'")
     wrc_agenda = st.text_input("WRC Agenda Item", value="AI [X.Y] — [description]")
 
     protected_band = st.selectbox("Protected FAA System", list(FAA_BANDS.keys()))
@@ -2128,14 +2471,16 @@ Always run FSPL first as a bounding calculation.
 
     st.markdown("---")
     st.header("🔍 Module 7 — Contribution Analyzer (AI-Powered)")
-    ex("The next module uses AI to read any WP 5D or 5B contribution you paste in and instantly gives you FAA-focused policy guidance.")
+    ex("The next module uses AI to read any WP 5D, 5B, 4C, 7B, 7C or other ITU-R contribution you paste in and instantly gives you FAA-focused policy guidance.")
     st.markdown("""
 **How to use it:**
 1. Go to the **🤖 Contribution Analyzer** module in the sidebar
 2. Paste the text or key sections of any ITU-R contribution
-3. Fill in the metadata (document number, working party, submitting admin)
-4. Click **Analyze** — the AI will assess:
+3. Select the Working Party — **4C, 5D, 5B, 7B, 7C** and more are all supported
+4. Fill in the metadata (document number, working party, submitting admin)
+5. Click **Analyze** — the AI will assess:
    - Which FAA protected bands are at risk
+   - Which WRC-27 agenda item (AI 1.7, 1.13, 1.15, 1.17, or 1.19) is implicated
    - What the submitting administration is trying to achieve
    - What the US/FAA policy position should be
    - What counter-arguments to raise
@@ -2148,7 +2493,16 @@ Always run FSPL first as a bounding calculation.
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🤖 Contribution Analyzer":
     st.title("🤖 AI Contribution Analyzer")
-    ex("Paste any ITU-R WP 5D or WP 5B contribution and get instant FAA-focused policy guidance — powered by Claude AI.")
+    ex("Paste any ITU-R contribution — WP 5D, 5B, 4C, 7B, 7C, or any other Working Party — and get instant FAA-focused policy guidance, interference classification, and SPR framework analysis powered by Claude AI.")
+
+    # Working party context callout
+    wp_context = {
+        "WP 5D (IMT/Mobile)":              ("AI 1.7", "IMT near Radio Altimeter 4.4–4.8 GHz and FAA fixed links"),
+        "WP 4C (MSS / DC-MSS-IMT)":        ("AI 1.13", "MSS candidate bands adjacent to DME (960 MHz), AMS(R)S (1525 MHz), ASR (2700 MHz)"),
+        "WP 7B (Space Radiocommunication / Lunar SRS)": ("AI 1.15", "Lunar SRS near ASR, radar, and ARNS 5 GHz bands"),
+        "WP 7C (EESS / Space Weather Sensors)":         ("AI 1.17 / AI 1.19", "EESS passive in RA band and space weather sensors near HF/VHF"),
+        "WP 5B (Maritime/Radiodetermination)":          ("Various", "Maritime/radiolocation services near aeronautical bands"),
+    }
 
     # API key handling
     api_key = None
@@ -2184,7 +2538,35 @@ Once configured, the analyzer will work every time you visit the app.
     col1, col2, col3 = st.columns(3)
     with col1:
         doc_number = st.text_input("Document Number", placeholder="e.g., 5D/123-E")
-        working_party = st.selectbox("Working Party", ["WP 5D (IMT/Mobile)", "WP 5B (Maritime/Radiodetermination)", "WP 5A (Land Mobile)", "SG 5 (Study Group)", "Other"])
+        working_party = st.selectbox("Working Party", [
+            "WP 5D (IMT/Mobile)",
+            "WP 5B (Maritime/Radiodetermination)",
+            "WP 5A (Land Mobile)",
+            "WP 4C (MSS / DC-MSS-IMT)",
+            "WP 7B (Space Radiocommunication / Lunar SRS)",
+            "WP 7C (EESS / Space Weather Sensors)",
+            "WP 4A (Fixed Satellite Service)",
+            "WP 4B (Satellite News Gathering / ESIM)",
+            "WP 6A (Broadcasting)",
+            "WP 1A (Spectrum Management)",
+            "WP 1B (Spectrum Management Methods)",
+            "SG 4 (Fixed-Satellite Service)",
+            "SG 5 (Terrestrial Services)",
+            "SG 7 (Science Services)",
+            "CPM (Conference Preparatory Meeting)",
+            "Other",
+        ])
+
+        # Show WP-specific FAA context
+        if working_party in wp_context:
+            ai_ref, ai_desc = wp_context[working_party]
+            st.markdown(
+                f"<div style='background:#1a2a3a;border-left:4px solid #ff8844;"
+                f"padding:8px 12px;border-radius:4px;margin:4px 0'>"
+                f"<b style='color:#ff8844'>⚠️ WRC-27 Watch — {ai_ref}:</b> "
+                f"<span style='color:#ffddaa'>{ai_desc}</span></div>",
+                unsafe_allow_html=True
+            )
     with col2:
         submitting_admin = st.text_input("Submitting Administration(s)", placeholder="e.g., China, European Union")
         meeting_date = st.text_input("Meeting / Date", placeholder="e.g., WP 5D #44, Oct 2025")
@@ -2303,7 +2685,10 @@ between two or more administrations</b> without prejudice to other administratio
 
     if st.button("🔍 Analyze Contribution", type="primary", disabled=not contrib_input.strip()):
 
-        # Build the prompt
+        # ── Resolve WP profile ──────────────────────────────────────────────
+        wp_profile_key = WP_PROFILE_MAP.get(working_party)
+        wp_profile = WP_ANALYSIS_PROFILES.get(wp_profile_key) if wp_profile_key else None
+
         depth_instruction = {
             "Quick assessment (key risks + recommended US position)":
                 "Provide a concise 3-section analysis: (1) Key Risks to FAA systems, (2) Recommended US Position, (3) Top 3 regulatory citations to invoke. Be direct and brief.",
@@ -2323,190 +2708,226 @@ between two or more administrations</b> without prejudice to other administratio
         ])
 
         system_protection_table = """
-FAA SYSTEM PROTECTION LEVELS (from FAA Interference Protection Considerations slides):
-| System | Protection Level | Notes |
-|--------|-----------------|-------|
-| ARSR (Air Route Surveillance Radar) | I/N = −6 dB | Long-range ATC radar |
-| ASR (Airport Surveillance Radar) | I/N = −10 dB | Short-range terminal radar |
-| RNSS Feeder Links | ΔT/T = 6% | Noise temperature rise metric |
-| L1 SBAS Type 1 | I < −146.5 dBW/MHz; I/N ≈ −5 dB + 6 dB safety margin | Wideband RFI; acquisition threshold |
-| L2 SBAS Ground Reference Rx | I < −147.5 dBW/MHz; I/N ≈ −6 dB | Wideband RFI |
-| L-band AMS(R)S Service & Feeder Links | ΔT/T = 20% aggregate = 6% single-entry | Noise temperature metric |
-| DME | epfd ≤ −121.5 dBW/m² in any 1 MHz band | Effective power flux density limit |
-| MLS | pfd ≤ −124.5 dBW/m² in 150 kHz band | Power flux density limit |
+FAA SYSTEM PROTECTION LEVELS:
+| System | Protection Level |
+|--------|-----------------|
+| ARSR | I/N = −6 dB |
+| ASR | I/N = −10 dB |
+| RNSS Feeder Links | ΔT/T = 6% |
+| L1 SBAS Type 1 | I < −146.5 dBW/MHz; I/N ≈ −5 dB + 6 dB safety margin |
+| L2 SBAS Ground Reference Rx | I < −147.5 dBW/MHz; I/N ≈ −6 dB |
+| L-band AMS(R)S | ΔT/T = 20% aggregate = 6% single-entry |
+| DME | epfd ≤ −121.5 dBW/m²/MHz in any 1 MHz band |
+| MLS | pfd ≤ −124.5 dBW/m² in 150 kHz band |
+AVIATION SAFETY FACTOR: +6 dB for precision approach/landing applications."""
 
-AVIATION SAFETY FACTOR: Some aeronautical applications (e.g. precision approach and landing) are critical,
-meriting an additional safety factor of not less than 6 dB on top of the base I/N threshold.
+        # ── Build WP-specific analytical framework block ────────────────────
+        if wp_profile:
+            wp_framework = f"""
+═══════════════════════════════════════════════════════════════════
+WORKING PARTY SPECIFIC FRAMEWORK — {wp_profile['label']}
+THIS OVERRIDES GENERIC ASSUMPTIONS — APPLY THIS FRAMEWORK PRECISELY
+═══════════════════════════════════════════════════════════════════
 
-AERONAUTICAL SPECTRUM FUNCTIONS (per FAA slides):
-1. Communications — AM(R)S & AMS(R)S: voice and data between aircraft and ground; safety requiring high integrity and rapid response; "(R)" = safety and regularity
-2. Navigation — ARNS, RNSS, RNS (Radionavigation Service), RDSS (Radiodetermination-satellite), Aeronautical RNSS
-3. Surveillance — SSR, ADS-B, TCAS for ATC separation
+INTERFERER TYPE: {wp_profile['interferer_type']}
+VICTIM TYPE: {wp_profile['victim_type']}
+PRIMARY THREAT: {wp_profile['primary_threat']}
 
-SAFETY SERVICE (RR 1.59): Any radiocommunication service used permanently or temporarily for the safeguarding of human life and property. ALL aeronautical bands listed above qualify.
+CORRECT PROPAGATION MODELS FOR THIS WP:
+{chr(10).join(f'  - {m}' for m in wp_profile['propagation_models'])}
 
-FREQUENCY SHARING BASIS: Permissible interference / non-interference basis. Permissible interference results in acceptable minimal performance change and is typically a change in the noise floor or received signal-to-noise ratio.
+CORRECT INTERFERENCE METRICS FOR THIS WP:
+{chr(10).join(f'  - {m}' for m in wp_profile['interference_metrics'])}
 
-WRC-27 AGENDA ITEMS DIRECTLY THREATENING FAA BANDS:
+KEY ITU-R RECOMMENDATIONS FOR THIS WP:
+{chr(10).join(f'  - {r}' for r in wp_profile['key_recommendations'])}
 
-AI 1.7 (WP 5D) — IMT identification in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz
-  FAA at risk: Radio Altimeter/WAICS (4.2–4.4 GHz), FAA fixed links (7.125–8.4 GHz, 14.8–15.35 GHz)
-  Mechanism: OOB emissions/blocking from IMT base stations into RA band (mirrors 5G/RA C-band issue)
-  US position: Oppose without coordination zones and OOB mask compliance per SM.1541
-  Highest priority — RA is safety-of-life, 6 dB aviation safety factor applies
+PROTECTION CRITERIA: {wp_profile['protection_criteria']}
 
-AI 1.13 (WP 4C) — MSS 694–2700 MHz for DC-MSS-IMT space-to-Earth connectivity
-  Candidate bands: 925–960 MHz (adj to DME), 1475–1518 MHz (adj to L-band AMS(R)S), 2620–2690 MHz (adj to ASR)
-  FAA at risk: ARNS/AM(R)S/AMS(R)S 960–1215 MHz, MSS SatCom DL 1525–1559 MHz, ASR 2700–2900 MHz
-  Mechanism: OOB/spurious from satellite downlinks landing in FAA bands; aggregate interference
-  Require SM.2028 aggregate analysis for all candidate bands
+AGGREGATE INTERFERENCE METHOD: {wp_profile['aggregate_method']}
 
-AI 1.15 (WP 7B) — SRS (space-to-space) for lunar surface communications
-  FAA at risk: ASR 2700–2900 MHz, 3600–4200 MHz, ARNS 5350–5470 MHz, fixed 7190–7235 MHz, 8450–8500 MHz
-  Novel use case — no established Earth-Moon interference methodology for terrestrial aeronautical systems
+SPECIFIC CHECKS TO PERFORM ON THIS CONTRIBUTION:
+{chr(10).join(f'  {i+1}. {c}' for i,c in enumerate(wp_profile['specific_checks']))}
 
-AI 1.17 (WP 7C) — EESS passive space weather sensors
-  FAA at risk: HF comms 2.1–29.89 MHz, ILS-related 74.8–75.2 MHz — low direct threat, procedural concern
+COMMON PROPONENT TACTICS TO WATCH FOR AND CHALLENGE:
+{chr(10).join(f'  - {t}' for t in wp_profile['common_proponent_tactics'])}
 
-AI 1.19 (WP 7C) — EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz
-  FAA at risk: Radio Altimeter 4.2–4.4 GHz, fixed 8.4–8.5 GHz
-  Strategic concern: EESS co-primary in RA band weakens FAA's exclusive ARNS status for AI 1.7
+POLICY LEVERS AVAILABLE FOR THIS WP:
+{chr(10).join(f'  - {p}' for p in wp_profile['policy_levers'])}
 
-When analyzing contributions related to these AIs, always flag which WRC-27 item is implicated and assess whether the contribution advances or threatens the FAA position on that item."""
+WRC-27 ITEMS: {', '.join(wp_profile['wrc27_items']) if wp_profile['wrc27_items'] else 'None directly — check for strategic linkage'}
+═══════════════════════════════════════════════════════════════════
+"""
+        else:
+            wp_framework = f"""
+NOTE: No specific WP profile found for '{working_party}'. Apply general FAA interference 
+analysis framework. Identify which WRC-27 agenda item (if any) this contribution relates to.
+"""
 
-        system_prompt = f"""You are a senior RF spectrum policy advisor supporting the FAA and NTIA in ITU-R proceedings. 
-Your role is to analyze ITU-R contributions from Working Party 5D (IMT/Mobile) and Working Party 5B (Maritime/Radiodetermination) 
-and provide precise, actionable policy guidance to protect US aeronautical interests.
+        # ── WP-specific analysis questions ──────────────────────────────────
+        if wp_profile_key == "WP 7C (EESS / Space Weather Sensors)":
+            # Passive sensors — allocation policy analysis, not interference analysis
+            analysis_questions = """
+ANALYSIS STRUCTURE FOR THIS WP 7C CONTRIBUTION:
 
-The following FAA frequency bands are protected and must be defended:
+⚠️ IMPORTANT: EESS passive sensors DO NOT TRANSMIT. Do NOT perform interference analysis 
+as if this is a transmitting service. The FAA concern is ALLOCATION POLICY, not interference.
+
+1. ALLOCATION POLICY ANALYSIS
+   a) What allocation status is proposed — secondary or co-primary?
+   b) Which specific band(s) are affected? Does any overlap 4.2–4.4 GHz (RA band)?
+   c) Does a co-primary EESS allocation in 4.2–4.4 GHz weaken FAA's exclusive ARNS status for AI 1.7?
+   d) Does the allocation create any coordination or notification obligations on FAA transmitters?
+   e) Is this a stepping stone for future active allocation in the band?
+
+2. STRATEGIC ASSESSMENT — WRC-27 AI LINKAGE
+   Assess how this contribution affects FAA's position on AI 1.7, AI 1.13, or other active WRC-27 AIs.
+
+3. SUBMITTER'S OBJECTIVE — What allocation outcome is the proponent seeking?
+
+4. RECOMMENDED US POSITION — What FAA/NTIA should argue (allocation table language)
+
+5. REGULATORY CITATIONS — Relevant RR provisions (allocation table, footnotes)
+
+6. DRAFT RESPONSE LANGUAGE — Proposed US intervention text"""
+
+        elif wp_profile_key == "WP 7B (Space Radiocommunication / Lunar SRS)":
+            # Novel use case — methodology gap argument
+            analysis_questions = """
+ANALYSIS STRUCTURE FOR THIS WP 7B CONTRIBUTION:
+
+⚠️ IMPORTANT: Lunar SRS is a NOVEL USE CASE. There is NO established ITU-R methodology
+for assessing Earth-Moon SRS interference to terrestrial aeronautical systems. 
+The absence of methodology is itself a FAA policy argument — allocation before methodology = wrong order.
+
+1. METHODOLOGY ASSESSMENT
+   a) Does the contribution propose a coordination methodology for lunar SRS vs terrestrial ARNS? 
+      If NOT: this is the primary objection — demand methodology before allocation.
+   b) If a methodology is proposed: is it valid? Does it use appropriate Earth-Moon propagation geometry?
+   c) Is EIRP from lunar surface transmitters quantified? What is the pfd at Earth surface?
+
+2. FAA BAND IMPACT ASSESSMENT
+   Check interference/coordination zones for: 2700–2900 MHz (ASR), 3600–4200 MHz, 
+   5350–5470 MHz (ARNS 5 GHz), 7190–7235 MHz, 8450–8500 MHz.
+
+3. SUBMITTER'S OBJECTIVE — What SRS allocation is being sought?
+
+4. RECOMMENDED US POSITION — Methodology first, allocation second. Demand coordination mechanism.
+
+5. REGULATORY CITATIONS
+
+6. DRAFT RESPONSE LANGUAGE — Propose that WP 7B establish methodology BEFORE finalizing allocation"""
+
+        elif wp_profile_key == "WP 4C (MSS / DC-MSS-IMT)":
+            # Satellite downlink — epfd, ΔT/T, P.619
+            analysis_questions = """
+ANALYSIS STRUCTURE FOR THIS WP 4C CONTRIBUTION:
+
+⚠️ CRITICAL CHECKS FOR SATELLITE CONTRIBUTIONS:
+- Is propagation model P.619 (correct) or P.452 (WRONG — terrestrial only)? Flag immediately if wrong.
+- Is epfd (not just pfd) calculated for the full constellation? Single-satellite pfd understates interference.
+- Are all THREE candidate bands (925–960, 1475–1518, 2620–2690 MHz) analyzed separately?
+
+1. TECHNICAL ANALYSIS (satellite-specific)
+   a) Propagation model: P.619 used? If P.452 used — FLAG AS FUNDAMENTAL ERROR.
+   b) Metric: epfd calculated for full constellation? ΔT/T for AMS(R)S? I/N for ASR?
+   c) For 925–960 MHz candidate: does aggregate epfd comply with −121.5 dBW/m²/MHz DME limit?
+   d) For 1475–1518 MHz candidate: does ΔT/T comply with 6% single-entry AMS(R)S limit?
+   e) For 2620–2690 MHz candidate: does I/N comply with −10 dB ASR threshold?
+   f) Is aggregate from ALL simultaneously visible satellites computed (not just one)?
+   g) Is airborne victim (aircraft at altitude) analyzed? Aircraft see stronger downlinks than ground.
+
+2. INTERFERENCE CLASSIFICATION (use epfd/ΔT/T thresholds, not generic I/N)
+   State whether each candidate band's interference is harmful, permissible, or accepted per RR 1.166–1.169.
+
+3. THREAT ASSESSMENT — Rank the three candidate bands by FAA risk level.
+
+4. SUBMITTER'S OBJECTIVE — Which candidate band(s) is the proponent actually pushing?
+
+5. RECOMMENDED US POSITION — Band-by-band: oppose/support/condition each candidate.
+
+6. COUNTER-ARGUMENTS — Challenge propagation model, epfd methodology, airborne victim omission.
+
+7. REGULATORY CITATIONS — P.619, SM.2028, S.1586, M.1319, RR 5.444, RR 4.10
+
+8. COALITION STRATEGY
+
+9. REQUIRED ANALYSIS — What FAA should compute to rebut
+
+10. DRAFT RESPONSE LANGUAGE"""
+
+        else:
+            # Generic terrestrial WP (5D, 5B, 5A, 4A, etc.) — I/N, P.452, FSPL
+            analysis_questions = """
+ANALYSIS STRUCTURE:
+
+1. INTERFERENCE CHARACTERIZATION (apply ITU-RR taxonomy + SPR framework)
+   a) SPR Analysis: Source worst-case parameters, correct Path model (P.452/FSPL/P.528), Victim worst-case.
+   b) Emission type: Spurious, OOB, or in-band? Cite RR definition.
+      If OOB: is the 250% BN boundary checked? Does mask comply with SM.1541 (23 dB at band edge)?
+      If Spurious: does it comply with RR Appendix 3 (43+10·log(P) dB or 60/70 dBc)?
+   c) Interference classification: Harmful (RR 1.169), permissible (1.167), or accepted (1.168)?
+   d) Technical mechanism: In-band, OOB coupling, receiver blocking, intermodulation, spurious response?
+   e) Aviation safety factor: Is the +6 dB precision approach factor applied?
+   f) Is RR No. 4.10 triggered? Is this RR 1.59 safety service?
+
+2. THREAT ASSESSMENT — FAA bands at risk with specific I/N or pfd values
+
+3. SUBMITTER'S OBJECTIVE
+
+4. TECHNICAL CONCERNS — Specific interference mechanisms
+
+5. RECOMMENDED US POSITION — Oppose / Support / Propose amendments
+
+6. COUNTER-ARGUMENTS — Technical and regulatory
+
+7. REGULATORY CITATIONS
+
+8. COALITION STRATEGY
+
+9. REQUIRED ANALYSIS
+
+10. URGENCY & TIMELINE
+
+11. DRAFT RESPONSE LANGUAGE"""
+
+        system_prompt = f"""You are a senior RF spectrum policy advisor supporting the FAA and NTIA in ITU-R proceedings.
+
+You are analyzing a contribution from: {working_party}
+
+{wp_framework}
+
+FAA PROTECTED BANDS (defend all of these):
 {faa_bands_summary}
 
 {system_protection_table}
 
-Key regulatory instruments available:
+WRC-27 ITEMS THREATENING FAA BANDS: AI 1.7 (WP 5D, IMT near RA), AI 1.13 (WP 4C, MSS near DME/AMS(R)S/ASR), AI 1.15 (WP 7B, lunar SRS), AI 1.17/1.19 (WP 7C, EESS passive).
+
+REGULATORY TOOLKIT:
 - RR No. 4.10: No harmful interference to safety-of-life services
-- RR No. 1.59: Safety service — any radiocommunication service used for safeguarding human life and property
-- RR No. 5.444: ARNS protection at 960-1215 MHz
-- RR No. 5.328: ARNS at 108-137 MHz; RNSS cannot claim protection from ARNS in 1164-1215 MHz
-- RR Resolution 233/236: RNSS/GNSS protection
-- RR Resolution 750: IMT and safety services coexistence
-- ITU-R M.1318: c = a − b methodology for GNSS aggregate interference
-- ITU-R M.1477: 6 dB aeronautical safety margin; +10 dB for narrowband (≤700 Hz) interferers
-- ITU-R M.1904 / M.1905: GLONASS and RNSS 6 dB safety margin doctrine
-- ITU-R M.1642: Methodology for IMT/ARNS compatibility assessments
-- ITU-R SM.2028: Monte Carlo simulation methodology
-- ICAO Annex 10: Aeronautical telecommunications standards
-- RTCA standards: DO-235B (GNSS), DO-260B (ADS-B), DO-155 (Radio Altimeter)
+- RR No. 1.59: Safety service definition
+- RR No. 5.444: ARNS protection 960–1215 MHz
+- RR Appendix 3: Spurious limits (43+10·log(P) or 60/70 dBc)
+- ITU-R SM.1540/SM.1541: OOB domain (250% BN boundary; 23 dB mask rule)
+- ITU-R M.1318/M.1477/M.1904/M.1905: GNSS protection methodology + 6 dB safety margin
+- ITU-R M.1642: IMT→ARNS methodology (terrestrial only — do not apply to satellite contributions)
+- ITU-R P.619: Earth-space propagation (required for WP 4C satellite analysis)
+- ITU-R SM.2028: Monte Carlo aggregate interference
+- ITU-R S.1586: epfd methodology (required for WP 4C/4A satellite downlink analysis)
 
-SOURCE-PATH-RECEIVER (SPR) ANALYSIS FRAMEWORK — MANDATORY:
-Aviation interference analysis uses the SPR model with worst-case limits on ALL three elements:
-- SOURCE: Max transmit power, worst-case antenna gain, worst-case signal characteristics (e.g. max EIRP, highest OOB emission level)
-- PATH: Free-space attenuation especially above 1 GHz; distance separation >20 km; worst-case propagation (P.528 for airborne, P.452 for ground; time %=1%)
-- VICTIM: Receiver susceptibility mask, worst-case antenna gain toward interferer, receiver noise power
-AGGREGATE EFFECT: The aggregate effect of multiple interference sources must be considered and due allowance made (Monte Carlo per SM.2028).
-PROTECTION CRITERIA: Max interference threshold limit is used as a protection criterion, taking into account all environmental conditions.
-AVIATION SAFETY FACTOR: Precision approach and landing applications require an ADDITIONAL 6 dB safety factor on top of the base I/N threshold.
-PERMISSIBLE INTERFERENCE: Results in acceptable minimal performance change — typically a change in the noise floor or received signal-to-noise ratio.
-
-═══════════════════════════════════════════════════════════════════════════
-MANDATORY INTERFERENCE CLASSIFICATION FRAMEWORK
-Based on ITU Radio Regulations — apply to EVERY analysis without exception
-═══════════════════════════════════════════════════════════════════════════
-
-LAYER 1 — UNWANTED EMISSIONS (characterize the SOURCE of interfering energy):
-
-SPURIOUS EMISSIONS
-Definition: Emissions at frequency or frequencies just outside the necessary bandwidth,
-the level of which MAY BE REDUCED without affecting the corresponding transmission of
-information. Spurious emissions include: harmonic emissions, parasitic emissions,
-intermodulation products, and frequency conversion products.
-IMPORTANT: Spurious emissions EXPLICITLY EXCLUDE out-of-band emissions.
-Regulatory limit (RR Appendix 3, Rev. WRC-12):
-  General services: 43 + 10·log(P) dB below carrier, OR 70 dBc — whichever is less stringent
-  Space stations: 43 + 10·log(P) dB OR 60 dBc — whichever is less stringent (stricter cap)
-  Where P = peak transmitter power in watts
-  Example: 39 dBW (8,000W) satellite → 43+39=82 dBc, but 60 dBc cap applies → limit = 60 dBc
-Verification: ITU-R SM.329 specifies the measurement methodology.
-Policy action: If spurious product lands in an FAA band, cite RR Appendix 3 for the exact dBc limit
-and demand compliance verification per SM.329.
-
-OUT-OF-BAND (OOB) EMISSIONS
-Definition: Emissions at frequency or frequencies IMMEDIATELY outside the necessary
-bandwidth, which result from the MODULATION PROCESS itself, but excluding spurious emissions.
-Key distinction from spurious: OOB is an inherent consequence of modulation;
-spurious is caused by hardware non-idealities (harmonics, intermod, parasitics).
-OOB DOMAIN BOUNDARY (ITU-R SM.1540): 250% of occupied bandwidth each side of the channel.
-  If occupied BW = 8 MHz, OOB zone extends 20 MHz beyond each band edge.
-  Inside OOB zone → SM.1540 and SM.1541 apply.
-  Outside OOB zone (beyond 250% BN) → RR Appendix 3 spurious rules apply instead.
-23 dB RULE (ITU-R SM.1541): The OOB emission mask MUST be at least 23 dB down at the
-  edge of the allocated band. This comes from RR No. 1.153 — occupied bandwidth is defined
-  as the band containing 99% of total mean power, with β/2 = 0.5% outside each edge.
-  The mask at the 0.5% point must be ≥23 dB attenuation. This is the MINIMUM floor.
-RR No. 1.153: Occupied bandwidth definition — 99% power band; 0.5% each edge.
-  Cite when challenging a proponent's bandwidth claim or verifying OOB boundary placement.
-Policy actions for OOB interference:
-  1. Verify occupied BW per RR 1.153 — demand 99% power measurement, not channel plan BW
-  2. Calculate OOB boundary (250% × occupied BW) — determine if FAA band is in OOB or spurious domain
-  3. If FAA band is inside OOB zone: cite SM.1541 — demand 23 dB attenuation at the band edge
-  4. If proponent's mask doesn't achieve 23 dB at the band edge: demand tighter mask or guard band
-  5. If FAA band is beyond OOB zone: cite RR Appendix 3 spurious limits instead
-
-LAYER 2 — INTERFERENCE CLASSIFICATION (RR Article 1.166 — classify by IMPACT level):
-
-HARMFUL INTERFERENCE (RR 1.169)
-Definition: Interference which endangers the functioning of a radionavigation service
-OR of other safety services OR seriously degrades, obstructs, or repeatedly interrupts
-a radiocommunication service operating in accordance with the Radio Regulations.
-Policy trigger: This is the threshold that invokes RR No. 4.10.
-Action: The US MUST oppose and demand cessation or mitigation.
-For ARNS/RNSS: ANY degradation that exceeds the I/N threshold (−6 dB or −10 dB)
-constitutes harmful interference to a safety-of-life service (RR 1.59).
-
-PERMISSIBLE INTERFERENCE (RR 1.167)
-Definition: Observed or predicted interference which complies with quantitative
-interference and sharing criteria contained in the Radio Regulations OR in ITU-R
-Recommendations OR in special agreements as provided for in these Regulations.
-Policy implication: Acceptable by definition if within agreed criteria.
-Used in coordination of frequency assignments between administrations.
-Caution: The US must ensure the agreed criteria are conservative enough — 
-"permissible" is only as protective as the criteria it references.
-
-ACCEPTED INTERFERENCE (RR 1.168)
-Definition: Interference at a higher level than that defined as permissible interference
-and which has been AGREED UPON between two or more administrations,
-without prejudice to other administrations.
-Policy implication: Requires explicit bilateral agreement. The US must ensure
-acceptance by one administration does not bind other administrations (including FAA).
-Both permissible and accepted interference are used in coordination of frequency
-assignments between administrations.
-
-LAYER 3 — TECHNICAL MECHANISMS (physical interference path):
-- IN-BAND: Interfering energy falls within the allocated protected band spectrum
-- OOB COUPLING: Interfering energy via modulation sidebands enters adjacent protected band
-- RECEIVER BLOCKING/DESENSITIZATION: Strong out-of-band signal compresses the LNA,
-  raising the effective noise floor — NO spectral overlap required
-- INTERMODULATION: Non-linear mixing produces products at new in-band frequencies
-- SPURIOUS RESPONSE: Receiver responds at image or IF frequencies due to poor selectivity
-
-CLASSIFICATION DECISION TREE:
-Step 1 → What is the emission type? (Spurious or OOB?)
-Step 2 → What is the technical mechanism? (In-band, blocking, intermod, OOB coupling?)
-Step 3 → What is the impact level? (Harmful 1.169, Permissible 1.167, or Accepted 1.168?)
-Step 4 → Does it rise to Harmful under 1.169? → If yes: RR 4.10 applies → OPPOSE
-Step 5 → Is it safety-of-life (RR 1.59)? → Lower threshold applies; 6 dB aviation safety factor for precision approach
-Step 6 → Apply SPR framework: are worst-case source, path, AND victim parameters used?
-
-For each analysis you MUST produce a formal interference characterization block
-that answers all six steps explicitly before proceeding to policy recommendations.
-═══════════════════════════════════════════════════════════════════════════
+INTERFERENCE CLASSIFICATION (apply to every analysis):
+- Harmful (RR 1.169) → triggers RR 4.10 → oppose
+- Permissible (RR 1.167) → within criteria → monitor
+- Accepted (RR 1.168) → bilateral agreement → ensure it doesn't bind US
+Emission types: Spurious vs OOB (see SM.1540/SM.1541 for OOB domain)
+Mechanisms: In-band, OOB coupling, blocking, intermodulation, spurious response
 
 {depth_instruction}
 
-Structure your response with clear headers. Use plain language that a policy official 
-can act on immediately. Flag anything requiring urgent escalation to NTIA or ICAO."""
+Use clear headers. Plain language. Flag NTIA/ICAO escalation needs."""
 
-        user_message = f"""Please analyze the following ITU-R contribution and provide FAA-focused policy guidance.
+        user_message = f"""Analyze this ITU-R contribution and provide FAA-focused policy guidance.
 
 DOCUMENT METADATA:
 - Document Number: {doc_number or 'Not provided'}
@@ -2522,36 +2943,7 @@ CONTRIBUTION TEXT:
 {f"SPECIFIC FAA CONCERN: {user_concern}" if user_concern else ""}
 {f"PRIOR US POSITION: {prior_us_position}" if prior_us_position else ""}
 
-Please provide comprehensive policy guidance including:
-
-1. INTERFERENCE CHARACTERIZATION (apply ITU-RR taxonomy + SPR framework)
-   a) SPR Analysis: Source worst-case parameters, Path worst-case model, Victim worst-case receiver — are all three applied correctly?
-   b) Emission type: Spurious emissions, out-of-band (OOB) emissions, or in-band operation? Cite which RR definition applies.
-   c) Interference classification: Harmful (RR 1.169), permissible (RR 1.167), or accepted (RR 1.168)? Justify with quantitative threshold from the system protection table.
-   d) Technical mechanism: In-band, adjacent band OOB coupling, receiver blocking/desensitization, intermodulation, or spurious response?
-   e) Aviation safety factor: Does the 6 dB precision approach safety factor apply? Is it accounted for in the analysis?
-   f) Is RR No. 4.10 triggered? Is this a safety service per RR 1.59? State explicitly.
-
-2. THREAT ASSESSMENT — Which FAA protected bands are at risk and how
-
-3. SUBMITTER'S OBJECTIVE — What the submitting administration is actually trying to achieve
-
-4. TECHNICAL CONCERNS — Specific interference mechanisms and vulnerable aeronautical systems
-
-5. RECOMMENDED US POSITION — Oppose / Support / Propose amendments (with rationale)
-
-6. COUNTER-ARGUMENTS — Technical and regulatory arguments to raise in the Working Party
-
-7. REGULATORY CITATIONS — Specific RR articles, Resolutions, and ITU-R Recommendations to invoke
-
-8. COALITION STRATEGY — Which administrations/organizations to coordinate with
-
-9. REQUIRED ANALYSIS — What technical studies the US should conduct or commission
-
-10. URGENCY & TIMELINE — How quickly must the US respond and through what mechanism
-
-11. DRAFT RESPONSE LANGUAGE — Key phrases/text for the US contribution or intervention,
-    including precise interference characterization language using the ITU-RR taxonomy"""
+{analysis_questions}"""
 
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
@@ -4360,8 +4752,12 @@ elif selected_tab == "🔬 Code Analyzer":
         code_wp = st.multiselect("Working Party (select all that apply):", [
             "WP 5D — IMT / Mobile",
             "WP 5B — Maritime / Radiodetermination",
+            "WP 4C — MSS / DC-MSS-IMT (Satellite)",
+            "WP 7B — Space Research / Lunar SRS",
+            "WP 7C — EESS / Space Weather (Passive)",
             "WP 7C — Radiolocation / Radar",
             "WP 7D — Radio Astronomy / Passive",
+            "WP 4A — Fixed Satellite Service",
             "SG 5 — Terrestrial Services",
             "Other",
         ], default=["WP 5D — IMT / Mobile"])
@@ -4521,6 +4917,57 @@ Key FAA concerns:
 - Coordination with passive services in L-band (1400-1427 MHz) near GPS (1559-1610 MHz) and
   GNSS L2 (1215-1300 MHz) — passive allocations set precedent for strict emission limits
   that indirectly constrain aeronautical systems in adjacent bands""",
+
+            "WP 4C — MSS / DC-MSS-IMT (Satellite)": """WP 4C governs Mobile Satellite Service (MSS) and the new DC-MSS-IMT (direct satellite-to-device) systems.
+This is WRC-27 AI 1.13. KEY FAA CONCERN: THREE CANDIDATE BANDS all adjacent to FAA safety systems:
+  - 925–960 MHz (adjacent to DME/TACAN at 960 MHz — epfd ≤ −121.5 dBW/m²/MHz required)
+  - 1475–1518 MHz (adjacent to L-band AMS(R)S at 1525–1559 MHz — ΔT/T ≤ 6% single-entry)
+  - 2620–2690 MHz (adjacent to ASR at 2700–2900 MHz — I/N ≤ −10 dB)
+
+CRITICAL CODE CHECKS FOR WP 4C:
+1. PROPAGATION MODEL: Must use ITU-R P.619 (Earth-space), NOT P.452 (terrestrial only).
+   If code uses P.452 or FSPL for a satellite downlink: FLAG AS FUNDAMENTAL ERROR — wrong model.
+2. INTERFERENCE METRIC: Must use epfd (effective power flux-density) for constellation aggregate,
+   NOT single-satellite pfd. If code only calculates pfd for one satellite: FLAG — understates by 10–30 dB.
+   epfd formula: sum over all visible satellites of (EIRP_i / (4π R_i²)) × G_victim(θ_i) 
+3. VICTIM GEOMETRY: Must analyze airborne aircraft at altitude, not just ground terminals.
+   Aircraft at altitude see stronger downlinks (higher elevation angle, less atmosphere).
+4. ΔT/T CHECK: For AMS(R)S band — T_noise_rise / T_system_noise ≤ 6% single-entry per protection table.
+5. AGGREGATE: All simultaneously visible satellites must contribute — single satellite analysis is insufficient.
+
+Common errors to flag:
+- Using P.452 instead of P.619 (wrong model category)
+- Single satellite pfd instead of constellation epfd
+- Ground-only victim, ignoring airborne geometry
+- Average satellite EIRP instead of worst-case nadir-pointing EIRP
+- ΔT/T aggregate compliance without showing single-entry compliance
+- Failure to analyze all three candidate bands independently""",
+
+            "WP 7B — Space Research / Lunar SRS": """WP 7B governs space research service (SRS), including the novel WRC-27 AI 1.15 — lunar surface communications.
+This is a NEW USE CASE with NO established ITU-R methodology for Earth-Moon SRS interference to terrestrial ARNS.
+
+KEY CODE CHECK: If the code attempts to analyze Earth-Moon interference to terrestrial aeronautical systems,
+ask: What ITU-R Recommendation is this methodology based on? If the answer is none — FLAG IMMEDIATELY.
+The absence of an agreed methodology is a FAA policy argument: allocation before methodology = wrong order.
+
+FAA BANDS AT RISK: 2700–2900 MHz (ASR), 3600–4200 MHz, 5350–5470 MHz (ARNS 5 GHz), 7190–7235 MHz, 8450–8500 MHz.
+
+For Earth-based SRS uplinks (Earth→Moon):
+- Uplink EIRP on Earth may be very high — pfd at co-frequency aeronautical receivers must be assessed
+- Use FSPL at Earth-Moon distance (~384,000 km) for downlink path to confirm ground receiver impact
+
+Common errors:
+- Assuming Earth-Moon path loss makes interference negligible without calculating the actual pfd
+- Not analyzing SRS uplink impact on co-frequency aeronautical ground receivers
+- Proposing allocation without demonstrating a coordination methodology exists""",
+
+            "WP 7C — EESS / Space Weather (Passive)": """WP 7C (EESS passive) — WRC-27 AI 1.17 and AI 1.19.
+PASSIVE SENSORS DO NOT TRANSMIT — do not analyze for interference to FAA systems.
+The FAA concern is ALLOCATION POLICY:
+- AI 1.19: EESS passive co-primary in 4.2–4.4 GHz (Radio Altimeter band) weakens FAA exclusive ARNS status
+- Strategic threat: weakens FAA position against AI 1.7 (IMT at 4.4–4.8 GHz)
+- Check if code is being used to argue for co-primary allocation rather than secondary
+- Check if any coordination obligations are being placed on aeronautical transmitters""",
         }
 
         active_wp_context = "\n\n".join([
