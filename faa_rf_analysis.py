@@ -2653,8 +2653,96 @@ Once configured, the analyzer will work every time you visit the app.
                     elif file_type in ("docx", "doc"):
                         docx_bytes = uploaded_file.read()
                         contrib_from_file = ""
+                        track_change_summary = ""
 
-                        # Method 1: mammoth (best — preserves paragraph structure cleanly)
+                        # ── Track change extractor ────────────────────────────
+                        def extract_track_changes(raw_bytes):
+                            """
+                            Parse OOXML track changes (w:ins / w:del) and return
+                            clean final text + structured summary of all changes.
+                            """
+                            import zipfile as _zf
+                            from xml.etree import ElementTree as _ET
+                            W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+                            try:
+                                buf = io.BytesIO(raw_bytes)
+                                with _zf.ZipFile(buf) as z:
+                                    xml_bytes = z.read("word/document.xml")
+                                root = _ET.fromstring(xml_bytes)
+                                xml_str = xml_bytes.decode("utf-8", errors="replace")
+
+                                has_ins = f'{{{W}}}ins' in xml_str
+                                has_del = f'{{{W}}}del' in xml_str
+                                has_tc  = has_ins or has_del
+
+                                insertions, deletions = [], []
+                                authors = set()
+
+                                for elem in root.iter(f'{{{W}}}ins'):
+                                    text = "".join(t.text or "" for t in elem.iter(f'{{{W}}}t'))
+                                    author = elem.get(f'{{{W}}}author', '')
+                                    date   = (elem.get(f'{{{W}}}date') or '')[:10]
+                                    if text.strip():
+                                        insertions.append({'author': author, 'date': date, 'text': text.strip()})
+                                        if author: authors.add(author)
+
+                                for elem in root.iter(f'{{{W}}}del'):
+                                    text = "".join(t.text or "" for t in elem.iter(f'{{{W}}}delText'))
+                                    author = elem.get(f'{{{W}}}author', '')
+                                    date   = (elem.get(f'{{{W}}}date') or '')[:10]
+                                    if text.strip():
+                                        deletions.append({'author': author, 'date': date, 'text': text.strip()})
+                                        if author: authors.add(author)
+
+                                # Clean final text: paragraphs, include ins, exclude del
+                                clean_paras = []
+                                for para in root.iter(f'{{{W}}}p'):
+                                    parts = []
+                                    for elem in para.iter():
+                                        if elem.tag == f'{{{W}}}t':
+                                            parts.append(('keep', elem.text or ''))
+                                        elif elem.tag == f'{{{W}}}delText':
+                                            parts.append(('del', elem.text or ''))
+                                    text = "".join(t for kind, t in parts if kind == 'keep').strip()
+                                    if text:
+                                        clean_paras.append(text)
+                                clean_text = "\n".join(clean_paras)
+
+                                # Build summary for AI prompt
+                                if not has_tc:
+                                    summary = "TRACK CHANGES: None detected — this is a new document. Analyze full text normally."
+                                else:
+                                    author_str = ", ".join(sorted(authors)) if authors else "unknown"
+                                    lines = [
+                                        f"TRACK CHANGES DETECTED: {len(insertions)} insertions, {len(deletions)} deletions",
+                                        f"Editors: {author_str}",
+                                        "",
+                                        "INSERTED TEXT (new content added in this revision):",
+                                    ]
+                                    for idx, item in enumerate(insertions[:40], 1):
+                                        a = f" [{item['author']}]" if item['author'] else ""
+                                        d = f" ({item['date']})" if item['date'] else ""
+                                        lines.append(f"  +[{idx}]{a}{d}: {item['text'][:300]}")
+                                    if len(insertions) > 40:
+                                        lines.append(f"  ... and {len(insertions)-40} more insertions")
+                                    lines += ["", "DELETED TEXT (content removed in this revision):"]
+                                    for idx, item in enumerate(deletions[:40], 1):
+                                        a = f" [{item['author']}]" if item['author'] else ""
+                                        d = f" ({item['date']})" if item['date'] else ""
+                                        lines.append(f"  -[{idx}]{a}{d}: {item['text'][:300]}")
+                                    if len(deletions) > 40:
+                                        lines.append(f"  ... and {len(deletions)-40} more deletions")
+                                    summary = "\n".join(lines)
+
+                                return clean_text, summary, has_tc, len(insertions), len(deletions)
+
+                            except Exception:
+                                return None, "", False, 0, 0
+
+                        # Run track change extraction first
+                        tc_clean, tc_summary, has_tc, n_ins, n_del = extract_track_changes(docx_bytes)
+
+                        # Method 1: mammoth (best paragraph/table handling)
                         if not contrib_from_file:
                             try:
                                 import mammoth
@@ -2665,14 +2753,13 @@ Once configured, the analyzer will work every time you visit the app.
                             except Exception:
                                 pass
 
-                        # Method 2: python-docx (fallback)
+                        # Method 2: python-docx (includes table cells)
                         if not contrib_from_file:
                             try:
                                 from docx import Document as DocxDocument
                                 buf = io.BytesIO(docx_bytes)
                                 doc = DocxDocument(buf)
                                 paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-                                # Also extract from tables
                                 for table in doc.tables:
                                     for row in table.rows:
                                         for cell in row.cells:
@@ -2682,23 +2769,44 @@ Once configured, the analyzer will work every time you visit the app.
                             except Exception:
                                 pass
 
-                        # Method 3: zipfile raw XML extraction (last resort — handles corrupt/unusual docx)
+                        # Method 3: XML zipfile raw extraction (last resort)
                         if not contrib_from_file:
-                            try:
-                                import zipfile, re as _re
-                                buf = io.BytesIO(docx_bytes)
-                                with zipfile.ZipFile(buf) as z:
-                                    xml = z.read("word/document.xml").decode("utf-8", errors="replace")
-                                # Strip XML tags, keep text
-                                text = _re.sub(r'<[^>]+>', ' ', xml)
-                                text = _re.sub(r'\s+', ' ', text).strip()
-                                if len(text) > 50:
-                                    contrib_from_file = text
-                            except Exception:
-                                pass
+                            if tc_clean:
+                                contrib_from_file = tc_clean
+                            else:
+                                try:
+                                    import zipfile as _zf2, re as _re2
+                                    buf = io.BytesIO(docx_bytes)
+                                    with _zf2.ZipFile(buf) as z:
+                                        xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+                                    text = _re2.sub(r'<[^>]+>', ' ', xml)
+                                    text = _re2.sub(r'\s+', ' ', text).strip()
+                                    if len(text) > 50:
+                                        contrib_from_file = text
+                                except Exception:
+                                    pass
+
+                        # Store track change info in session state for use in analysis
+                        st.session_state["tc_summary"]  = tc_summary
+                        st.session_state["tc_has_tc"]   = has_tc
+                        st.session_state["tc_n_ins"]    = n_ins
+                        st.session_state["tc_n_del"]    = n_del
+
+                        # Show track change badge
+                        if has_tc:
+                            st.markdown(
+                                f"<div style='background:#1a2a1a;border-left:4px solid #44bb44;"
+                                f"padding:8px 12px;border-radius:4px;margin:6px 0'>"
+                                f"<b style='color:#44bb44'>📝 Track Changes Detected</b> — "
+                                f"<span style='color:#aaffaa'>{n_ins} insertions, {n_del} deletions</span> — "
+                                f"will be summarized in Section B of the analysis</div>",
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            st.caption("📄 No track changes detected — new document, full text analysis.")
 
                         if not contrib_from_file:
-                            st.warning("⚠️ Could not extract text from this Word document. Please use the **Paste Text** tab and paste the document content directly.")
+                            st.warning("⚠️ Could not extract text from this Word document. Please use the **Paste Text** tab.")
 
                 except Exception as e:
                     st.error(f"Error reading file: {e}. Please use the Paste Text tab.")
@@ -2955,11 +3063,30 @@ WRC-27 ITEMS THREATENING FAA BANDS: AI 1.7 (WP 5D, IMT near RA 4.4–4.8 GHz), A
 MANDATORY REVIEW CHECKLIST — APPLY TO EVERY CONTRIBUTION
 ═══════════════════════════════════════════════════════════════════
 
-1. RELEVANCE SCREEN
-   - Identify all frequencies/bands, bandwidths, emission types, and operating scenarios mentioned
-   - Cross-check against the FAA frequency list above (in-band AND adjacent-band)
-   - If USA contribution: summarize position and key proposals only — do not adversarially critique US submissions
-   - If not relevant to FAA: explicitly state why (still check for indirect concerns: harmonics, adjacent allocations, OOB, blocking)
+ACCURACY RULE — NON-NEGOTIABLE:
+If you cannot find or verify a specific fact, frequency, document number, study result,
+or regulatory citation IN THE CONTRIBUTION TEXT PROVIDED, state "Cannot confirm from
+document — requires manual verification." NEVER invent frequencies, dB values, document
+references, or regulatory conclusions. It is better to flag a gap than to fabricate.
+
+COMPATIBILITY vs SHARING DISTINCTION (use correct term in output):
+- SHARING STUDY: Proposed service and FAA service are IN THE SAME BAND — they share spectrum.
+  The question is: can both coexist co-frequency?
+- COMPATIBILITY STUDY: Proposed service is in an ADJACENT or NEARBY BAND — the ITU-R rule
+  requires the proposer to show their system does not cause issues for the FAA incumbent.
+  Use "compatibility" when bands are adjacent but not overlapping.
+
+1. RELEVANCE SCREEN — FREQUENCY-FIRST
+   Step 1: Extract ALL frequencies/bands mentioned in the document (exact MHz/GHz numbers).
+   Step 2: For each, determine: IN-BAND, ADJACENT, or NOT RELEVANT to FAA.
+     - IN-BAND: overlaps a FAA protected band directly
+     - ADJACENT: immediately next to a FAA band (e.g. 4.4–4.8 GHz next to RA 4.2–4.4 GHz)
+     - NEARBY: within ~500 MHz — check for OOB, harmonics, blocking risk
+     - NOT RELEVANT: far from all FAA bands — state clearly and give the gap in MHz
+   Step 3: State the RELEVANCE VERDICT before any other analysis:
+     RELEVANT / POSSIBLY RELEVANT / NOT RELEVANT — and explain in one line why.
+   Step 4: Note the study type: SHARING (co-band) or COMPATIBILITY (adjacent/nearby).
+   - If USA contribution: summarize position and key proposals only — do not adversarially critique
    - Identify which WRC-27 AI (1.7, 1.13, 1.15, 1.17, 1.19) is implicated
 
 2. AVIATION/FAA IMPACT ASSESSMENT
@@ -3188,6 +3315,9 @@ Mechanisms: In-band, OOB coupling, blocking, intermodulation, spurious response
 
 Use clear headers. Plain language. Flag NTIA/ICAO escalation needs."""
 
+        # Pull track change data from session state if available
+        tc_summary_for_prompt = st.session_state.get("tc_summary", "")
+
         user_message = f"""Analyze this ITU-R contribution using the mandatory review checklist and produce the structured output below.
 
 DOCUMENT METADATA:
@@ -3198,7 +3328,9 @@ DOCUMENT METADATA:
 - WRC Agenda Item: {agenda_item or 'Not provided'}
 - Document Type: {doc_type}
 
-CONTRIBUTION TEXT:
+{f"TRACK CHANGES (extracted from uploaded Word document — use for Section B):{chr(10)}{tc_summary_for_prompt}{chr(10)}" if tc_summary_for_prompt else "TRACK CHANGES: No Word document uploaded — if pasting text, note whether this is a revision."}
+
+CONTRIBUTION TEXT (final accepted version):
 {contrib_input}
 
 {f"SPECIFIC FAA CONCERN TO PRIORITIZE: {user_concern}" if user_concern else ""}
@@ -3210,50 +3342,67 @@ CONTRIBUTION TEXT:
 REQUIRED OUTPUT STRUCTURE — produce all sections below in order
 ═══════════════════════════════════════════════════════════════════
 
+## ⚡ FREQUENCY RELEVANCE SUMMARY  ← PRODUCE THIS FIRST, BEFORE ANYTHING ELSE
+Show a compact table. Use exact MHz or GHz numbers. No prose, no paragraphs — just the table.
+
+| Proposed Frequency | FAA Band | FAA System | Gap / Overlap | Relationship | Study Type |
+|---|---|---|---|---|---|
+| [exact MHz/GHz from doc] | [exact MHz/GHz from FAA list] | [system name] | [e.g. 0 MHz gap / 40 MHz gap / 200 MHz overlap] | IN-BAND / ADJACENT / NEARBY / NOT RELEVANT | SHARING / COMPATIBILITY / N/A |
+
+If a proposed frequency is NOT near any FAA band, say so in one line: "No FAA band within [X] MHz — not relevant."
+If you cannot find the exact proposed frequency in the document, write "Frequency not stated in document — flag for clarification."
+
+**REVIEW VERDICT: [REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION]**
+One sentence explaining the verdict.
+
+---
+
 ## A) Document Overview
-- Title, source/administration, date, and 2–4 sentence summary of the contribution's purpose
-- Which WRC-27 Agenda Item (AI 1.7, 1.13, 1.15, 1.17, 1.19, or other) does this relate to?
+- Title, source/administration, date (only if found in document — do not invent)
+- 2–4 sentence summary of the contribution's purpose
+- WRC-27 Agenda Item: state the number if clearly stated in the document; otherwise "Not explicitly stated"
 - If USA contribution: summarize position and key proposals — do not adversarially critique
 
-## B) Track Changes Summary (if applicable)
-- Bullet list of the most consequential edits vs the previous version
-- Focus on: modified frequencies/bands, changed power limits, updated assumptions/parameters, revised conclusions
-- Explain why each change matters for FAA compatibility
-- If entirely new document: state "New document — full analysis below"
+## B) Track Changes Summary
+- If track changes detected: bullet list of consequential edits — modified frequencies, power limits, assumptions, conclusions. Explain why each change matters for FAA.
+- If no track changes: "New document — full text analyzed."
 
 ## C) Relevance Screen
-- Frequencies/bands, bandwidths, emission types, and operating scenarios identified
-- Cross-check against FAA frequency list: which FAA systems are in-band or adjacent-band?
-- If not relevant to FAA: explicitly state why — still check for indirect risks (harmonics, adjacent allocations, OOB, blocking)
+One short paragraph. Reference the frequency table above. State:
+- Which bands are in-band, which are adjacent (with the actual MHz gap)
+- Whether this requires a sharing study (co-band) or compatibility study (adjacent)
+- Any indirect risks even if not directly relevant (harmonics, OOB landing in FAA band, blocking)
+- If not relevant: say so plainly and give the reason
 
 ## D) FAA Impact Findings
-For each risk/concern identified, provide:
-- **Issue**: clear description of the interference concern
-- **Why it matters**: specific FAA system(s) affected and the safety consequence
-- **Band(s)/system(s)**: which protected band from the FAA frequency list
-- **Severity**: Low / Medium / High
-- **Confidence**: Low / Medium / High (based on information available)
-- **Suggested mitigation**: technical fix and/or contribution text edit
+For each concern, use this exact format — keep it concise:
 
-Cover at minimum: co-channel, adjacent-band OOB, spurious/harmonics, receiver blocking/desensitization, and aggregate interference.
+**Issue [N]:** [one-line description]
+- Bands: [proposed freq in MHz/GHz] vs [FAA band in MHz/GHz] — [gap or overlap]
+- FAA system: [system name and what it does]
+- Mechanism: [in-band / OOB / blocking / spurious / intermod]
+- Severity: [Low / Medium / High] | Confidence: [Low / Medium / High]
+- Mitigation: [specific technical fix or text change]
+- ⚠️ UNVERIFIED: [flag any claims you cannot confirm from the document]
+
+If no FAA impact found: state "No direct FAA impact identified from available document content."
+Do NOT manufacture impact findings if the document does not provide sufficient evidence.
 
 ## E) Study / Simulation Critique
-Structure as: **What is sound** / **What is weak** / **What is missing**
-
-For each weakness or gap:
-- Describe the specific issue (wrong propagation model, missing time %, single-entry only, etc.)
-- Cite the correct ITU-R methodology that should have been used
-- State whether this flaw makes the compatibility claim non-credible or merely optimistic
+Three sub-sections: **Sound** / **Weak** / **Missing**
+- Be specific: cite the exact parameter, equation, or assumption that is wrong
+- For each weakness, state the correct ITU-R value/method
+- If the document does not contain a study: state "No study provided — cannot assess"
+- ⚠️ Do not critique phantom sections — only critique what is actually in the document
 
 ## F) Recommended Actions
-Clear, actionable next steps. For each:
-- Action description
-- Which section/parameter of the contribution to challenge
-- Proposed language or parameter value
-- Who should take the action (FAA, NTIA, US delegation, ICAO liaison)
-- Priority: Immediate / Before next meeting / Long-term
+Numbered list. For each action:
+1. **Action:** what specifically to do
+2. **Target:** which section/parameter in the contribution
+3. **Priority:** Immediate / Before next meeting / Long-term
+4. **Owner:** FAA / NTIA / US delegation / ICAO
 
-Possible actions include: request additional parameters, propose alternative assumptions, require adjacent-band analysis, propose guard band / OOBE limits, propose wording changes, file a counter-contribution, coordinate with ICAO."""
+If no actions warranted: state clearly. Do not pad with generic recommendations."""
 
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
