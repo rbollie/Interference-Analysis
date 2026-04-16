@@ -20,6 +20,7 @@ import itur.models.itu676 as itu676
 import warnings
 import anthropic
 import math
+import io
 from auth import (show_login_page, show_admin_panel, is_authenticated,
                   is_admin, current_user, logout)
 warnings.filterwarnings("ignore")
@@ -2581,20 +2582,144 @@ Once configured, the analyzer will work every time you visit the app.
             "Information document",
         ])
 
-    st.subheader("Contribution Text")
-    ex("Paste the full contribution or the key technical and regulatory sections — the more context you provide, the more precise the guidance.")
+    st.subheader("Contribution Input")
+    ex("Upload a PDF or Word document, or paste text directly. Both methods feed the same AI analysis — the file is converted to text automatically.")
 
-    contrib_input = st.text_area(
-        "Paste contribution text here:",
-        height=300,
-        placeholder="""Paste the ITU-R contribution text here. You can include:
+    # ── Input method tabs ─────────────────────────────────────────────────────
+    input_tab_paste, input_tab_file = st.tabs(["📋 Paste Text", "📎 Upload File (PDF / Word / Text)"])
+
+    contrib_from_file = ""
+
+    with input_tab_file:
+        uploaded_file = st.file_uploader(
+            "Upload ITU-R contribution document",
+            type=["pdf", "txt", "docx", "doc"],
+            help="Accepts PDF, Word (.docx), or plain text files. The document text is extracted automatically and sent to the AI."
+        )
+
+        if uploaded_file is not None:
+            file_type = uploaded_file.name.lower().split(".")[-1]
+            st.caption(f"📄 File: **{uploaded_file.name}** ({uploaded_file.size / 1024:.1f} KB)")
+
+            with st.spinner(f"Extracting text from {uploaded_file.name}..."):
+                try:
+                    if file_type == "txt":
+                        raw_bytes = uploaded_file.read()
+                        contrib_from_file = raw_bytes.decode("utf-8", errors="replace")
+
+                    elif file_type == "pdf":
+                        import io, struct, zlib, re as _re
+
+                        # Try PyPDF2 first, then pdfminer, then raw extraction
+                        pdf_bytes = uploaded_file.read()
+                        extracted = []
+
+                        # Method 1: PyMuPDF (fitz) — best quality
+                        try:
+                            import fitz  # PyMuPDF
+                            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                            for page in doc:
+                                extracted.append(page.get_text())
+                            doc.close()
+                            contrib_from_file = "\n\n".join(extracted)
+                        except ImportError:
+                            pass
+
+                        # Method 2: PyPDF2
+                        if not contrib_from_file:
+                            try:
+                                import PyPDF2
+                                reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+                                for page in reader.pages:
+                                    t = page.extract_text()
+                                    if t:
+                                        extracted.append(t)
+                                contrib_from_file = "\n\n".join(extracted)
+                            except Exception:
+                                pass
+
+                        # Method 3: pdfminer
+                        if not contrib_from_file:
+                            try:
+                                from pdfminer.high_level import extract_text as pdfminer_extract
+                                contrib_from_file = pdfminer_extract(io.BytesIO(pdf_bytes))
+                            except Exception:
+                                pass
+
+                        if not contrib_from_file:
+                            contrib_from_file = ""
+                            st.warning("⚠️ Could not extract text from this PDF automatically. Try copying and pasting the text using the Paste Text tab instead.")
+
+                    elif file_type in ("docx", "doc"):
+                        docx_bytes = uploaded_file.read()
+                        try:
+                            import mammoth
+                            result = mammoth.extract_raw_text(io.BytesIO(docx_bytes))
+                            contrib_from_file = result.value
+                        except ImportError:
+                            try:
+                                from docx import Document as DocxDocument
+                                doc = DocxDocument(io.BytesIO(docx_bytes))
+                                contrib_from_file = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                            except Exception:
+                                st.warning("⚠️ Could not extract text from Word document. Try the Paste Text tab.")
+
+                except Exception as e:
+                    st.error(f"Error reading file: {e}. Please use the Paste Text tab.")
+
+            if contrib_from_file:
+                word_count = len(contrib_from_file.split())
+                char_count = len(contrib_from_file)
+                ok(f"Text extracted successfully — {word_count:,} words, {char_count:,} characters")
+
+                # Truncation warning for very long documents
+                MAX_CHARS = 28000
+                if char_count > MAX_CHARS:
+                    warn(f"Document is {char_count:,} characters — truncating to {MAX_CHARS:,} characters (first ~{MAX_CHARS // 5} words) to fit AI context window. Consider pasting only the key technical and regulatory sections for best results.")
+                    contrib_from_file = contrib_from_file[:MAX_CHARS] + "\n\n[... document truncated for AI context window ...]"
+
+                # Preview
+                with st.expander("👁️ Preview extracted text (first 800 characters)"):
+                    st.text(contrib_from_file[:800] + ("..." if len(contrib_from_file) > 800 else ""))
+
+        else:
+            st.markdown(
+                "<div style='background:#1a1a2a;border:1px dashed #444;padding:20px;border-radius:6px;"
+                "text-align:center;color:#888'>"
+                "📎 Drag and drop a PDF, Word, or text file here<br>"
+                "<small>ITU-R contributions are typically PDF — download from TIES and upload directly</small>"
+                "</div>",
+                unsafe_allow_html=True
+            )
+
+    with input_tab_paste:
+        contrib_pasted = st.text_area(
+            "Paste contribution text here:",
+            height=280,
+            placeholder="""Paste the ITU-R contribution text here. You can include:
 - The executive summary or introduction
-- Technical analysis sections
+- Technical analysis sections (methodology, results, propagation calculations)
 - Proposed regulatory text or amendments
 - Conclusions and proposals
 
-Even a partial paste (e.g., just the conclusions section) will produce useful guidance."""
+Even a partial paste (e.g., just the conclusions section) will produce useful guidance.
+For WP 4C satellite contributions: include the propagation model used and EIRP values.
+For WP 7C passive: include the proposed allocation status (secondary vs co-primary)."""
+        )
+
+    # ── Resolve which input to use ────────────────────────────────────────────
+    contrib_input = contrib_from_file.strip() if contrib_from_file.strip() else (
+        contrib_pasted.strip() if 'contrib_pasted' in dir() else ""
     )
+
+    if contrib_from_file.strip() and 'contrib_pasted' in dir() and contrib_pasted.strip():
+        st.info("📄 Both a file and pasted text are provided — the **file text** will be used for analysis. Clear the file upload to use pasted text instead.")
+        contrib_input = contrib_from_file.strip()
+
+    if contrib_input:
+        st.caption(f"✅ Ready to analyze — {len(contrib_input.split()):,} words from {'uploaded file' if contrib_from_file.strip() else 'pasted text'}")
+    else:
+        st.caption("⬆️ Upload a file or paste text above to enable analysis")
 
     # ── Interference Classification Reference Card ────────────────────────────
     with st.expander("📋 ITU-R Interference Classification Reference — Applied in Every Analysis"):
@@ -2691,11 +2816,11 @@ between two or more administrations</b> without prejudice to other administratio
 
         depth_instruction = {
             "Quick assessment (key risks + recommended US position)":
-                "Provide a concise 3-section analysis: (1) Key Risks to FAA systems, (2) Recommended US Position, (3) Top 3 regulatory citations to invoke. Be direct and brief.",
+                "OUTPUT FORMAT: Use the structured format below but be CONCISE — 2–4 bullet points per section. Focus on the highest-priority risks and most actionable steps.",
             "Standard analysis (full policy brief with citations)":
-                "Provide a full policy brief with all sections as specified.",
+                "OUTPUT FORMAT: Complete all sections of the structured format below with full technical detail and regulatory citations.",
             "Deep dive (comprehensive brief + draft response contribution outline)":
-                "Provide a comprehensive brief with all sections, plus a detailed outline of a draft US response contribution including proposed regulatory text.",
+                "OUTPUT FORMAT: Complete all sections in full detail, PLUS provide Section F: Draft Response — a full outline of a US counter-contribution including proposed regulatory text, specific parameter changes, and floor intervention language.",
         }[analysis_depth]
 
         faa_bands_summary = "\n".join([
@@ -2763,6 +2888,106 @@ WRC-27 ITEMS: {', '.join(wp_profile['wrc27_items']) if wp_profile['wrc27_items']
 NOTE: No specific WP profile found for '{working_party}'. Apply general FAA interference 
 analysis framework. Identify which WRC-27 agenda item (if any) this contribution relates to.
 """
+
+        # ── Track-changes handling flag ──────────────────────────────────────
+        track_changes_note = """
+TRACK CHANGES HANDLING:
+Most ITU-R contributions are submitted in Track Changes mode. If this document contains
+tracked changes, prioritize the CHANGES — what was inserted, deleted, or modified.
+- Focus on: modified frequencies/bands, changed power limits, updated assumptions/parameters,
+  revised conclusions, added or removed protection criteria
+- Summarize the DELTA vs the previous version and explain why each change matters for FAA
+- If entirely new (no track changes): analyze full text normally
+"""
+
+        system_prompt = f"""You are an expert RF engineer with a strong background in IMT and aviation/FAA spectrum protection, supporting the FAA and NTIA in ITU-R proceedings.
+
+You are analyzing a contribution from: {working_party}
+
+{wp_framework}
+
+FAA PROTECTED FREQUENCY LIST — cross-check all contributions against these:
+{faa_bands_summary}
+
+{system_protection_table}
+
+{track_changes_note}
+
+WRC-27 ITEMS THREATENING FAA BANDS: AI 1.7 (WP 5D, IMT near RA 4.4–4.8 GHz), AI 1.13 (WP 4C, MSS near DME/AMS(R)S/ASR), AI 1.15 (WP 7B, lunar SRS), AI 1.17/1.19 (WP 7C, EESS passive).
+
+═══════════════════════════════════════════════════════════════════
+MANDATORY REVIEW CHECKLIST — APPLY TO EVERY CONTRIBUTION
+═══════════════════════════════════════════════════════════════════
+
+1. RELEVANCE SCREEN
+   - Identify all frequencies/bands, bandwidths, emission types, and operating scenarios mentioned
+   - Cross-check against the FAA frequency list above (in-band AND adjacent-band)
+   - If USA contribution: summarize position and key proposals only — do not adversarially critique US submissions
+   - If not relevant to FAA: explicitly state why (still check for indirect concerns: harmonics, adjacent allocations, OOB, blocking)
+   - Identify which WRC-27 AI (1.7, 1.13, 1.15, 1.17, 1.19) is implicated
+
+2. AVIATION/FAA IMPACT ASSESSMENT
+   - Co-channel and adjacent-band interference risk
+   - Out-of-band (OOB) emissions: is the 250% BN boundary checked? Does mask comply with SM.1541 (23 dB at band edge)?
+   - Spurious emissions: do they comply with RR Appendix 3 (43+10·log(P) or 60/70 dBc)?
+   - Receiver blocking/desensitization: does the analysis model LNA compression from strong out-of-band signals?
+   - Intermodulation products: are IM products checked for in-band landing?
+   - Aggregate interference: are all sources (not just single-entry) modeled? Is SM.2028 applied?
+   - Worst-case vs realistic-case: identify where the contribution uses optimistic or incomplete assumptions
+   - Aviation safety factor: is the +6 dB precision approach factor applied to safety-of-life systems?
+
+3. SIMULATION / STUDY QUALITY REVIEW
+   Receiver parameters:
+   - Are noise figure, ACS (adjacent channel selectivity), blocking threshold, and I/N protection criteria justified?
+   - Are RTCA standards (DO-155, DO-235B, DO-260B, DO-189) cited as the source?
+   Propagation models:
+   - WP 5D/5B terrestrial: is P.452 used for ground scenarios? P.528 for airborne victims?
+   - WP 4C satellite: is P.619 used? If P.452 or FSPL-only: FLAG AS FUNDAMENTAL ERROR
+   - Are terrain/clutter models appropriate? Urban clutter invalid for airborne victim
+   - Is time percentage correct? Must be 1% for protection studies per SM.2028 — not 50%
+   Scenarios:
+   - Are airport environments (approach/departure, ground operations) included?
+   - Are en-route, terminal area, and airborne scenarios separately analyzed?
+   - Is aircraft altitude variation modeled? (Aircraft at altitude see stronger interference than ground)
+   Monte Carlo / statistics:
+   - Is SM.2028 methodology followed? Random variable distributions justified?
+   - Is violation probability < 5%? Is CCDF presented?
+   - Is sensitivity analysis performed? (Density, power, deployment variation)
+   Reproducibility:
+   - Are all input parameters, equations, and references provided?
+   - Could this analysis be independently reproduced?
+
+4. REGULATORY AND PROCEDURAL ISSUES
+   - Conflicts with ITU Radio Regulations allocations or conditions
+   - Missing coordination requirements, unwanted emission limits, guard bands, or protection criteria
+   - RR No. 4.10 (harmful interference to safety-of-life services) — is it triggered?
+   - RR 1.59 (Safety service definition) — does the analysis acknowledge it?
+   - RR No. 5.444 (ARNS protection 960–1215 MHz) — is it respected?
+   - SM.1540/SM.1541 (OOB domain, 250% BN, 23 dB mask rule) — are they cited?
+
+INTERFERENCE CLASSIFICATION (apply to every analysis):
+- Harmful (RR 1.169) → triggers RR 4.10 → US must oppose
+- Permissible (RR 1.167) → within criteria → ensure criteria are conservative enough
+- Accepted (RR 1.168) → bilateral agreement → cannot bind other administrations
+Emission types: Spurious vs OOB (SM.1540/SM.1541 for OOB domain)
+Mechanisms: In-band, OOB coupling, blocking, intermodulation, spurious response
+
+REGULATORY TOOLKIT:
+- RR No. 4.10: No harmful interference to safety-of-life services
+- RR No. 1.59: Safety service definition
+- RR No. 5.444: ARNS protection 960–1215 MHz
+- RR Appendix 3: Spurious limits (43+10·log(P) or 60/70 dBc)
+- ITU-R SM.1540/SM.1541: OOB domain (250% BN boundary; 23 dB mask rule)
+- ITU-R M.1318/M.1477/M.1904/M.1905: GNSS protection + 6 dB safety margin
+- ITU-R M.1642: IMT→ARNS methodology (terrestrial ONLY — not for WP 4C satellite)
+- ITU-R P.619: Earth-space propagation (REQUIRED for WP 4C)
+- ITU-R SM.2028: Monte Carlo aggregate interference
+- ITU-R S.1586: epfd methodology (WP 4C/4A)
+- RTCA DO-235B (GNSS), DO-260B (ADS-B), DO-155 (Radio Altimeter), DO-189 (DME)
+
+TONE: Be precise, technically rigorous, and conservative where aviation safety-of-life protection is concerned. If a key parameter is missing or an assumption is unclear, explicitly flag it and state the risk of proceeding without it.
+
+{depth_instruction}"""
 
         # ── WP-specific analysis questions ──────────────────────────────────
         if wp_profile_key == "WP 7C (EESS / Space Weather Sensors)":
@@ -2927,7 +3152,7 @@ Mechanisms: In-band, OOB coupling, blocking, intermodulation, spurious response
 
 Use clear headers. Plain language. Flag NTIA/ICAO escalation needs."""
 
-        user_message = f"""Analyze this ITU-R contribution and provide FAA-focused policy guidance.
+        user_message = f"""Analyze this ITU-R contribution using the mandatory review checklist and produce the structured output below.
 
 DOCUMENT METADATA:
 - Document Number: {doc_number or 'Not provided'}
@@ -2940,17 +3165,66 @@ DOCUMENT METADATA:
 CONTRIBUTION TEXT:
 {contrib_input}
 
-{f"SPECIFIC FAA CONCERN: {user_concern}" if user_concern else ""}
+{f"SPECIFIC FAA CONCERN TO PRIORITIZE: {user_concern}" if user_concern else ""}
 {f"PRIOR US POSITION: {prior_us_position}" if prior_us_position else ""}
 
-{analysis_questions}"""
+{analysis_questions}
+
+═══════════════════════════════════════════════════════════════════
+REQUIRED OUTPUT STRUCTURE — produce all sections below in order
+═══════════════════════════════════════════════════════════════════
+
+## A) Document Overview
+- Title, source/administration, date, and 2–4 sentence summary of the contribution's purpose
+- Which WRC-27 Agenda Item (AI 1.7, 1.13, 1.15, 1.17, 1.19, or other) does this relate to?
+- If USA contribution: summarize position and key proposals — do not adversarially critique
+
+## B) Track Changes Summary (if applicable)
+- Bullet list of the most consequential edits vs the previous version
+- Focus on: modified frequencies/bands, changed power limits, updated assumptions/parameters, revised conclusions
+- Explain why each change matters for FAA compatibility
+- If entirely new document: state "New document — full analysis below"
+
+## C) Relevance Screen
+- Frequencies/bands, bandwidths, emission types, and operating scenarios identified
+- Cross-check against FAA frequency list: which FAA systems are in-band or adjacent-band?
+- If not relevant to FAA: explicitly state why — still check for indirect risks (harmonics, adjacent allocations, OOB, blocking)
+
+## D) FAA Impact Findings
+For each risk/concern identified, provide:
+- **Issue**: clear description of the interference concern
+- **Why it matters**: specific FAA system(s) affected and the safety consequence
+- **Band(s)/system(s)**: which protected band from the FAA frequency list
+- **Severity**: Low / Medium / High
+- **Confidence**: Low / Medium / High (based on information available)
+- **Suggested mitigation**: technical fix and/or contribution text edit
+
+Cover at minimum: co-channel, adjacent-band OOB, spurious/harmonics, receiver blocking/desensitization, and aggregate interference.
+
+## E) Study / Simulation Critique
+Structure as: **What is sound** / **What is weak** / **What is missing**
+
+For each weakness or gap:
+- Describe the specific issue (wrong propagation model, missing time %, single-entry only, etc.)
+- Cite the correct ITU-R methodology that should have been used
+- State whether this flaw makes the compatibility claim non-credible or merely optimistic
+
+## F) Recommended Actions
+Clear, actionable next steps. For each:
+- Action description
+- Which section/parameter of the contribution to challenge
+- Proposed language or parameter value
+- Who should take the action (FAA, NTIA, US delegation, ICAO liaison)
+- Priority: Immediate / Before next meeting / Long-term
+
+Possible actions include: request additional parameters, propose alternative assumptions, require adjacent-band analysis, propose guard band / OOBE limits, propose wording changes, file a counter-contribution, coordinate with ICAO."""
 
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
                 client = anthropic.Anthropic(api_key=api_key)
                 response = client.messages.create(
                     model="claude-opus-4-5",
-                    max_tokens=4000,
+                    max_tokens=6000,
                     messages=[{"role": "user", "content": user_message}],
                     system=system_prompt,
                 )
