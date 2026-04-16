@@ -90,8 +90,513 @@ def ok(text):
     st.markdown(f'<div class="ok-box">✅ {text}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FAA PROTECTED BAND DATABASE
+# WORD DOCUMENT GENERATORS  (module-level so they're always in scope)
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _make_analysis_docx(analysis_md, meta):
+    """
+    Convert a markdown analysis string to a formatted Word document.
+    Returns bytes. Robust — no OxmlElement calls that may fail on cloud.
+    """
+    from docx import Document as _D
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.oxml.ns import qn as _qn
+    from docx.oxml import OxmlElement as _OE
+    import re as _re
+    import io as _io2
+    from datetime import date as _dt
+
+    FAA_BLUE = RGBColor(0x1F, 0x4E, 0x79)
+    MED_BLUE = RGBColor(0x2E, 0x75, 0xB6)
+    RED      = RGBColor(0xC0, 0x00, 0x00)
+    AMBER    = RGBColor(0x7F, 0x60, 0x00)
+    GREEN    = RGBColor(0x37, 0x56, 0x23)
+    DARK     = RGBColor(0x20, 0x20, 0x20)
+    GRAY     = RGBColor(0x60, 0x60, 0x60)
+    WHITE    = RGBColor(0xFF, 0xFF, 0xFF)
+
+    doc = _D()
+    sec = doc.sections[0]
+    sec.page_width  = Inches(8.5)
+    sec.page_height = Inches(11)
+    sec.top_margin = sec.bottom_margin = Inches(1.0)
+    sec.left_margin = sec.right_margin = Inches(1.25)
+
+    def add_heading(text, level=1):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(14 if level == 1 else 8)
+        p.paragraph_format.space_after  = Pt(3)
+        r = p.add_run(text)
+        r.bold = True
+        r.font.size = Pt(14 if level == 1 else 11)
+        r.font.color.rgb = FAA_BLUE if level == 1 else MED_BLUE
+        return p
+
+    def add_body(text, color=None, bold=False, size=10):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after  = Pt(3)
+        # Handle **bold** inline markers
+        parts = _re.split(r'\*\*(.+?)\*\*', text)
+        for idx, part in enumerate(parts):
+            if not part:
+                continue
+            r = p.add_run(part)
+            r.font.size = Pt(size)
+            r.bold = bold or (idx % 2 == 1)
+            c = color or DARK
+            if "REQUIRES HUMAN REVIEW" in part: c = RED
+            elif "NOT RELEVANT" in part:        c = GREEN
+            elif "CLARIFICATION" in part:       c = AMBER
+            elif "⚠️" in part or "UNVERIFIED" in part or "Cannot confirm" in part: c = RED
+            r.font.color.rgb = c
+        return p
+
+    def add_bullet(text):
+        p = doc.add_paragraph(style="List Bullet")
+        p.paragraph_format.space_after = Pt(1)
+        parts = _re.split(r'\*\*(.+?)\*\*', text)
+        for idx, part in enumerate(parts):
+            if not part: continue
+            r = p.add_run(part)
+            r.font.size = Pt(9.5)
+            r.bold = (idx % 2 == 1)
+            c = DARK
+            if "⚠️" in part or "UNVERIFIED" in part or "Cannot confirm" in part: c = RED
+            elif "High" == part.strip(): c = RED
+            elif "Medium" == part.strip(): c = AMBER
+            elif "Low" == part.strip(): c = GREEN
+            r.font.color.rgb = c
+        return p
+
+    def add_md_table(rows_data):
+        """Add a simple Word table from list of lists."""
+        if not rows_data: return
+        n_cols = max(len(r) for r in rows_data)
+        tbl = doc.add_table(rows=len(rows_data), cols=n_cols)
+        tbl.style = "Table Grid"
+        for ri, row_cells in enumerate(rows_data):
+            for ci in range(n_cols):
+                cell = tbl.rows[ri].cells[ci]
+                cell.paragraphs[0].clear()
+                val = row_cells[ci] if ci < len(row_cells) else ""
+                r = cell.paragraphs[0].add_run(val)
+                r.font.size = Pt(8.5)
+                r.bold = (ri == 0)
+                if ri == 0:
+                    r.font.color.rgb = WHITE
+                    # Blue header shading
+                    try:
+                        shd = _OE('w:shd')
+                        shd.set(_qn('w:fill'), '2E75B6')
+                        shd.set(_qn('w:val'),  'clear')
+                        cell._element.get_or_add_tcPr().append(shd)
+                    except Exception:
+                        pass
+                else:
+                    c = DARK
+                    if val.strip() == "High":   c = RED
+                    elif val.strip() == "Medium": c = AMBER
+                    elif val.strip() == "Low":    c = GREEN
+                    elif "REQUIRES HUMAN REVIEW" in val: c = RED
+                    elif "NOT RELEVANT" in val: c = GREEN
+                    r.font.color.rgb = c
+        doc.add_paragraph()
+
+    # ── HEADER ───────────────────────────────────────────────────────────────
+    p_title = doc.add_paragraph()
+    rt = p_title.add_run("FEDERAL AVIATION ADMINISTRATION")
+    rt.bold = True; rt.font.size = Pt(9); rt.font.color.rgb = MED_BLUE
+
+    p_main = doc.add_paragraph()
+    rm = p_main.add_run("ITU-R Contribution Analysis Report")
+    rm.bold = True; rm.font.size = Pt(18); rm.font.color.rgb = FAA_BLUE
+
+    # Contribution identity — document number + admin prominent on own line
+    doc_id_parts = [meta.get("doc_number"), meta.get("submitting_admin")]
+    doc_id = "  |  ".join(p for p in doc_id_parts if p)
+    if doc_id:
+        p_id = doc.add_paragraph()
+        ri = p_id.add_run(doc_id)
+        ri.bold = True; ri.font.size = Pt(13); ri.font.color.rgb = MED_BLUE
+
+    # Metadata summary line
+    meta_line = "  |  ".join(filter(None, [
+        meta.get("working_party"),
+        meta.get("meeting_date"),
+        meta.get("agenda_item"),
+        meta.get("doc_type"),
+    ]))
+    p_meta = doc.add_paragraph()
+    pm = p_meta.add_run(meta_line or "—")
+    pm.font.size = Pt(9); pm.font.color.rgb = GRAY
+
+    p_date = doc.add_paragraph()
+    pd2 = p_date.add_run(f"Analysis Depth: {meta.get('analysis_depth','N/A')}   |   Generated: {_dt.today()}")
+    pd2.font.size = Pt(9); pd2.italic = True; pd2.font.color.rgb = GRAY
+
+    doc.add_paragraph()
+
+    # ── PARSE MARKDOWN ────────────────────────────────────────────────────────
+    lines = analysis_md.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if stripped.startswith('## '):
+            add_heading(stripped[3:], level=1)
+
+        elif stripped.startswith('### '):
+            add_heading(stripped[4:], level=2)
+
+        elif stripped.startswith('| ') and '|' in stripped[2:]:
+            # Collect table rows
+            tbl_lines = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                tbl_lines.append(lines[i].strip())
+                i += 1
+            i -= 1
+            # Strip separator rows
+            data = []
+            for tl in tbl_lines:
+                if _re.match(r'^\|[-:\s|]+\|$', tl):
+                    continue
+                cells = [c.strip() for c in tl.split('|')]
+                cells = [c for c in cells if c != '']
+                if cells:
+                    data.append(cells)
+            if data:
+                add_md_table(data)
+
+        elif stripped.startswith('- ') or stripped.startswith('* '):
+            add_bullet(stripped[2:])
+
+        elif _re.match(r'^\d+\. ', stripped):
+            p = doc.add_paragraph(style="List Number")
+            p.paragraph_format.space_after = Pt(1)
+            text = _re.sub(r'^\d+\. ', '', stripped)
+            parts = _re.split(r'\*\*(.+?)\*\*', text)
+            for idx, part in enumerate(parts):
+                if not part: continue
+                r = p.add_run(part)
+                r.font.size = Pt(9.5)
+                r.bold = (idx % 2 == 1)
+                r.font.color.rgb = DARK
+
+        elif stripped == '---':
+            doc.add_paragraph()
+
+        elif stripped == '':
+            pass
+
+        elif stripped:
+            # Check for REVIEW VERDICT line
+            if 'REVIEW VERDICT' in stripped:
+                add_body(stripped, bold=True, size=11)
+            elif stripped.startswith('📋 STATUS') or stripped.startswith('📋 **STATUS'):
+                add_body(stripped, bold=True, size=10)
+            else:
+                add_body(stripped)
+
+        i += 1
+
+    # ── FOOTER ────────────────────────────────────────────────────────────────
+    doc.add_paragraph()
+    p_foot = doc.add_paragraph()
+    rf = p_foot.add_run(
+        "Generated by FAA RF Interference Analysis Tool  |  "
+        "REVIEW ALL AI-GENERATED FINDINGS BEFORE OPERATIONAL USE"
+    )
+    rf.font.size = Pt(7.5); rf.italic = True; rf.font.color.rgb = GRAY
+
+    buf = _io2.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+
+def _make_meeting_docx(info, sessions, docs, ais, actions):
+    """Build a formatted Word trip report from Meeting Notes. Returns bytes."""
+    from docx import Document as _MD
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.oxml.ns import qn as _mqn
+    from docx.oxml import OxmlElement as _MOE
+    import io as _mio
+    from datetime import date as _mdate
+
+    FAA_BLUE = RGBColor(0x1F,0x4E,0x79); MED_BLUE = RGBColor(0x2E,0x75,0xB6)
+    RED=RGBColor(0xC0,0x00,0x00); AMBER=RGBColor(0x7F,0x60,0x00)
+    GREEN=RGBColor(0x37,0x56,0x23); DARK=RGBColor(0x20,0x20,0x20)
+    GRAY=RGBColor(0x60,0x60,0x60); WHITE=RGBColor(0xFF,0xFF,0xFF)
+
+    doc = _MD()
+    sec = doc.sections[0]
+    sec.page_width=Inches(8.5); sec.page_height=Inches(11)
+    sec.top_margin=sec.bottom_margin=Inches(1.0)
+    sec.left_margin=sec.right_margin=Inches(1.25)
+
+    def h1(text):
+        p=doc.add_paragraph()
+        p.paragraph_format.space_before=Pt(14); p.paragraph_format.space_after=Pt(4)
+        r=p.add_run(text); r.bold=True; r.font.size=Pt(13); r.font.color.rgb=FAA_BLUE
+
+    def h2(text):
+        p=doc.add_paragraph()
+        p.paragraph_format.space_before=Pt(8); p.paragraph_format.space_after=Pt(2)
+        r=p.add_run(text); r.bold=True; r.font.size=Pt(11); r.font.color.rgb=MED_BLUE
+
+    def lv(label, val, lc=None):
+        p=doc.add_paragraph(); p.paragraph_format.space_after=Pt(2)
+        rl=p.add_run(f"{label}: "); rl.bold=True; rl.font.size=Pt(10); rl.font.color.rgb=lc or MED_BLUE
+        rv=p.add_run(str(val) if val else "—"); rv.font.size=Pt(10); rv.font.color.rgb=DARK
+
+    def body(text, bold=False, color=None, size=10):
+        p=doc.add_paragraph(); p.paragraph_format.space_after=Pt(3)
+        r=p.add_run(str(text)); r.bold=bold; r.font.size=Pt(size); r.font.color.rgb=color or DARK
+
+    def mk_table(headers, rows):
+        if not rows: return
+        tbl=doc.add_table(rows=len(rows)+1,cols=len(headers)); tbl.style="Table Grid"
+        for ci,h in enumerate(headers):
+            cell=tbl.rows[0].cells[ci]; cell.paragraphs[0].clear()
+            r2=cell.paragraphs[0].add_run(h); r2.bold=True; r2.font.size=Pt(9); r2.font.color.rgb=WHITE
+            try:
+                shd=_MOE("w:shd"); shd.set(_mqn("w:fill"),"1F4E79"); shd.set(_mqn("w:val"),"clear")
+                cell._element.get_or_add_tcPr().append(shd)
+            except Exception: pass
+        for ri,row in enumerate(rows):
+            for ci,val in enumerate(row):
+                cell=tbl.rows[ri+1].cells[ci]; cell.paragraphs[0].clear()
+                r3=cell.paragraphs[0].add_run(str(val) if val else "—"); r3.font.size=Pt(9)
+                c=DARK
+                if str(val) in ("HIGH",): c=RED
+                elif str(val) in ("MEDIUM",): c=AMBER
+                elif str(val) in ("LOW",): c=GREEN
+                elif str(val).startswith("\u2705"): c=GREEN
+                r3.font.color.rgb=c
+        doc.add_paragraph()
+
+    # Title
+    p_o=doc.add_paragraph(); r_o=p_o.add_run("FEDERAL AVIATION ADMINISTRATION")
+    r_o.bold=True; r_o.font.size=Pt(9); r_o.font.color.rgb=MED_BLUE
+    p_t=doc.add_paragraph(); r_t=p_t.add_run("ITU-R Working Party Meeting Record")
+    r_t.bold=True; r_t.font.size=Pt(20); r_t.font.color.rgb=FAA_BLUE
+    meeting_name = info.get("meeting_name") or "ITU-R Meeting"
+    p_s=doc.add_paragraph(); r_s=p_s.add_run(meeting_name)
+    r_s.bold=True; r_s.font.size=Pt(14); r_s.font.color.rgb=MED_BLUE
+    doc.add_paragraph()
+    lv("Working Party", info.get("working_party"))
+    lv("Location",      info.get("location"))
+    lv("Dates",         info.get("dates"))
+    lv("US Delegation Head", info.get("us_head"))
+    lv("FAA Technical Lead", info.get("faa_lead"))
+    p_g=doc.add_paragraph(); r_g=p_g.add_run(f"Generated: {_mdate.today()} — FAA RF Interference Analysis Tool")
+    r_g.font.size=Pt(8); r_g.italic=True; r_g.font.color.rgb=GRAY
+
+    # Section 1: Agenda Items
+    doc.add_page_break(); h1("SECTION 1 — US POSITION MATRIX (Agenda Items)")
+    if ais:
+        for a in ais.values():
+            h2(f"AI {a.get('num','?')} — {a.get('title','')}")
+            lv("FAA Bands at Risk", a.get("faa_bands"))
+            lv("US Position",       a.get("us_position"))
+            lv("Meeting Status",    a.get("status"))
+            lv("Rapporteur",        a.get("rapporteur"))
+            lv("Allied Admins",     a.get("allies"))
+            if a.get("faa_concerns"):  lv("FAA Concerns", a["faa_concerns"])
+            if a.get("next_steps"):    lv("Next Steps", a["next_steps"], lc=RED)
+            if a.get("current_text"):
+                body("Draft Text:", bold=True, color=MED_BLUE)
+                pb=doc.add_paragraph(style="List Bullet"); pb.add_run(a["current_text"]).font.size=Pt(9)
+            doc.add_paragraph()
+    else:
+        body("No agenda items logged.", color=GRAY)
+
+    # Section 2: Documents
+    doc.add_page_break(); h1("SECTION 2 — DOCUMENT INDEX (FAA Flagged Documents)")
+    if docs:
+        for concern_key, c_color, label in [("HIGH",RED,"🔴 HIGH"), ("MEDIUM",AMBER,"🟡 MEDIUM"), ("LOW",GREEN,"🟢 LOW/MONITOR")]:
+            group=[d for d in docs.values() if concern_key in str(d.get("concern",""))]
+            if not group: continue
+            h2(label)
+            mk_table(["Doc #","Admin","AI","Session","Title","US Action"],
+                [[d.get("doc_num",""),d.get("admin",""),d.get("ai",""),d.get("session",""),
+                  (d.get("title","") or "")[:45],d.get("us_action","")] for d in group])
+            for d in group:
+                if d.get("summary"):   lv(f"  {d.get('doc_num','')} Summary", d["summary"])
+                if d.get("faa_response"): lv(f"  {d.get('doc_num','')} US Response", d["faa_response"])
+    else:
+        body("No documents logged.", color=GRAY)
+
+    # Section 3: Session Notes
+    doc.add_page_break(); h1("SECTION 3 — SESSION NOTES")
+    if sessions:
+        for s in sessions.values():
+            h2(f"{s.get('session','')} — {s.get('date','')}")
+            lv("Chair", s.get("chair")); lv("Agenda Items", s.get("ai_context"))
+            outcome=s.get("faa_outcome","")
+            oc=RED if "Unfavorable" in outcome else (GREEN if "Favorable" in outcome else AMBER)
+            lv("FAA Outcome", outcome, lc=oc)
+            if s.get("notes"):
+                body("Notes:", bold=True, color=MED_BLUE)
+                for line in s["notes"].split("\n"):
+                    if line.strip():
+                        pb=doc.add_paragraph(style="List Bullet"); pb.add_run(line.strip()).font.size=Pt(9)
+            if s.get("key_decisions"): lv("Key Decisions", s["key_decisions"], lc=RED)
+            if s.get("follow_up"):     lv("Follow-up", s["follow_up"], lc=AMBER)
+            doc.add_paragraph()
+    else:
+        body("No sessions logged.", color=GRAY)
+
+    # Section 4: Actions
+    doc.add_page_break(); h1("SECTION 4 — ACTION ITEMS")
+    if actions:
+        open_a=[a for a in actions if "Complete" not in str(a.get("status",""))]
+        done_a=[a for a in actions if "Complete"  in str(a.get("status",""))]
+        if open_a:
+            h2("Open Actions")
+            mk_table(["Priority","Status","Owner","Due","AI","Action"],
+                [[a.get("priority",""),a.get("status",""),a.get("owner",""),
+                  a.get("due",""),a.get("ai",""),str(a.get("desc",""))[:60]] for a in open_a])
+        if done_a:
+            h2("Completed Actions")
+            mk_table(["","Owner","AI","Action"],
+                [["\u2705",a.get("owner",""),a.get("ai",""),str(a.get("desc",""))[:70]] for a in done_a])
+    else:
+        body("No action items logged.", color=GRAY)
+
+    # Footer
+    doc.add_paragraph()
+    p_f=doc.add_paragraph()
+    r_f=p_f.add_run(f"END  |  {meeting_name}  |  Generated {_mdate.today()}  |  FAA RF Interference Analysis Tool  |  DISTRIBUTE PER FAA/NTIA GUIDELINES")
+    r_f.font.size=Pt(7.5); r_f.italic=True; r_f.font.color.rgb=GRAY
+
+    buf=_mio.BytesIO(); doc.save(buf); buf.seek(0)
+    return buf.getvalue()
+
+
+def _make_batch_docx(batch_results, triage_rows, working_party, analysis_depth):
+    """
+    Build a combined Word document for all batch analyses.
+    Returns bytes.
+    """
+    from docx import Document as _BD
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.oxml.ns import qn as _qn
+    from docx.oxml import OxmlElement as _OE
+    import re as _bre
+    import io as _bio
+    from datetime import date as _bdate
+
+    FAA_BLUE = RGBColor(0x1F,0x4E,0x79); MED_BLUE = RGBColor(0x2E,0x75,0xB6)
+    RED  = RGBColor(0xC0,0x00,0x00);  GREEN = RGBColor(0x37,0x56,0x23)
+    GRAY = RGBColor(0x60,0x60,0x60);  DARK  = RGBColor(0x20,0x20,0x20)
+    WHITE = RGBColor(0xFF,0xFF,0xFF)
+
+    bdoc = _BD()
+    bsec = bdoc.sections[0]
+    bsec.page_width = Inches(8.5); bsec.page_height = Inches(11)
+    bsec.top_margin = bsec.bottom_margin = Inches(1.0)
+    bsec.left_margin = bsec.right_margin = Inches(1.25)
+
+    # Title page
+    tp = bdoc.add_paragraph()
+    tr = tp.add_run("FEDERAL AVIATION ADMINISTRATION")
+    tr.bold = True; tr.font.size = Pt(9); tr.font.color.rgb = MED_BLUE
+
+    tp2 = bdoc.add_paragraph()
+    tr2 = tp2.add_run("ITU-R Batch Contribution Analysis Report")
+    tr2.bold = True; tr2.font.size = Pt(18); tr2.font.color.rgb = FAA_BLUE
+
+    tp3 = bdoc.add_paragraph()
+    tr3 = tp3.add_run(f"Working Party: {working_party}  |  Depth: {analysis_depth}  |  Documents: {len(batch_results)}  |  Date: {_bdate.today()}")
+    tr3.font.size = Pt(9); tr3.italic = True; tr3.font.color.rgb = GRAY
+
+    bdoc.add_paragraph()
+
+    # Triage table
+    th = bdoc.add_paragraph()
+    thr = th.add_run("TRIAGE SUMMARY")
+    thr.bold = True; thr.font.size = Pt(13); thr.font.color.rgb = FAA_BLUE
+
+    cols_t = ["File", "Verdict", "Doc Status", "Proposed Freq"]
+    tbl = bdoc.add_table(rows=len(triage_rows)+1, cols=len(cols_t))
+    tbl.style = "Table Grid"
+    for ci, ch in enumerate(cols_t):
+        cell = tbl.rows[0].cells[ci]; cell.paragraphs[0].clear()
+        r2 = cell.paragraphs[0].add_run(ch)
+        r2.bold = True; r2.font.size = Pt(9); r2.font.color.rgb = WHITE
+        try:
+            shd = _OE('w:shd'); shd.set(_qn('w:fill'),'1F4E79'); shd.set(_qn('w:val'),'clear')
+            cell._element.get_or_add_tcPr().append(shd)
+        except Exception: pass
+    for ri, row in enumerate(triage_rows):
+        for ci, key in enumerate(cols_t):
+            cell = tbl.rows[ri+1].cells[ci]; cell.paragraphs[0].clear()
+            val = str(row.get(key, ""))
+            r3 = cell.paragraphs[0].add_run(val)
+            r3.font.size = Pt(9)
+            if "HUMAN REVIEW" in val:  r3.font.color.rgb = RED
+            elif "NOT RELEVANT" in val: r3.font.color.rgb = GREEN
+            else: r3.font.color.rgb = DARK
+
+    bdoc.add_paragraph()
+
+    # Individual analyses
+    for res in batch_results:
+        bdoc.add_page_break()
+
+        fp = bdoc.add_paragraph()
+        fr = fp.add_run(f"Document: {res['file']}")
+        fr.bold = True; fr.font.size = Pt(14); fr.font.color.rgb = FAA_BLUE
+
+        if res.get("tc") and "TRACK CHANGES" in res.get("tc",""):
+            tp4 = bdoc.add_paragraph()
+            tr4 = tp4.add_run(res["tc"][:200])
+            tr4.font.size = Pt(8); tr4.italic = True; tr4.font.color.rgb = GRAY
+
+        bdoc.add_paragraph()
+
+        # Render analysis lines
+        for line in res["analysis"].split("\n"):
+            ls = line.strip()
+            if not ls: continue
+            if ls.startswith("## "):
+                p2 = bdoc.add_paragraph(); r4 = p2.add_run(ls[3:])
+                r4.bold = True; r4.font.size = Pt(12); r4.font.color.rgb = FAA_BLUE
+            elif ls.startswith("### "):
+                p2 = bdoc.add_paragraph(); r4 = p2.add_run(ls[4:])
+                r4.bold = True; r4.font.size = Pt(10); r4.font.color.rgb = MED_BLUE
+            elif ls.startswith("| ") and "|" in ls[2:]:
+                p2 = bdoc.add_paragraph()
+                r4 = p2.add_run(ls); r4.font.size = Pt(8); r4.font.color.rgb = DARK
+            elif ls.startswith("- ") or ls.startswith("* "):
+                p2 = bdoc.add_paragraph(style="List Bullet")
+                text2 = ls[2:]
+                parts2 = _bre.split(r'\*\*(.+?)\*\*', text2)
+                for pi, pt in enumerate(parts2):
+                    if not pt: continue
+                    r4 = p2.add_run(pt); r4.font.size = Pt(9.5); r4.bold = (pi%2==1)
+                    c2 = DARK
+                    if "⚠️" in pt or "UNVERIFIED" in pt: c2 = RED
+                    r4.font.color.rgb = c2
+            else:
+                p2 = bdoc.add_paragraph()
+                parts3 = _bre.split(r'\*\*(.+?)\*\*', ls)
+                for pi, pt in enumerate(parts3):
+                    if not pt: continue
+                    r4 = p2.add_run(pt); r4.font.size = Pt(9.5); r4.bold = (pi%2==1)
+                    c3 = DARK
+                    if "REQUIRES HUMAN REVIEW" in pt: c3 = RED
+                    elif "NOT RELEVANT" in pt: c3 = GREEN
+                    r4.font.color.rgb = c3
+
+    bio = _bio.BytesIO(); bdoc.save(bio); bio.seek(0)
+    return bio.getvalue()
+
+
 FAA_BANDS = {
     "VOR / ILS Localizer": {
         "f_low_mhz": 108.0, "f_high_mhz": 117.975,
@@ -2494,15 +2999,16 @@ Always run FSPL first as a bounding calculation.
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🤖 Contribution Analyzer":
     st.title("🤖 AI Contribution Analyzer")
-    ex("Paste any ITU-R contribution — WP 5D, 5B, 4C, 7B, 7C, or any other Working Party — and get instant FAA-focused policy guidance, interference classification, and SPR framework analysis powered by Claude AI.")
+    st.caption("Policy support for **WP 5B · WP 5D · WP 4C · WP 7B · WP 7C** — FAA aeronautical spectrum protection")
+    ex("Upload or paste an ITU-R contribution from WP 5B, 5D, 4C, 7B, or 7C. The analysis follows the ITU-R methodology guidelines for that specific Working Party — not a general engineering review.")
 
     # Working party context callout
     wp_context = {
-        "WP 5D (IMT/Mobile)":              ("AI 1.7", "IMT near Radio Altimeter 4.4–4.8 GHz and FAA fixed links"),
-        "WP 4C (MSS / DC-MSS-IMT)":        ("AI 1.13", "MSS candidate bands adjacent to DME (960 MHz), AMS(R)S (1525 MHz), ASR (2700 MHz)"),
-        "WP 7B (Space Radiocommunication / Lunar SRS)": ("AI 1.15", "Lunar SRS near ASR, radar, and ARNS 5 GHz bands"),
-        "WP 7C (EESS / Space Weather Sensors)":         ("AI 1.17 / AI 1.19", "EESS passive in RA band and space weather sensors near HF/VHF"),
-        "WP 5B (Maritime/Radiodetermination)":          ("Various", "Maritime/radiolocation services near aeronautical bands"),
+        "WP 5D (IMT/Mobile)":                           ("AI 1.7",       "IMT near Radio Altimeter 4.4–4.8 GHz and FAA fixed links"),
+        "WP 5B (Maritime/Radiodetermination)":           ("Various",      "Maritime/radiolocation services near aeronautical bands"),
+        "WP 4C (MSS / DC-MSS-IMT)":                     ("AI 1.13",      "MSS candidate bands adjacent to DME (960 MHz), AMS(R)S (1525 MHz), ASR (2700 MHz)"),
+        "WP 7B (Space Radiocommunication / Lunar SRS)":  ("AI 1.15",      "Lunar SRS near ASR, radar, and ARNS 5 GHz bands"),
+        "WP 7C (EESS / Space Weather Sensors)":          ("AI 1.17/1.19", "EESS passive in RA band and space weather sensors near HF/VHF"),
     }
 
     # API key handling
@@ -2542,20 +3048,9 @@ Once configured, the analyzer will work every time you visit the app.
         working_party = st.selectbox("Working Party", [
             "WP 5D (IMT/Mobile)",
             "WP 5B (Maritime/Radiodetermination)",
-            "WP 5A (Land Mobile)",
             "WP 4C (MSS / DC-MSS-IMT)",
             "WP 7B (Space Radiocommunication / Lunar SRS)",
             "WP 7C (EESS / Space Weather Sensors)",
-            "WP 4A (Fixed Satellite Service)",
-            "WP 4B (Satellite News Gathering / ESIM)",
-            "WP 6A (Broadcasting)",
-            "WP 1A (Spectrum Management)",
-            "WP 1B (Spectrum Management Methods)",
-            "SG 4 (Fixed-Satellite Service)",
-            "SG 5 (Terrestrial Services)",
-            "SG 7 (Science Services)",
-            "CPM (Conference Preparatory Meeting)",
-            "Other",
         ])
 
         # Show WP-specific FAA context
@@ -3098,83 +3593,29 @@ One sentence.
         # ── Combined Word report ──────────────────────────────────────────────
         st.markdown("---")
         st.subheader("📄 Download Combined Batch Report (.docx)")
-        ex("Single Word document containing the triage table and full analysis for every document in the batch.")
+        ex("Single Word document with the triage table followed by the full analysis for every document.")
 
         try:
-            from docx import Document as _BD
-            from docx.shared import Pt, Inches, RGBColor
-            from docx.oxml.ns import qn
-            from docx.oxml import OxmlElement
-            from datetime import date as _bdate
-            import re as _bre
-
-            bdoc = _BD()
-            bsec = bdoc.sections[0]
-            bsec.page_width  = Inches(8.5); bsec.page_height = Inches(11)
-            bsec.top_margin = bsec.bottom_margin = Inches(1)
-            bsec.left_margin = bsec.right_margin = Inches(1.2)
-
-            FAA_B = RGBColor(0x1F,0x4E,0x79); MED_B = RGBColor(0x2E,0x75,0xB6)
-            RED_B = RGBColor(0xC0,0x00,0x00); GRN_B = RGBColor(0x37,0x56,0x23)
-
-            # Title
-            tp = bdoc.add_paragraph()
-            tr = tp.add_run("FAA RF INTERFERENCE ANALYSIS TOOL — BATCH REPORT")
-            tr.bold = True; tr.font.size = Pt(14); tr.font.color.rgb = FAA_B
-            bdoc.add_paragraph(f"Working Party: {working_party}  |  Analysis Depth: {analysis_depth}  |  Date: {_bdate.today()}  |  Documents: {len(batch_files)}").runs[0].font.size = Pt(9)
-
-            # Triage table
-            hdr = bdoc.add_paragraph()
-            hr = hdr.add_run("TRIAGE SUMMARY"); hr.bold = True; hr.font.size = Pt(12); hr.font.color.rgb = FAA_B
-            tbl = bdoc.add_table(rows=len(triage_rows)+1, cols=4)
-            tbl.style = "Table Grid"
-            for ci, ch in enumerate(["File", "Verdict", "Doc Status", "Proposed Freq"]):
-                c = tbl.rows[0].cells[ci]; c.paragraphs[0].clear()
-                cr = c.paragraphs[0].add_run(ch); cr.bold = True; cr.font.size = Pt(8); cr.font.color.rgb = RGBColor(0xFF,0xFF,0xFF)
-                shd = OxmlElement('w:shd'); shd.set(qn('w:fill'),'2E75B6'); shd.set(qn('w:val'),'clear')
-                c._element.get_or_add_tcPr().append(shd)
-            for ri, row in enumerate(triage_rows):
-                for ci, key in enumerate(["File","Verdict","Doc Status","Proposed Freq"]):
-                    cell = tbl.rows[ri+1].cells[ci]; cell.paragraphs[0].clear()
-                    val = str(row.get(key,""))
-                    cr = cell.paragraphs[0].add_run(val); cr.font.size = Pt(8)
-                    if "HUMAN REVIEW" in val: cr.font.color.rgb = RED_B
-                    elif "NOT RELEVANT" in val: cr.font.color.rgb = GRN_B
-
-            # Individual analyses
-            for res in batch_results:
-                bdoc.add_page_break()
-                fp = bdoc.add_paragraph()
-                fr_r = fp.add_run(f"📄 {res['file']}")
-                fr_r.bold = True; fr_r.font.size = Pt(13); fr_r.font.color.rgb = FAA_B
-                if res.get("tc"): bdoc.add_paragraph(res["tc"]).runs[0].font.size = Pt(8)
-                # Render analysis text
-                for line in res["analysis"].split("\n"):
-                    ls = line.strip()
-                    if ls.startswith("## "):
-                        p = bdoc.add_paragraph(); r2 = p.add_run(ls[3:]); r2.bold = True; r2.font.size = Pt(11); r2.font.color.rgb = MED_B
-                    elif ls.startswith("| ") and "|" in ls[2:]:
-                        p = bdoc.add_paragraph(ls); p.runs[0].font.size = Pt(8)
-                    elif ls.startswith("- ") or ls.startswith("* "):
-                        p = bdoc.add_paragraph(style="List Bullet")
-                        parts = _bre.split(r'\*\*(.+?)\*\*', ls[2:])
-                        for pi, pt in enumerate(parts):
-                            r3 = p.add_run(pt); r3.font.size = Pt(9); r3.bold = (pi%2==1)
-                            if "HUMAN REVIEW" in pt or "⚠️" in pt: r3.font.color.rgb = RED_B
-                    elif ls:
-                        p = bdoc.add_paragraph(ls); p.runs[0].font.size = Pt(9) if p.runs else None
-
-            buf_b = io.BytesIO(); bdoc.save(buf_b); buf_b.seek(0)
+            from datetime import date as _bdate2
+            import re as _brc
+            def _bc(s, n=20): return _brc.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
+            batch_fname = f"FAA_Batch_{_bc(working_party,15)}_{len(batch_files)}docs_{_bdate2.today()}.docx"
+            batch_docx_bytes = _make_batch_docx(
+                batch_results, triage_rows, working_party, analysis_depth
+            )
             st.download_button(
                 label=f"📄 Download Batch Report — {len(batch_files)} documents (.docx)",
-                data=buf_b.getvalue(),
-                file_name=f"FAA_Batch_Analysis_{working_party.replace(' ','_')[:20]}_{str(_bdate.today())}.docx",
+                data=batch_docx_bytes,
+                file_name=batch_fname,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
                 use_container_width=True,
             )
         except Exception as be:
-            st.warning(f"Word report generation failed: {be}")
+            st.error(f"❌ Batch Word report error: {be}")
+            import traceback
+            st.code(traceback.format_exc())
+            import re as _bre
 
     if single_btn and contrib_input.strip():
 
@@ -3312,6 +3753,11 @@ WRC-27 ITEMS THREATENING FAA BANDS: AI 1.7 (WP 5D, IMT near RA 4.4–4.8 GHz), A
 
 ═══════════════════════════════════════════════════════════════════
 MANDATORY REVIEW CHECKLIST — APPLY TO EVERY CONTRIBUTION
+SCOPE RULE: Only flag deviations from the methodology REQUIRED by the applicable
+ITU-R Recommendations for this Working Party. Do NOT critique general engineering
+design choices, system architecture, or implementation decisions that are outside
+the ITU-R mandate. Every finding must cite the specific Recommendation or RR
+article that requires what the contribution is missing or violating.
 ═══════════════════════════════════════════════════════════════════
 
 ACCURACY RULE — NON-NEGOTIABLE:
@@ -3322,84 +3768,77 @@ references, or regulatory conclusions. It is better to flag a gap than to fabric
 
 COMPATIBILITY vs SHARING DISTINCTION (use correct term in output):
 - SHARING STUDY: Proposed service and FAA service are IN THE SAME BAND — they share spectrum.
-  The question is: can both coexist co-frequency?
-- COMPATIBILITY STUDY: Proposed service is in an ADJACENT or NEARBY BAND — the ITU-R rule
-  requires the proposer to show their system does not cause issues for the FAA incumbent.
-  Use "compatibility" when bands are adjacent but not overlapping.
+- COMPATIBILITY STUDY: Proposed service is in an ADJACENT or NEARBY BAND — ITU-R requires
+  the proposer to demonstrate the FAA incumbent is protected.
 
 1. RELEVANCE SCREEN — FREQUENCY-FIRST
-   Step 1: Extract ALL frequencies/bands mentioned in the document (exact MHz/GHz numbers).
-   Step 2: For each, determine: IN-BAND, ADJACENT, or NOT RELEVANT to FAA.
-     - IN-BAND: overlaps a FAA protected band directly
-     - ADJACENT: immediately next to a FAA band (e.g. 4.4–4.8 GHz next to RA 4.2–4.4 GHz)
-     - NEARBY: within ~500 MHz — check for OOB, harmonics, blocking risk
-     - NOT RELEVANT: far from all FAA bands — state clearly and give the gap in MHz
-   Step 3: State the RELEVANCE VERDICT before any other analysis:
-     RELEVANT / POSSIBLY RELEVANT / NOT RELEVANT — and explain in one line why.
-   Step 4: Note the study type: SHARING (co-band) or COMPATIBILITY (adjacent/nearby).
-   - If USA contribution: summarize position and key proposals only — do not adversarially critique
-   - Identify which WRC-27 AI (1.7, 1.13, 1.15, 1.17, 1.19) is implicated
+   Step 1: Extract ALL frequencies/bands mentioned (exact MHz/GHz numbers only).
+   Step 2: Cross-check against FAA protected band list — IN-BAND, ADJACENT, NEARBY, or NOT RELEVANT.
+   Step 3: State RELEVANCE VERDICT first. If USA contribution: summarize only, do not critique.
+   Step 4: Identify WRC-27 AI (1.7, 1.13, 1.15, 1.17, 1.19) and study type (SHARING / COMPATIBILITY).
 
 2. AVIATION/FAA IMPACT ASSESSMENT
-   - Co-channel and adjacent-band interference risk
-   - Out-of-band (OOB) emissions: is the 250% BN boundary checked? Does mask comply with SM.1541 (23 dB at band edge)?
-   - Spurious emissions: do they comply with RR Appendix 3 (43+10·log(P) or 60/70 dBc)?
-   - Receiver blocking/desensitization: does the analysis model LNA compression from strong out-of-band signals?
-   - Intermodulation products: are IM products checked for in-band landing?
-   - Aggregate interference: are all sources (not just single-entry) modeled? Is SM.2028 applied?
-   - Worst-case vs realistic-case: identify where the contribution uses optimistic or incomplete assumptions
-   - Aviation safety factor: is the +6 dB precision approach factor applied to safety-of-life systems?
+   Only raise concerns that are grounded in a specific ITU-R requirement or RR provision.
+   For each concern, state the applicable rule:
+   - OOB emissions → cite SM.1540/SM.1541 (250% BN boundary, 23 dB mask rule, RR 1.153)
+   - Spurious emissions → cite RR Appendix 3 (43+10·log(P), 60/70 dBc limits)
+   - Aggregate interference → cite SM.2028 (required methodology for aggregate studies)
+   - I/N exceedance → cite the specific protection level (ARSR −6 dB, ASR −10 dB, etc.)
+   - Aviation safety factor omission → cite M.1477 Annex 5 (+6 dB for precision approach)
+   - Blocking/desensitization omission → cite M.1642 §X or the applicable WP methodology doc
+   Do NOT raise concerns about parameters or scenarios that the applicable Recommendation
+   does not specifically require to be addressed.
 
-3. SIMULATION / STUDY QUALITY REVIEW
-   Receiver parameters:
-   - Are noise figure, ACS (adjacent channel selectivity), blocking threshold, and I/N protection criteria justified?
-   - Are RTCA standards (DO-155, DO-235B, DO-260B, DO-189) cited as the source?
-   Propagation models:
-   - WP 5D/5B terrestrial: is P.452 used for ground scenarios? P.528 for airborne victims?
-   - WP 4C satellite: is P.619 used? If P.452 or FSPL-only: FLAG AS FUNDAMENTAL ERROR
-   - Are terrain/clutter models appropriate? Urban clutter invalid for airborne victim
-   - Is time percentage correct? Must be 1% for protection studies per SM.2028 — not 50%
-   Scenarios:
-   - Are airport environments (approach/departure, ground operations) included?
-   - Are en-route, terminal area, and airborne scenarios separately analyzed?
-   - Is aircraft altitude variation modeled? (Aircraft at altitude see stronger interference than ground)
-   Monte Carlo / statistics:
-   - Is SM.2028 methodology followed? Random variable distributions justified?
-   - Is violation probability < 5%? Is CCDF presented?
-   - Is sensitivity analysis performed? (Density, power, deployment variation)
-   Reproducibility:
-   - Are all input parameters, equations, and references provided?
-   - Could this analysis be independently reproduced?
+3. METHODOLOGY COMPLIANCE — per applicable ITU-R Recommendations only
+   Check ONLY whether the study follows the methodology mandated for this WP:
+
+   WP 5D (IMT/ARNS): Required methodology is ITU-R M.1642. Check:
+   - Propagation: M.1642 requires P.452 (terrestrial) or P.528 (airborne victim)
+   - Monte Carlo per SM.2028 if aggregate interference is claimed
+   - Protection criteria per M.1477 (I/N thresholds + 6 dB safety factor)
+   - Time percentage: 1% required for worst-case per SM.2028 — NOT 50%
+
+   WP 4C (MSS/satellite): Required methodology is P.619 + S.1586 (epfd). Check:
+   - Propagation MUST be P.619 — P.452 is terrestrial-only and WRONG for satellite
+   - Metric MUST be epfd (constellation aggregate) — single-satellite pfd is insufficient
+   - ΔT/T for AMS(R)S — single-entry ≤6% per system protection table
+   - epfd for DME — ≤−121.5 dBW/m²/MHz per system protection table
+
+   WP 7B (Space Research/Lunar): No established ITU-R methodology exists for Earth-Moon
+   to terrestrial ARNS. If the contribution proposes one, assess whether it is grounded
+   in existing ITU-R Recommendations. If no methodology is cited, flag the gap.
+
+   WP 7C (EESS passive): No interference methodology applies — passive sensors do not
+   transmit. Assess only allocation policy implications per the Radio Regulations.
+
+   WP 5B (Maritime/Radiodetermination): Required methodology is M.1849 for radar,
+   P.452/P.528 as applicable. Check protection criteria for co-channel ARNS systems.
+
+   Do NOT flag methodology choices that the applicable Recommendation does not prohibit
+   or that are within the discretion of the submitting administration.
 
 4. REGULATORY AND PROCEDURAL ISSUES
-   - Conflicts with ITU Radio Regulations allocations or conditions
-   - Missing coordination requirements, unwanted emission limits, guard bands, or protection criteria
-   - RR No. 4.10 (harmful interference to safety-of-life services) — is it triggered?
-   - RR 1.59 (Safety service definition) — does the analysis acknowledge it?
-   - RR No. 5.444 (ARNS protection 960–1215 MHz) — is it respected?
-   - SM.1540/SM.1541 (OOB domain, 250% BN, 23 dB mask rule) — are they cited?
+   Only cite RR provisions that are directly applicable to the band and service:
+   - RR No. 4.10: harmful interference to safety-of-life — cite only if threshold is exceeded
+   - RR 5.444: ARNS protection at 960–1215 MHz — cite only for that band
+   - RR Appendix 3: spurious limits — cite only if spurious products are identified
+   - SM.1540/SM.1541: OOB domain — cite only if OOB boundary analysis is missing or wrong
+   Do NOT cite a regulation unless it is specifically applicable to the scenario in question.
 
-INTERFERENCE CLASSIFICATION (apply to every analysis):
-- Harmful (RR 1.169) → triggers RR 4.10 → US must oppose
-- Permissible (RR 1.167) → within criteria → ensure criteria are conservative enough
-- Accepted (RR 1.168) → bilateral agreement → cannot bind other administrations
-Emission types: Spurious vs OOB (SM.1540/SM.1541 for OOB domain)
-Mechanisms: In-band, OOB coupling, blocking, intermodulation, spurious response
+INTERFERENCE CLASSIFICATION (apply only if the study addresses the FAA band):
+- Harmful (RR 1.169) → triggers RR 4.10 → cite only if I/N threshold is exceeded
+- Permissible (RR 1.167) → within agreed criteria
+- Accepted (RR 1.168) → bilateral agreement only
 
-REGULATORY TOOLKIT:
-- RR No. 4.10: No harmful interference to safety-of-life services
-- RR No. 1.59: Safety service definition
-- RR No. 5.444: ARNS protection 960–1215 MHz
-- RR Appendix 3: Spurious limits (43+10·log(P) or 60/70 dBc)
-- ITU-R SM.1540/SM.1541: OOB domain (250% BN boundary; 23 dB mask rule)
-- ITU-R M.1318/M.1477/M.1904/M.1905: GNSS protection + 6 dB safety margin
-- ITU-R M.1642: IMT→ARNS methodology (terrestrial ONLY — not for WP 4C satellite)
-- ITU-R P.619: Earth-space propagation (REQUIRED for WP 4C)
-- ITU-R SM.2028: Monte Carlo aggregate interference
-- ITU-R S.1586: epfd methodology (WP 4C/4A)
-- RTCA DO-235B (GNSS), DO-260B (ADS-B), DO-155 (Radio Altimeter), DO-189 (DME)
+REGULATORY TOOLKIT (cite only what is applicable to this WP and scenario):
+- RR No. 4.10, 1.59, 5.444, Appendix 3
+- SM.1540/SM.1541 (OOB domain); SM.2028 (Monte Carlo); SM.329 (spurious measurement)
+- M.1642 (WP 5D/5B terrestrial IMT→ARNS); M.1477/M.1318/M.1904/M.1905 (GNSS)
+- P.619 + S.1586 (WP 4C satellite); P.452/P.528 (terrestrial/aeronautical propagation)
+- RTCA DO-155 (RA), DO-235B (GNSS), DO-260B (ADS-B), DO-189 (DME) — for victim parameters
 
-TONE: Be precise, technically rigorous, and conservative where aviation safety-of-life protection is concerned. If a key parameter is missing or an assumption is unclear, explicitly flag it and state the risk of proceeding without it.
+TONE: Technically rigorous, grounded only in applicable ITU-R requirements.
+Flag what the guidelines require. Do not expand the scope beyond the WP mandate.
 
 {depth_instruction}"""
 
@@ -3458,67 +3897,64 @@ The absence of methodology is itself a FAA policy argument — allocation before
 6. DRAFT RESPONSE LANGUAGE — Propose that WP 7B establish methodology BEFORE finalizing allocation"""
 
         elif wp_profile_key == "WP 4C (MSS / DC-MSS-IMT)":
-            # Satellite downlink — epfd, ΔT/T, P.619
             analysis_questions = """
 ANALYSIS STRUCTURE FOR THIS WP 4C CONTRIBUTION:
+SCOPE: Assess compliance with ITU-R P.619, S.1586, SM.2028, and the WP 4C methodology
+for satellite-to-Earth interference. Do not critique satellite system design choices
+beyond what these Recommendations require.
 
-⚠️ CRITICAL CHECKS FOR SATELLITE CONTRIBUTIONS:
-- Is propagation model P.619 (correct) or P.452 (WRONG — terrestrial only)? Flag immediately if wrong.
-- Is epfd (not just pfd) calculated for the full constellation? Single-satellite pfd understates interference.
-- Are all THREE candidate bands (925–960, 1475–1518, 2620–2690 MHz) analyzed separately?
+1. METHODOLOGY COMPLIANCE (per P.619 / S.1586 / SM.2028)
+   a) Propagation: Is P.619 used? P.452 is terrestrial-only — wrong for satellite downlinks. Cite P.619.
+   b) Metric: Is aggregate epfd calculated per S.1586? Single-satellite pfd alone is non-compliant with S.1586.
+   c) For 925–960 MHz: does epfd comply with the −121.5 dBW/m²/MHz DME limit? Cite RR 5.444.
+   d) For 1475–1518 MHz: does ΔT/T comply with 6% single-entry per the AMS(R)S protection level?
+   e) For 2620–2690 MHz: does I/N comply with −10 dB per the ASR protection level?
+   f) Is aggregate from all visible satellites computed? SM.2028 requires this for aggregate studies.
 
-1. TECHNICAL ANALYSIS (satellite-specific)
-   a) Propagation model: P.619 used? If P.452 used — FLAG AS FUNDAMENTAL ERROR.
-   b) Metric: epfd calculated for full constellation? ΔT/T for AMS(R)S? I/N for ASR?
-   c) For 925–960 MHz candidate: does aggregate epfd comply with −121.5 dBW/m²/MHz DME limit?
-   d) For 1475–1518 MHz candidate: does ΔT/T comply with 6% single-entry AMS(R)S limit?
-   e) For 2620–2690 MHz candidate: does I/N comply with −10 dB ASR threshold?
-   f) Is aggregate from ALL simultaneously visible satellites computed (not just one)?
-   g) Is airborne victim (aircraft at altitude) analyzed? Aircraft see stronger downlinks than ground.
+2. INTERFERENCE CLASSIFICATION — per RR 1.166–1.169 using correct WP 4C metrics (epfd/ΔT/T)
 
-2. INTERFERENCE CLASSIFICATION (use epfd/ΔT/T thresholds, not generic I/N)
-   State whether each candidate band's interference is harmful, permissible, or accepted per RR 1.166–1.169.
+3. THREAT ASSESSMENT — which candidate band(s) pose risk, with the actual numbers
 
-3. THREAT ASSESSMENT — Rank the three candidate bands by FAA risk level.
+4. SUBMITTER'S OBJECTIVE
 
-4. SUBMITTER'S OBJECTIVE — Which candidate band(s) is the proponent actually pushing?
+5. RECOMMENDED US POSITION — band-by-band
 
-5. RECOMMENDED US POSITION — Band-by-band: oppose/support/condition each candidate.
+6. COUNTER-ARGUMENTS — grounded in P.619, S.1586, SM.2028, RR 5.444, RR 4.10
 
-6. COUNTER-ARGUMENTS — Challenge propagation model, epfd methodology, airborne victim omission.
-
-7. REGULATORY CITATIONS — P.619, SM.2028, S.1586, M.1319, RR 5.444, RR 4.10
+7. REGULATORY CITATIONS
 
 8. COALITION STRATEGY
 
-9. REQUIRED ANALYSIS — What FAA should compute to rebut
+9. REQUIRED ANALYSIS — what FAA needs to compute
 
 10. DRAFT RESPONSE LANGUAGE"""
 
         else:
-            # Generic terrestrial WP (5D, 5B, 5A, 4A, etc.) — I/N, P.452, FSPL
+            # Generic terrestrial WP (5D, 5B, 5A, 4A, etc.)
             analysis_questions = """
 ANALYSIS STRUCTURE:
+SCOPE: Assess compliance with the methodology required by the applicable ITU-R Recommendations
+for this Working Party (M.1642 for WP 5D/5B, P.452/P.528 for propagation, SM.2028 for
+aggregate studies). Every finding must cite the specific Recommendation that requires it.
 
-1. INTERFERENCE CHARACTERIZATION (apply ITU-RR taxonomy + SPR framework)
-   a) SPR Analysis: Source worst-case parameters, correct Path model (P.452/FSPL/P.528), Victim worst-case.
-   b) Emission type: Spurious, OOB, or in-band? Cite RR definition.
-      If OOB: is the 250% BN boundary checked? Does mask comply with SM.1541 (23 dB at band edge)?
-      If Spurious: does it comply with RR Appendix 3 (43+10·log(P) dB or 60/70 dBc)?
-   c) Interference classification: Harmful (RR 1.169), permissible (1.167), or accepted (1.168)?
-   d) Technical mechanism: In-band, OOB coupling, receiver blocking, intermodulation, spurious response?
-   e) Aviation safety factor: Is the +6 dB precision approach factor applied?
-   f) Is RR No. 4.10 triggered? Is this RR 1.59 safety service?
+1. METHODOLOGY COMPLIANCE
+   a) Propagation: P.452 (terrestrial) or P.528 (airborne victim) as required by M.1642?
+   b) OOB emissions: does the study address the 250% BN boundary per SM.1540/SM.1541?
+      Only flag if OOB products land in a FAA protected band.
+   c) Spurious: does it comply with RR Appendix 3? Only flag if spurious lands in FAA band.
+   d) Aviation safety factor: is the +6 dB applied where M.1477 requires it?
+   e) Aggregate: does SM.2028 apply? Flag only if aggregate study is claimed but methodology absent.
+   f) I/N thresholds: are the correct protection levels used per the FAA system protection table?
 
-2. THREAT ASSESSMENT — FAA bands at risk with specific I/N or pfd values
+2. INTERFERENCE CLASSIFICATION — per RR 1.166–1.169 with actual numbers from study
 
-3. SUBMITTER'S OBJECTIVE
+3. THREAT ASSESSMENT — FAA bands at risk with specific dB values from the document
 
-4. TECHNICAL CONCERNS — Specific interference mechanisms
+4. SUBMITTER'S OBJECTIVE
 
 5. RECOMMENDED US POSITION — Oppose / Support / Propose amendments
 
-6. COUNTER-ARGUMENTS — Technical and regulatory
+6. COUNTER-ARGUMENTS — grounded in M.1642, P.452/P.528, SM.2028, RR 4.10 as applicable
 
 7. REGULATORY CITATIONS
 
@@ -3526,9 +3962,7 @@ ANALYSIS STRUCTURE:
 
 9. REQUIRED ANALYSIS
 
-10. URGENCY & TIMELINE
-
-11. DRAFT RESPONSE LANGUAGE"""
+10. DRAFT RESPONSE LANGUAGE"""
 
         system_prompt = f"""You are a senior RF spectrum policy advisor supporting the FAA and NTIA in ITU-R proceedings.
 
@@ -3656,12 +4090,22 @@ For each concern, use this exact format — keep it concise:
 If no FAA impact found: state "No direct FAA impact identified from available document content."
 Do NOT manufacture impact findings if the document does not provide sufficient evidence.
 
-## E) Study / Simulation Critique
-Three sub-sections: **Sound** / **Weak** / **Missing**
-- Be specific: cite the exact parameter, equation, or assumption that is wrong
-- For each weakness, state the correct ITU-R value/method
-- If the document does not contain a study: state "No study provided — cannot assess"
-- ⚠️ Do not critique phantom sections — only critique what is actually in the document
+## E) Methodology Compliance
+Assess ONLY whether the study follows the methodology required by the applicable ITU-R
+Recommendations for this Working Party. Do not critique general engineering design choices.
+
+Structure as three sub-sections:
+**Compliant:** What the contribution does correctly per the applicable methodology
+**Non-compliant:** What deviates from a specific required methodology — cite the Recommendation
+**Missing:** What the applicable Recommendation requires but the contribution omits — cite it
+
+Format for each non-compliant or missing item:
+- **Finding:** [what is wrong or absent]
+- **Required by:** [specific Recommendation/RR article that mandates it]
+- **Impact:** [how this affects the FAA protection finding]
+
+If no methodology violations are found: state "No methodology non-compliance identified against applicable ITU-R Recommendations."
+Do NOT flag something as missing unless a specific Recommendation explicitly requires it for this WP and scenario.
 
 ## F) Recommended Actions
 Numbered list. For each action:
@@ -3723,276 +4167,21 @@ Intermodulation / spurious response
                 st.subheader("Policy Guidance")
                 st.markdown(analysis_text)
 
-                # ── Word Document Export ──────────────────────────────────────
+                # ── Word Document Download ────────────────────────────────────
                 st.markdown("---")
                 st.subheader("📄 Download Analysis Report")
-                ex("Generates a formatted Word document with all sections, metadata header, and FAA branding — ready to share or file.")
 
-                def build_analysis_docx(analysis_md, meta):
-                    """Convert markdown analysis text to a formatted Word document."""
-                    from docx import Document as DocxDoc
-                    from docx.shared import Pt, Inches, RGBColor
-                    from docx.enum.text import WD_ALIGN_PARAGRAPH
-                    from docx.enum.style import WD_STYLE_TYPE
-                    from docx.oxml.ns import qn
-                    from docx.oxml import OxmlElement
-                    import re as _re
-                    import io as _io
-                    from datetime import date as _date
+                def _clean(s, maxlen=20):
+                    import re as _rc
+                    return _rc.sub(r'[^A-Za-z0-9_-]', '_', str(s or ""))[:maxlen].strip('_')
 
-                    doc = DocxDoc()
-
-                    # ── Page setup ────────────────────────────────────────────
-                    section = doc.sections[0]
-                    section.page_width  = Inches(8.5)
-                    section.page_height = Inches(11)
-                    section.top_margin    = Inches(1)
-                    section.bottom_margin = Inches(1)
-                    section.left_margin   = Inches(1.2)
-                    section.right_margin  = Inches(1.2)
-
-                    FAA_BLUE  = RGBColor(0x1F, 0x4E, 0x79)
-                    MED_BLUE  = RGBColor(0x2E, 0x75, 0xB6)
-                    RED_COL   = RGBColor(0xC0, 0x00, 0x00)
-                    AMBER_COL = RGBColor(0x7F, 0x60, 0x00)
-                    DARK      = RGBColor(0x1A, 0x1A, 0x1A)
-                    GRAY      = RGBColor(0x55, 0x55, 0x55)
-
-                    def set_para_color(para, rgb):
-                        for run in para.runs:
-                            run.font.color.rgb = rgb
-
-                    def add_rule(doc, color_hex="2E75B6"):
-                        p = doc.add_paragraph()
-                        pPr = p._p.get_or_add_pPr()
-                        pBdr = OxmlElement('w:pBdr')
-                        bottom = OxmlElement('w:bottom')
-                        bottom.set(qn('w:val'), 'single')
-                        bottom.set(qn('w:sz'), '6')
-                        bottom.set(qn('w:color'), color_hex)
-                        pBdr.append(bottom)
-                        pPr.append(pBdr)
-                        p.paragraph_format.space_after = Pt(2)
-                        return p
-
-                    # ── Title banner ──────────────────────────────────────────
-                    title_p = doc.add_paragraph()
-                    title_p.paragraph_format.space_before = Pt(0)
-                    title_p.paragraph_format.space_after  = Pt(4)
-                    run = title_p.add_run("FEDERAL AVIATION ADMINISTRATION")
-                    run.bold = True; run.font.size = Pt(10)
-                    run.font.color.rgb = MED_BLUE
-
-                    h = doc.add_paragraph()
-                    h.paragraph_format.space_before = Pt(0)
-                    h.paragraph_format.space_after  = Pt(6)
-                    r = h.add_run("ITU-R Contribution Analysis Report")
-                    r.bold = True; r.font.size = Pt(18)
-                    r.font.color.rgb = FAA_BLUE
-
-                    add_rule(doc, "1F4E79")
-
-                    # ── Metadata box ──────────────────────────────────────────
-                    meta_table = doc.add_table(rows=3, cols=4)
-                    meta_table.style = "Table Grid"
-                    meta_items = [
-                        ("Document No.", meta.get("doc_number") or "N/A"),
-                        ("Working Party", meta.get("working_party") or "N/A"),
-                        ("Administration", meta.get("submitting_admin") or "N/A"),
-                        ("Meeting / Date", meta.get("meeting_date") or "N/A"),
-                        ("WRC Agenda Item", meta.get("agenda_item") or "N/A"),
-                        ("Document Type", meta.get("doc_type") or "N/A"),
-                        ("Analysis Depth", meta.get("analysis_depth") or "N/A"),
-                        ("Report Date", str(_date.today())),
-                    ]
-                    # Flatten into 3 rows × 4 cols (label, value, label, value)
-                    padded = meta_items + [("", "")] * (6 - len(meta_items))
-                    for row_idx in range(3):
-                        row = meta_table.rows[row_idx]
-                        for col_pair in range(2):
-                            item_idx = row_idx * 2 + col_pair
-                            if item_idx < len(padded):
-                                label, val = padded[item_idx]
-                                # Label cell
-                                lc = row.cells[col_pair * 2]
-                                lc.paragraphs[0].clear()
-                                lr = lc.paragraphs[0].add_run(label)
-                                lr.bold = True; lr.font.size = Pt(8)
-                                lr.font.color.rgb = MED_BLUE
-                                lc._element.get_or_add_tcPr().append(
-                                    OxmlElement('w:shd'))
-                                # Value cell
-                                vc = row.cells[col_pair * 2 + 1]
-                                vc.paragraphs[0].clear()
-                                vr = vc.paragraphs[0].add_run(str(val))
-                                vr.font.size = Pt(8)
-                                vr.font.color.rgb = DARK
-
-                    doc.add_paragraph()  # spacer
-
-                    # ── Parse and render analysis markdown ────────────────────
-                    lines = analysis_md.split('\n')
-                    i = 0
-
-                    # Severity/Confidence color map
-                    severity_colors = {
-                        "High": RED_COL,
-                        "Medium": AMBER_COL,
-                        "Low": RGBColor(0x37, 0x56, 0x23),
-                    }
-
-                    while i < len(lines):
-                        line = lines[i]
-                        stripped = line.strip()
-
-                        # H2 section heading (## A) ...)
-                        if stripped.startswith("## "):
-                            heading_text = stripped[3:].strip()
-                            p = doc.add_paragraph()
-                            p.paragraph_format.space_before = Pt(14)
-                            p.paragraph_format.space_after  = Pt(4)
-                            r = p.add_run(heading_text)
-                            r.bold = True; r.font.size = Pt(13)
-                            r.font.color.rgb = FAA_BLUE
-                            add_rule(doc, "2E75B6")
-
-                        # H3 sub-heading (### ...)
-                        elif stripped.startswith("### "):
-                            p = doc.add_paragraph()
-                            p.paragraph_format.space_before = Pt(8)
-                            p.paragraph_format.space_after  = Pt(2)
-                            r = p.add_run(stripped[4:].strip())
-                            r.bold = True; r.font.size = Pt(11)
-                            r.font.color.rgb = MED_BLUE
-
-                        # ⚡ frequency relevance section heading (bold, highlighted)
-                        elif stripped.startswith("⚡") or stripped.startswith("**REVIEW VERDICT"):
-                            p = doc.add_paragraph()
-                            p.paragraph_format.space_before = Pt(10)
-                            r = p.add_run(stripped)
-                            r.bold = True; r.font.size = Pt(11)
-                            if "REQUIRES HUMAN REVIEW" in stripped:
-                                r.font.color.rgb = RED_COL
-                            elif "NOT RELEVANT" in stripped:
-                                r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
-                            else:
-                                r.font.color.rgb = AMBER_COL
-
-                        # Markdown table (|...|...|)
-                        elif stripped.startswith("|") and "|" in stripped:
-                            # Collect all table rows
-                            table_lines = []
-                            while i < len(lines) and lines[i].strip().startswith("|"):
-                                table_lines.append(lines[i].strip())
-                                i += 1
-                            i -= 1  # back up one since main loop will advance
-
-                            # Filter out separator rows (|---|---|)
-                            data_rows = [r for r in table_lines
-                                         if not _re.match(r'^\|[-:\s|]+\|$', r)]
-                            if not data_rows:
-                                i += 1
-                                continue
-
-                            # Parse cells
-                            def parse_row(row_str):
-                                cells = [c.strip() for c in row_str.split("|")]
-                                return [c for c in cells if c != ""]
-
-                            parsed = [parse_row(r) for r in data_rows]
-                            if not parsed:
-                                i += 1
-                                continue
-
-                            n_cols = max(len(r) for r in parsed)
-                            tbl = doc.add_table(rows=len(parsed), cols=n_cols)
-                            tbl.style = "Table Grid"
-
-                            for r_idx, cells in enumerate(parsed):
-                                row_obj = tbl.rows[r_idx]
-                                for c_idx in range(n_cols):
-                                    cell_text = cells[c_idx] if c_idx < len(cells) else ""
-                                    cell = row_obj.cells[c_idx]
-                                    cell.paragraphs[0].clear()
-                                    is_header = r_idx == 0
-                                    # Color code severity columns
-                                    color = DARK
-                                    for sev in ("High", "Medium", "Low"):
-                                        if cell_text.strip() == sev:
-                                            color = severity_colors[sev]
-                                    cr = cell.paragraphs[0].add_run(cell_text)
-                                    cr.font.size = Pt(8)
-                                    cr.font.color.rgb = RGBColor(0xFF,0xFF,0xFF) if is_header else color
-                                    cr.bold = is_header
-                                    if is_header:
-                                        shd = OxmlElement('w:shd')
-                                        shd.set(qn('w:fill'), '2E75B6')
-                                        shd.set(qn('w:val'), 'clear')
-                                        cell._element.get_or_add_tcPr().append(shd)
-                            doc.add_paragraph()
-
-                        # Bullet / numbered list
-                        elif stripped.startswith("- ") or stripped.startswith("* ") or \
-                             (_re.match(r'^\d+\.', stripped)):
-                            p = doc.add_paragraph(style="List Bullet" if stripped.startswith(("-","*")) else "List Number")
-                            p.paragraph_format.space_after = Pt(1)
-                            text = stripped.lstrip("-*0123456789. ").strip()
-                            # Handle **bold** inline
-                            parts = _re.split(r'\*\*(.+?)\*\*', text)
-                            for idx, part in enumerate(parts):
-                                r = p.add_run(part)
-                                r.font.size = Pt(9.5)
-                                r.bold = (idx % 2 == 1)
-                                r.font.color.rgb = DARK
-                                if "⚠️" in part or "UNVERIFIED" in part:
-                                    r.font.color.rgb = RED_COL
-                                if "Cannot confirm" in part:
-                                    r.font.color.rgb = AMBER_COL
-
-                        # Horizontal rule ---
-                        elif stripped == "---":
-                            add_rule(doc, "BFBFBF")
-
-                        # Empty line
-                        elif stripped == "":
-                            p = doc.add_paragraph()
-                            p.paragraph_format.space_after = Pt(2)
-
-                        # Regular paragraph (with possible **bold**)
-                        elif stripped:
-                            p = doc.add_paragraph()
-                            p.paragraph_format.space_before = Pt(2)
-                            p.paragraph_format.space_after  = Pt(4)
-                            parts = _re.split(r'\*\*(.+?)\*\*', stripped)
-                            for idx, part in enumerate(parts):
-                                r = p.add_run(part)
-                                r.font.size = Pt(10)
-                                r.bold = (idx % 2 == 1)
-                                r.font.color.rgb = DARK
-                                if "⚠️" in part or "UNVERIFIED" in part or "Cannot confirm" in part:
-                                    r.font.color.rgb = RED_COL
-
-                        i += 1
-
-                    # ── Footer ────────────────────────────────────────────────
-                    add_rule(doc, "1F4E79")
-                    footer_p = doc.add_paragraph()
-                    footer_p.paragraph_format.space_before = Pt(4)
-                    fr = footer_p.add_run(
-                        f"Generated by FAA RF Interference Analysis Tool  |  "
-                        f"{_date.today()}  |  Analysis Depth: {meta.get('analysis_depth','N/A')}  |  "
-                        f"REVIEW ALL AI-GENERATED FINDINGS BEFORE OPERATIONAL USE"
-                    )
-                    fr.font.size = Pt(7.5)
-                    fr.font.color.rgb = GRAY
-                    fr.italic = True
-
-                    buf = _io.BytesIO()
-                    doc.save(buf)
-                    buf.seek(0)
-                    return buf.getvalue()
-
-                # Build and offer download
+                from datetime import date as _dl
+                safe_name = "_".join(filter(None, [
+                    _clean(doc_number,      20),
+                    _clean(submitting_admin, 15),
+                    _clean(working_party,   10),
+                    str(_dl.today()),
+                ]))
                 docx_meta = {
                     "doc_number":      doc_number,
                     "working_party":   working_party,
@@ -4002,36 +4191,23 @@ Intermodulation / spurious response
                     "doc_type":        doc_type,
                     "analysis_depth":  analysis_depth,
                 }
-
-                safe_name = (doc_number or "contribution").replace("/","_").replace(" ","_")
-
                 try:
-                    docx_bytes = build_analysis_docx(analysis_text, docx_meta)
+                    docx_bytes_out = _make_analysis_docx(analysis_text, docx_meta)
                     st.download_button(
                         label="📄 Download Analysis Report (.docx)",
-                        data=docx_bytes,
+                        data=docx_bytes_out,
                         file_name=f"FAA_Analysis_{safe_name}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary",
                         use_container_width=True,
                     )
                 except Exception as docx_err:
-                    st.warning(f"Word document generation failed ({docx_err}) — offering plain text instead.")
-                    export_text = f"""FAA RF INTERFERENCE ANALYSIS TOOL
-Document: {doc_number or 'N/A'} | WP: {working_party} | Admin: {submitting_admin or 'N/A'}
-Agenda Item: {agenda_item or 'N/A'} | Date: {meeting_date or 'N/A'}
-Analysis Depth: {analysis_depth}
-
-{'='*60}
-AI POLICY ANALYSIS
-{'='*60}
-{analysis_text}
-"""
+                    st.error(f"❌ Word generation error: {docx_err}")
                     st.download_button(
-                        "⬇️ Download Analysis (.txt)",
-                        export_text,
+                        "⬇️ Download Analysis (.txt) — fallback",
+                        f"FAA Analysis\n{'='*60}\n{analysis_text}",
                         file_name=f"FAA_Analysis_{safe_name}.txt",
-                        mime="text/plain"
+                        mime="text/plain",
                     )
 
             except anthropic.AuthenticationError:
@@ -5617,131 +5793,58 @@ elif selected_tab == "📓 Meeting Notes":
     # ── EXPORT ────────────────────────────────────────────────────────────────
     elif sub == "📤 Export Full Record":
         st.subheader("📤 Export Full Meeting Record")
-        ex("The trip report is a formal deliverable to NTIA and FAA within 5–10 business days of the meeting. It must document: all agreed text affecting FAA interests, US interventions made, outstanding action items, and recommended US positions for the next meeting cycle.")
+        ex("The trip report is a formal deliverable to NTIA and FAA within 5–10 business days of the meeting. It documents all agreed text affecting FAA interests, US interventions made, outstanding action items, and recommended US positions for the next meeting cycle.")
 
-        info = st.session_state.mn_meeting_info
-        docs = st.session_state.mn_documents
-        ais = st.session_state.mn_ai_items
+        info     = st.session_state.mn_meeting_info
+        docs     = st.session_state.mn_documents
+        ais      = st.session_state.mn_ai_items
         sessions = st.session_state.mn_sessions
-        actions = st.session_state.mn_actions
+        actions  = st.session_state.mn_actions
 
-        if st.button("📄 Generate Full Export", type="primary"):
-            lines = []
-            lines.append("=" * 70)
-            lines.append("ITU-R WORKING PARTY MEETING RECORD")
-            lines.append("FAA RF Interference Analysis Tool — Meeting Notes Export")
-            lines.append("=" * 70)
-            lines.append(f"Meeting:      {info.get('meeting_name','')}")
-            lines.append(f"Working Party:{info.get('working_party','')}")
-            lines.append(f"Location:     {info.get('location','')}")
-            lines.append(f"Dates:        {info.get('dates','')}")
-            lines.append(f"US Del. Head: {info.get('us_head','')}")
-            lines.append(f"FAA Lead:     {info.get('faa_lead','')}")
-            lines.append("")
+        # Summary of what will be exported
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        col_s1.metric("Sessions logged",   len(sessions))
+        col_s2.metric("Documents tracked", len(docs))
+        col_s3.metric("Agenda items",       len(ais))
+        col_s4.metric("Action items",       len(actions))
 
-            # Position Matrix
-            lines.append("=" * 70)
-            lines.append("US POSITION MATRIX — AGENDA ITEMS")
-            lines.append("=" * 70)
-            if ais:
-                for a in ais.values():
-                    lines.append(f"\nAI {a['num']} — {a['title']}")
-                    lines.append(f"  FAA Bands at Risk: {a['faa_bands']}")
-                    lines.append(f"  US Position:       {a['us_position']}")
-                    lines.append(f"  Meeting Status:    {a['status']}")
-                    lines.append(f"  Rapporteur:        {a['rapporteur']}")
-                    lines.append(f"  Allied Admins:     {a['allies']}")
-                    if a.get("faa_concerns"):
-                        lines.append(f"  FAA Concerns:      {a['faa_concerns']}")
-                    if a.get("next_steps"):
-                        lines.append(f"  Next Steps:        {a['next_steps']}")
-                    if a.get("current_text"):
-                        lines.append(f"  Draft Text:\n    {a['current_text']}")
-            else:
-                lines.append("  No agenda items logged.")
+        st.markdown("---")
 
-            # Document Index
-            lines.append("")
-            lines.append("=" * 70)
-            lines.append("DOCUMENT INDEX — FAA FLAGGED DOCUMENTS")
-            lines.append("=" * 70)
-            if docs:
-                high = [d for d in docs.values() if "HIGH" in d["concern"]]
-                med  = [d for d in docs.values() if "MEDIUM" in d["concern"]]
-                for group, label in [(high,"HIGH CONCERN"),(med,"MEDIUM CONCERN")]:
-                    if group:
-                        lines.append(f"\n--- {label} ---")
-                        for d in group:
-                            lines.append(f"\n  Doc {d['doc_num']} | {d['admin']} | AI {d['ai']} | {d['session']}")
-                            lines.append(f"  Title:   {d['title']}")
-                            lines.append(f"  Type:    {d['doc_type']}")
-                            lines.append(f"  Action:  {d['us_action']}")
-                            if d.get("summary"):
-                                lines.append(f"  Summary: {d['summary']}")
-                            if d.get("faa_response"):
-                                lines.append(f"  US Response: {d['faa_response']}")
-            else:
-                lines.append("  No documents logged.")
+        if st.button("📄 Generate Word Report", type="primary"):
+            try:
+                import re as _fn_re
+                from datetime import date as _fn_date
 
-            # Session Notes
-            lines.append("")
-            lines.append("=" * 70)
-            lines.append("SESSION NOTES")
-            lines.append("=" * 70)
-            if sessions:
-                for s in sessions.values():
-                    lines.append(f"\n{s['session']} — {s['date']}")
-                    lines.append(f"  Chair: {s.get('chair','—')} | AI(s): {s.get('ai_context','—')}")
-                    lines.append(f"  FAA Outcome: {s['faa_outcome']}")
-                    lines.append(f"  Notes:\n    {s['notes']}")
-                    if s.get("key_decisions"):
-                        lines.append(f"  Key Decisions: {s['key_decisions']}")
-                    if s.get("follow_up"):
-                        lines.append(f"  Follow-up: {s['follow_up']}")
-            else:
-                lines.append("  No sessions logged.")
+                docx_bytes = _make_meeting_docx(info, sessions, docs, ais, actions)
 
-            # Action Items
-            lines.append("")
-            lines.append("=" * 70)
-            lines.append("ACTION ITEMS")
-            lines.append("=" * 70)
-            if actions:
-                open_acts = [a for a in actions if "Complete" not in a["status"]]
-                done_acts = [a for a in actions if "Complete" in a["status"]]
-                if open_acts:
-                    lines.append("\n--- OPEN ---")
-                    for a in open_acts:
-                        lines.append(f"\n  [{a['status']}] {a['priority']}")
-                        lines.append(f"  Owner: {a['owner']} | Due: {a['due']} | AI: {a.get('ai','—')}")
-                        lines.append(f"  {a['desc']}")
-                if done_acts:
-                    lines.append("\n--- COMPLETED ---")
-                    for a in done_acts:
-                        lines.append(f"  ✅ {a['owner']} | AI: {a.get('ai','—')} — {a['desc'][:60]}...")
-            else:
-                lines.append("  No action items logged.")
+                # Build a filename from meeting name, WP, and date
+                meeting_name = info.get("meeting_name") or "Meeting"
+                wp_short     = info.get("working_party") or "WP"
+                safe_meeting = _fn_re.sub(r'[^A-Za-z0-9_-]', '_', meeting_name)[:30].strip('_')
+                safe_wp      = _fn_re.sub(r'[^A-Za-z0-9_-]', '_', wp_short)[:10].strip('_')
+                fname = f"MeetingRecord_{safe_wp}_{safe_meeting}_{_fn_date.today()}.docx"
 
-            lines.append("")
-            lines.append("=" * 70)
-            lines.append("END OF MEETING RECORD")
-            lines.append("Generated by FAA RF Interference Analysis Tool")
-            lines.append("=" * 70)
+                st.download_button(
+                    label="⬇️ Download Meeting Record (.docx)",
+                    data=docx_bytes,
+                    file_name=fname,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                    use_container_width=True,
+                )
+                ok(f"Word document ready — {len(docx_bytes)//1024} KB. Click the button above to save to your PC.")
 
-            export_str = "\n".join(lines)
-            st.text_area("Preview:", export_str, height=400)
-            fname = f"meeting_record_{info.get('working_party','WP').replace(' ','_')}.txt"
-            st.download_button("⬇️ Download Full Meeting Record (.txt)",
-                export_str, file_name=fname, mime="text/plain")
-            ok("Export ready. This document is suitable for your FAA/NTIA trip report.")
+            except Exception as e:
+                st.error(f"❌ Word generation error: {e}")
+                import traceback; st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 11 — CODE ANALYZER
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🔬 Code Analyzer":
     st.title("🔬 Contribution Code Analyzer")
-    st.markdown("*Paste MATLAB or Python code from any ITU-R contribution and get a line-by-line FAA interference critique across WP 5D, 5B, 7C, and 7D.*")
-    ex("Code embedded in ITU-R contributions contains the assumptions that drive compatibility findings — propagation model choices, deployment densities, receiver parameters, time percentages, and aggregation methods are all buried here and almost never questioned in plenary sessions.")
+    st.caption("Policy support for **WP 5B · WP 5D · WP 4C · WP 7B · WP 7C** — FAA aeronautical spectrum protection")
+    ex("Paste MATLAB or Python code from a WP 5B, 5D, 4C, 7B, or 7C contribution. The critique checks compliance with the ITU-R methodology required for that Working Party — not general code quality.")
 
     # API key
     api_key = None
@@ -5768,11 +5871,6 @@ elif selected_tab == "🔬 Code Analyzer":
             "WP 4C — MSS / DC-MSS-IMT (Satellite)",
             "WP 7B — Space Research / Lunar SRS",
             "WP 7C — EESS / Space Weather (Passive)",
-            "WP 7C — Radiolocation / Radar",
-            "WP 7D — Radio Astronomy / Passive",
-            "WP 4A — Fixed Satellite Service",
-            "SG 5 — Terrestrial Services",
-            "Other",
         ], default=["WP 5D — IMT / Mobile"])
         code_doc = st.text_input("Document Number", placeholder="e.g., 5D/567-E")
         code_admin = st.text_input("Submitting Administration", placeholder="e.g., China")
@@ -5922,15 +6020,6 @@ Key FAA concerns:
 - Receiver blocking from high-power ground radars into sensitive airborne LNAs
 - Radar pulse characteristics (PRF, peak power, duty cycle) must be accounted for — not just average power""",
 
-            "WP 7D — Radio Astronomy / Passive": """WP 7D governs radio astronomy and passive services.
-Key FAA concerns:
-- Passive service allocations adjacent to active aeronautical bands can create regulatory pressure
-  to constrain FAA system emissions
-- Radio astronomy protection zones near major airports can affect DME/SSR operating parameters
-- Coordination with passive services in L-band (1400-1427 MHz) near GPS (1559-1610 MHz) and
-  GNSS L2 (1215-1300 MHz) — passive allocations set precedent for strict emission limits
-  that indirectly constrain aeronautical systems in adjacent bands""",
-
             "WP 4C — MSS / DC-MSS-IMT (Satellite)": """WP 4C governs Mobile Satellite Service (MSS) and the new DC-MSS-IMT (direct satellite-to-device) systems.
 This is WRC-27 AI 1.13. KEY FAA CONCERN: THREE CANDIDATE BANDS all adjacent to FAA safety systems:
   - 925–960 MHz (adjacent to DME/TACAN at 960 MHz — epfd ≤ −121.5 dBW/m²/MHz required)
@@ -6002,29 +6091,31 @@ The FAA concern is ALLOCATION POLICY:
         }
 
         system_prompt = f"""You are a senior RF systems engineer and ITU-R spectrum policy expert supporting the FAA and NTIA.
-Your specialty is auditing MATLAB and Python code embedded in ITU-R Working Party contributions to identify
-technical errors, unjustified assumptions, and methodology flaws that artificially produce favorable
-compatibility findings for new spectrum users at the expense of protected aeronautical services.
+You audit MATLAB and Python code embedded in WP 5B, 5D, 4C, 7B, and 7C contributions to identify
+deviations from the ITU-R methodology required for that specific Working Party.
 
-You have deep expertise in:
-- ITU-R propagation models: P.452, P.528, P.619, P.676, P.618
-- Monte Carlo methodology per ITU-R SM.2028
-- GNSS protection methodology: M.1318, M.1477, M.1904, M.1905
-- IMT/ARNS compatibility methodology: M.1642
-- Aeronautical receiver characteristics: RTCA DO-235B, DO-260B, DO-155, DO-189
-- Radio Regulations: RR No. 4.10, RR 5.444, RR 5.328, Resolution 233, Resolution 750
+SCOPE RULE: Flag only code assumptions or parameter choices that violate the methodology
+mandated by the applicable ITU-R Recommendations for this WP. Do not critique general
+code quality, engineering design choices, or implementation decisions outside the ITU-R mandate.
+Every finding must cite the specific Recommendation that the code is violating.
 
-FAA PROTECTED BANDS (your reference for victim system parameters):
+Applicable methodologies by WP:
+- WP 5D/5B: M.1642 (IMT/ARNS), P.452 (terrestrial), P.528 (airborne victim), SM.2028 (Monte Carlo)
+- WP 4C: P.619 (Earth-space propagation, REQUIRED), S.1586 (epfd), SM.2028 (aggregate)
+- WP 7B: No established ITU-R methodology for lunar SRS — flag if code claims one
+- WP 7C: Passive sensors — no interference methodology applies; flag allocation policy issues only
+- All: M.1477 (6 dB safety margin), FAA protection levels (ARSR −6 dB, ASR −10 dB, DME epfd)
+
+FAA PROTECTED BANDS:
 {faa_bands_str}
 
 WORKING PARTY CONTEXT:
-{active_wp_context if active_wp_context else "General ITU-R aeronautical spectrum protection context."}
+{active_wp_context if active_wp_context else "Apply general FAA aeronautical spectrum protection context."}
 
-FAA VICTIM SYSTEMS UNDER ASSESSMENT: {", ".join(faa_victim)}
+FAA VICTIM SYSTEMS: {", ".join(faa_victim)}
 
-CRITIQUE PHILOSOPHY:
-Every line of code in a sharing study encodes an assumption. Your job is to find where those assumptions
-deviate from conservative, technically defensible values in ways that favor the proponent.
+ACCURACY RULE: Only flag what you can verify is wrong against a specific ITU-R Recommendation.
+If you cannot confirm a specific deviation, state "Cannot confirm — requires manual verification."
 
 Common flaws to check:
 1. PROPAGATION MODEL: Is P.528 used for airborne victims? Is time % = 1% for protection studies?
