@@ -2798,12 +2798,12 @@ Once configured, the analyzer will work every time you visit the app.
                                 f"<div style='background:#1a2a1a;border-left:4px solid #44bb44;"
                                 f"padding:8px 12px;border-radius:4px;margin:6px 0'>"
                                 f"<b style='color:#44bb44'>📝 Track Changes Detected</b> — "
-                                f"<span style='color:#aaffaa'>{n_ins} insertions, {n_del} deletions</span> — "
-                                f"will be summarized in Section B of the analysis</div>",
+                                f"<span style='color:#aaffaa'>{n_ins} insertions, {n_del} deletions found. "
+                                f"AI will also scan text for revision language and cite supporting phrases.</span></div>",
                                 unsafe_allow_html=True
                             )
                         else:
-                            st.caption("📄 No track changes detected — new document, full text analysis.")
+                            st.caption("📄 No track changes in Word file — AI will scan document text for 'new' vs 'revision' signals and cite 1–2 supporting phrases.")
 
                         if not contrib_from_file:
                             st.warning("⚠️ Could not extract text from this Word document. Please use the **Paste Text** tab.")
@@ -3035,14 +3035,41 @@ analysis framework. Identify which WRC-27 agenda item (if any) this contribution
 
         # ── Track-changes handling flag ──────────────────────────────────────
         track_changes_note = """
-TRACK CHANGES HANDLING:
-Most ITU-R contributions are submitted in Track Changes mode. If this document contains
-tracked changes, prioritize the CHANGES — what was inserted, deleted, or modified.
-- Focus on: modified frequencies/bands, changed power limits, updated assumptions/parameters,
-  revised conclusions, added or removed protection criteria
-- Summarize the DELTA vs the previous version and explain why each change matters for FAA
-- If entirely new (no track changes): analyze full text normally
+TRACK CHANGES AND DOCUMENT STATUS DETECTION:
+
+Step 1 — TECHNICAL SIGNAL: Check whether track changes data is provided above.
+  Track changes present → strong evidence this is a REVISION of a previous document.
+  No track changes → document may still be a revision (authors sometimes accept changes before submitting).
+
+Step 2 — LINGUISTIC SIGNAL: Search the contribution text carefully for phrases that indicate status.
+  REVISION signals (look for these verbatim phrases or close variants):
+    "this document updates / revises / replaces / supersedes"
+    "in response to / following the discussion / based on comments received"
+    "Rev. [N]" or "Revision [N]" anywhere in the document
+    "the Working Party agreed at its previous meeting / at [city]"
+    "as agreed in [meeting name or document reference]"
+    References to a prior document number (e.g. "5D/123-E", "4C/456", "7B/78")
+    "following [administration]'s contribution", "in liaison with"
+    "the previous version of this document"
+  NEW DOCUMENT signals:
+    "hereby proposes", "first submission", "new proposal", "introduces"
+    No reference to any prior document number
+    No mention of a previous meeting discussion on this specific topic
+
+Step 3 — CITE EVIDENCE: Quote 1–2 actual phrases from the document verbatim to support your conclusion.
+  Use quotation marks. Only cite text you can find IN the provided document.
+  If no clear signal exists: state "No revision language found — document status unclear."
+
+Step 4 — DETERMINE STATUS with confidence level:
+  NEW DOCUMENT (High confidence): No track changes + no revision language found
+  NEW DOCUMENT (Low confidence): No track changes, no revision language, but document may reference prior work
+  REVISION / UPDATE (High confidence): Track changes present AND revision language found + cited
+  REVISION / UPDATE (Medium confidence): Track changes present but no explicit revision language
+  REVISION / UPDATE (Medium confidence): No track changes but revision language found + cited
+  UNCLEAR: Neither signal present — state this explicitly
 """
+
+
 
         system_prompt = f"""You are an expert RF engineer with a strong background in IMT and aviation/FAA spectrum protection, supporting the FAA and NTIA in ITU-R proceedings.
 
@@ -3360,12 +3387,29 @@ One sentence explaining the verdict.
 ## A) Document Overview
 - Title, source/administration, date (only if found in document — do not invent)
 - 2–4 sentence summary of the contribution's purpose
-- WRC-27 Agenda Item: state the number if clearly stated in the document; otherwise "Not explicitly stated"
+- WRC-27 Agenda Item: state the number if clearly stated; otherwise "Not explicitly stated"
 - If USA contribution: summarize position and key proposals — do not adversarially critique
 
-## B) Track Changes Summary
-- If track changes detected: bullet list of consequential edits — modified frequencies, power limits, assumptions, conclusions. Explain why each change matters for FAA.
-- If no track changes: "New document — full text analyzed."
+## B) Document Status — NEW or REVISION?
+**Start with a clear status line in this exact format:**
+
+> 📋 STATUS: [NEW DOCUMENT / REVISION / UNCLEAR] — [High / Medium / Low] confidence
+
+Then provide:
+- **Evidence from document text** (cite 1–2 actual phrases verbatim in "quotation marks"):
+  e.g. *"This document updates 5D/123-E in response to comments received at the Geneva meeting"* → confirms REVISION
+  e.g. *"This is a new contribution proposing..."* → confirms NEW DOCUMENT
+  If no linguistic signal found: state "No revision language found in document text."
+- **Track changes signal**: state whether track changes were detected and how many (if uploaded as Word file)
+- **Combined assessment**: state your conclusion and confidence level
+
+If this is a REVISION:
+- Bullet list of the most consequential changes vs previous version (use track changes data if available, or infer from context)
+- For each change: what changed and why it matters for FAA compatibility
+- If track changes detected but no revision language: note the discrepancy
+
+If this is NEW:
+- State: "New document — full text analyzed below."
 
 ## C) Relevance Screen
 One short paragraph. Reference the frequency table above. State:
@@ -3455,30 +3499,316 @@ Intermodulation / spurious response
                 st.subheader("Policy Guidance")
                 st.markdown(analysis_text)
 
-                # Export
+                # ── Word Document Export ──────────────────────────────────────
                 st.markdown("---")
-                export_text = f"""FAA RF INTERFERENCE TOOL — CONTRIBUTION ANALYSIS
-Generated: {meeting_date or 'N/A'}
-Document: {doc_number or 'N/A'} | WP: {working_party} | Admin: {submitting_admin or 'N/A'}
-Agenda Item: {agenda_item or 'N/A'}
-Analysis Depth: {analysis_depth}
+                st.subheader("📄 Download Analysis Report")
+                ex("Generates a formatted Word document with all sections, metadata header, and FAA branding — ready to share or file.")
 
-{'='*60}
-CONTRIBUTION TEXT (INPUT)
-{'='*60}
-{contrib_input}
+                def build_analysis_docx(analysis_md, meta):
+                    """Convert markdown analysis text to a formatted Word document."""
+                    from docx import Document as DocxDoc
+                    from docx.shared import Pt, Inches, RGBColor
+                    from docx.enum.text import WD_ALIGN_PARAGRAPH
+                    from docx.enum.style import WD_STYLE_TYPE
+                    from docx.oxml.ns import qn
+                    from docx.oxml import OxmlElement
+                    import re as _re
+                    import io as _io
+                    from datetime import date as _date
+
+                    doc = DocxDoc()
+
+                    # ── Page setup ────────────────────────────────────────────
+                    section = doc.sections[0]
+                    section.page_width  = Inches(8.5)
+                    section.page_height = Inches(11)
+                    section.top_margin    = Inches(1)
+                    section.bottom_margin = Inches(1)
+                    section.left_margin   = Inches(1.2)
+                    section.right_margin  = Inches(1.2)
+
+                    FAA_BLUE  = RGBColor(0x1F, 0x4E, 0x79)
+                    MED_BLUE  = RGBColor(0x2E, 0x75, 0xB6)
+                    RED_COL   = RGBColor(0xC0, 0x00, 0x00)
+                    AMBER_COL = RGBColor(0x7F, 0x60, 0x00)
+                    DARK      = RGBColor(0x1A, 0x1A, 0x1A)
+                    GRAY      = RGBColor(0x55, 0x55, 0x55)
+
+                    def set_para_color(para, rgb):
+                        for run in para.runs:
+                            run.font.color.rgb = rgb
+
+                    def add_rule(doc, color_hex="2E75B6"):
+                        p = doc.add_paragraph()
+                        pPr = p._p.get_or_add_pPr()
+                        pBdr = OxmlElement('w:pBdr')
+                        bottom = OxmlElement('w:bottom')
+                        bottom.set(qn('w:val'), 'single')
+                        bottom.set(qn('w:sz'), '6')
+                        bottom.set(qn('w:color'), color_hex)
+                        pBdr.append(bottom)
+                        pPr.append(pBdr)
+                        p.paragraph_format.space_after = Pt(2)
+                        return p
+
+                    # ── Title banner ──────────────────────────────────────────
+                    title_p = doc.add_paragraph()
+                    title_p.paragraph_format.space_before = Pt(0)
+                    title_p.paragraph_format.space_after  = Pt(4)
+                    run = title_p.add_run("FEDERAL AVIATION ADMINISTRATION")
+                    run.bold = True; run.font.size = Pt(10)
+                    run.font.color.rgb = MED_BLUE
+
+                    h = doc.add_paragraph()
+                    h.paragraph_format.space_before = Pt(0)
+                    h.paragraph_format.space_after  = Pt(6)
+                    r = h.add_run("ITU-R Contribution Analysis Report")
+                    r.bold = True; r.font.size = Pt(18)
+                    r.font.color.rgb = FAA_BLUE
+
+                    add_rule(doc, "1F4E79")
+
+                    # ── Metadata box ──────────────────────────────────────────
+                    meta_table = doc.add_table(rows=3, cols=4)
+                    meta_table.style = "Table Grid"
+                    meta_items = [
+                        ("Document No.", meta.get("doc_number") or "N/A"),
+                        ("Working Party", meta.get("working_party") or "N/A"),
+                        ("Administration", meta.get("submitting_admin") or "N/A"),
+                        ("Meeting / Date", meta.get("meeting_date") or "N/A"),
+                        ("WRC Agenda Item", meta.get("agenda_item") or "N/A"),
+                        ("Document Type", meta.get("doc_type") or "N/A"),
+                        ("Analysis Depth", meta.get("analysis_depth") or "N/A"),
+                        ("Report Date", str(_date.today())),
+                    ]
+                    # Flatten into 3 rows × 4 cols (label, value, label, value)
+                    padded = meta_items + [("", "")] * (6 - len(meta_items))
+                    for row_idx in range(3):
+                        row = meta_table.rows[row_idx]
+                        for col_pair in range(2):
+                            item_idx = row_idx * 2 + col_pair
+                            if item_idx < len(padded):
+                                label, val = padded[item_idx]
+                                # Label cell
+                                lc = row.cells[col_pair * 2]
+                                lc.paragraphs[0].clear()
+                                lr = lc.paragraphs[0].add_run(label)
+                                lr.bold = True; lr.font.size = Pt(8)
+                                lr.font.color.rgb = MED_BLUE
+                                lc._element.get_or_add_tcPr().append(
+                                    OxmlElement('w:shd'))
+                                # Value cell
+                                vc = row.cells[col_pair * 2 + 1]
+                                vc.paragraphs[0].clear()
+                                vr = vc.paragraphs[0].add_run(str(val))
+                                vr.font.size = Pt(8)
+                                vr.font.color.rgb = DARK
+
+                    doc.add_paragraph()  # spacer
+
+                    # ── Parse and render analysis markdown ────────────────────
+                    lines = analysis_md.split('\n')
+                    i = 0
+
+                    # Severity/Confidence color map
+                    severity_colors = {
+                        "High": RED_COL,
+                        "Medium": AMBER_COL,
+                        "Low": RGBColor(0x37, 0x56, 0x23),
+                    }
+
+                    while i < len(lines):
+                        line = lines[i]
+                        stripped = line.strip()
+
+                        # H2 section heading (## A) ...)
+                        if stripped.startswith("## "):
+                            heading_text = stripped[3:].strip()
+                            p = doc.add_paragraph()
+                            p.paragraph_format.space_before = Pt(14)
+                            p.paragraph_format.space_after  = Pt(4)
+                            r = p.add_run(heading_text)
+                            r.bold = True; r.font.size = Pt(13)
+                            r.font.color.rgb = FAA_BLUE
+                            add_rule(doc, "2E75B6")
+
+                        # H3 sub-heading (### ...)
+                        elif stripped.startswith("### "):
+                            p = doc.add_paragraph()
+                            p.paragraph_format.space_before = Pt(8)
+                            p.paragraph_format.space_after  = Pt(2)
+                            r = p.add_run(stripped[4:].strip())
+                            r.bold = True; r.font.size = Pt(11)
+                            r.font.color.rgb = MED_BLUE
+
+                        # ⚡ frequency relevance section heading (bold, highlighted)
+                        elif stripped.startswith("⚡") or stripped.startswith("**REVIEW VERDICT"):
+                            p = doc.add_paragraph()
+                            p.paragraph_format.space_before = Pt(10)
+                            r = p.add_run(stripped)
+                            r.bold = True; r.font.size = Pt(11)
+                            if "REQUIRES HUMAN REVIEW" in stripped:
+                                r.font.color.rgb = RED_COL
+                            elif "NOT RELEVANT" in stripped:
+                                r.font.color.rgb = RGBColor(0x37, 0x56, 0x23)
+                            else:
+                                r.font.color.rgb = AMBER_COL
+
+                        # Markdown table (|...|...|)
+                        elif stripped.startswith("|") and "|" in stripped:
+                            # Collect all table rows
+                            table_lines = []
+                            while i < len(lines) and lines[i].strip().startswith("|"):
+                                table_lines.append(lines[i].strip())
+                                i += 1
+                            i -= 1  # back up one since main loop will advance
+
+                            # Filter out separator rows (|---|---|)
+                            data_rows = [r for r in table_lines
+                                         if not _re.match(r'^\|[-:\s|]+\|$', r)]
+                            if not data_rows:
+                                i += 1
+                                continue
+
+                            # Parse cells
+                            def parse_row(row_str):
+                                cells = [c.strip() for c in row_str.split("|")]
+                                return [c for c in cells if c != ""]
+
+                            parsed = [parse_row(r) for r in data_rows]
+                            if not parsed:
+                                i += 1
+                                continue
+
+                            n_cols = max(len(r) for r in parsed)
+                            tbl = doc.add_table(rows=len(parsed), cols=n_cols)
+                            tbl.style = "Table Grid"
+
+                            for r_idx, cells in enumerate(parsed):
+                                row_obj = tbl.rows[r_idx]
+                                for c_idx in range(n_cols):
+                                    cell_text = cells[c_idx] if c_idx < len(cells) else ""
+                                    cell = row_obj.cells[c_idx]
+                                    cell.paragraphs[0].clear()
+                                    is_header = r_idx == 0
+                                    # Color code severity columns
+                                    color = DARK
+                                    for sev in ("High", "Medium", "Low"):
+                                        if cell_text.strip() == sev:
+                                            color = severity_colors[sev]
+                                    cr = cell.paragraphs[0].add_run(cell_text)
+                                    cr.font.size = Pt(8)
+                                    cr.font.color.rgb = RGBColor(0xFF,0xFF,0xFF) if is_header else color
+                                    cr.bold = is_header
+                                    if is_header:
+                                        shd = OxmlElement('w:shd')
+                                        shd.set(qn('w:fill'), '2E75B6')
+                                        shd.set(qn('w:val'), 'clear')
+                                        cell._element.get_or_add_tcPr().append(shd)
+                            doc.add_paragraph()
+
+                        # Bullet / numbered list
+                        elif stripped.startswith("- ") or stripped.startswith("* ") or \
+                             (_re.match(r'^\d+\.', stripped)):
+                            p = doc.add_paragraph(style="List Bullet" if stripped.startswith(("-","*")) else "List Number")
+                            p.paragraph_format.space_after = Pt(1)
+                            text = stripped.lstrip("-*0123456789. ").strip()
+                            # Handle **bold** inline
+                            parts = _re.split(r'\*\*(.+?)\*\*', text)
+                            for idx, part in enumerate(parts):
+                                r = p.add_run(part)
+                                r.font.size = Pt(9.5)
+                                r.bold = (idx % 2 == 1)
+                                r.font.color.rgb = DARK
+                                if "⚠️" in part or "UNVERIFIED" in part:
+                                    r.font.color.rgb = RED_COL
+                                if "Cannot confirm" in part:
+                                    r.font.color.rgb = AMBER_COL
+
+                        # Horizontal rule ---
+                        elif stripped == "---":
+                            add_rule(doc, "BFBFBF")
+
+                        # Empty line
+                        elif stripped == "":
+                            p = doc.add_paragraph()
+                            p.paragraph_format.space_after = Pt(2)
+
+                        # Regular paragraph (with possible **bold**)
+                        elif stripped:
+                            p = doc.add_paragraph()
+                            p.paragraph_format.space_before = Pt(2)
+                            p.paragraph_format.space_after  = Pt(4)
+                            parts = _re.split(r'\*\*(.+?)\*\*', stripped)
+                            for idx, part in enumerate(parts):
+                                r = p.add_run(part)
+                                r.font.size = Pt(10)
+                                r.bold = (idx % 2 == 1)
+                                r.font.color.rgb = DARK
+                                if "⚠️" in part or "UNVERIFIED" in part or "Cannot confirm" in part:
+                                    r.font.color.rgb = RED_COL
+
+                        i += 1
+
+                    # ── Footer ────────────────────────────────────────────────
+                    add_rule(doc, "1F4E79")
+                    footer_p = doc.add_paragraph()
+                    footer_p.paragraph_format.space_before = Pt(4)
+                    fr = footer_p.add_run(
+                        f"Generated by FAA RF Interference Analysis Tool  |  "
+                        f"{_date.today()}  |  Analysis Depth: {meta.get('analysis_depth','N/A')}  |  "
+                        f"REVIEW ALL AI-GENERATED FINDINGS BEFORE OPERATIONAL USE"
+                    )
+                    fr.font.size = Pt(7.5)
+                    fr.font.color.rgb = GRAY
+                    fr.italic = True
+
+                    buf = _io.BytesIO()
+                    doc.save(buf)
+                    buf.seek(0)
+                    return buf.getvalue()
+
+                # Build and offer download
+                docx_meta = {
+                    "doc_number":      doc_number,
+                    "working_party":   working_party,
+                    "submitting_admin":submitting_admin,
+                    "meeting_date":    meeting_date,
+                    "agenda_item":     agenda_item,
+                    "doc_type":        doc_type,
+                    "analysis_depth":  analysis_depth,
+                }
+
+                try:
+                    docx_bytes = build_analysis_docx(analysis_text, docx_meta)
+                    safe_name = (doc_number or "contribution").replace("/","_").replace(" ","_")
+                    st.download_button(
+                        label="📄 Download Analysis Report (.docx)",
+                        data=docx_bytes,
+                        file_name=f"FAA_Analysis_{safe_name}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary",
+                        use_container_width=True,
+                    )
+                except Exception as docx_err:
+                    # Fallback to plain text if docx generation fails
+                    st.warning(f"Word document generation failed ({docx_err}) — offering plain text instead.")
+                    export_text = f"""FAA RF INTERFERENCE ANALYSIS TOOL
+Document: {doc_number or 'N/A'} | WP: {working_party} | Admin: {submitting_admin or 'N/A'}
+Agenda Item: {agenda_item or 'N/A'} | Date: {meeting_date or 'N/A'}
+Analysis Depth: {analysis_depth}
 
 {'='*60}
 AI POLICY ANALYSIS
 {'='*60}
 {analysis_text}
 """
-                st.download_button(
-                    "⬇️ Download Full Analysis as .txt",
-                    export_text,
-                    file_name=f"policy_analysis_{doc_number.replace('/', '_') if doc_number else 'contribution'}.txt",
-                    mime="text/plain"
-                )
+                    st.download_button(
+                        "⬇️ Download Analysis (.txt)",
+                        export_text,
+                        file_name=f"FAA_Analysis_{safe_name}.txt",
+                        mime="text/plain"
+                    )
 
             except anthropic.AuthenticationError:
                 st.error("❌ Invalid API key. Check your Streamlit secrets configuration.")
