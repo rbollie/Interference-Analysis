@@ -540,12 +540,20 @@ def _extract_analysis_fields(analysis_text, meta=None):
         ))
 
     # ── Source / admin ────────────────────────────────────────────────────────
-    admin = (m.get("submitting_admin") or "").strip() or _first([
-        r'(?:Source|Admin(?:istration)?|Submitted by|Proponent)[:\s/|]+([A-Z][A-Za-z ,\(\)/&-]{2,50}?)(?:\n|\||\*\*|$)',
-        r'\*\*Source[^*]*\*\*[:\s]+([A-Za-z ,\(\)/&-]{2,50})',
-        r'Administration[:\s]+([A-Za-z ,\(\)/&-]{2,50})',
-    ])
-    # Clean up admin — strip leading/trailing punctuation
+    _SKIP_ADMIN = {"document","working party","wp","n/a","—","not stated","unknown","tbd",""}
+    admin = (m.get("submitting_admin") or "").strip()
+    if not admin or admin.lower() in _SKIP_ADMIN:
+        # Look for "Submitting Administration: X" line in analysis
+        _am = _rx.search(
+            r'(?:Submitting Administration|Source / Admin|Administration|Submitted by|Source)[:\s*|]+([^\n|*]{3,60})',
+            t, _rx.IGNORECASE)
+        if _am:
+            _raw = _rx.sub(r'\*+', '', _am.group(1)).strip()
+            # Accept if not a generic word
+            if _raw.lower() not in _SKIP_ADMIN:
+                admin = _raw[:60]
+    # Final strip of markdown and punctuation
+    admin = _rx.sub(r'[*_`]+', '', admin).strip()
     admin = _rx.sub(r'^[\s\-|:]+|[\s\-|:]+$', '', admin) or "—"
 
     # ── Doc number ────────────────────────────────────────────────────────────
@@ -561,15 +569,23 @@ def _extract_analysis_fields(analysis_text, meta=None):
     ])
 
     # ── Agenda items ──────────────────────────────────────────────────────────
-    # Broader: match "AI 1.7", "Agenda Item 1.13", "1.19", WRC-27 AI references
-    ai_hits = _all(r'(?:AI|Agenda Item)[:\s]*(1\.\d+)')
+    ai_hits = _all(r'(?:AI|Agenda Item|WRC-27 AI)[:\s]*(1\.\d+)')
     if not ai_hits:
-        # Also try bare references like "(1.7)" or "WRC-27 AI 1.13"
         ai_hits = _all(r'\b(1\.(?:7|13|15|17|19))\b')
-    agenda_items = ", ".join(ai_hits) if ai_hits else (m.get("agenda_item") or "—")
-    # Prefix with "AI" if bare numbers
-    if agenda_items and agenda_items != "—" and not agenda_items.upper().startswith("AI"):
-        agenda_items = "AI " + agenda_items.replace(", ", ", AI ")
+    # Also check meta
+    if not ai_hits and m.get("agenda_item"):
+        _ai_m = _rx.search(r'(1\.\d+)', m["agenda_item"])
+        if _ai_m:
+            ai_hits = [_ai_m.group(1)]
+    # Deduplicate and format
+    ai_hits = list(dict.fromkeys(ai_hits))
+    if ai_hits:
+        agenda_items = ", ".join(
+            f"AI {x}" if not x.upper().startswith("AI") else x
+            for x in ai_hits
+        )
+    else:
+        agenda_items = m.get("agenda_item") or "—"
 
     # ── Review verdict ────────────────────────────────────────────────────────
     verdict = _first([
@@ -672,12 +688,14 @@ def _extract_analysis_fields(analysis_text, meta=None):
         r'(?:summary|purpose|proposes?)[:\s]+([^\n]{30,200})',
     ])
     if summ == "—":
-        # Fallback: first non-table, non-heading paragraph
         paras = [p.strip() for p in _rx.split(r'\n{2,}', t)
                  if len(p.strip()) > 60 and not p.strip().startswith('#')
                  and not p.strip().startswith('|') and not p.strip().startswith('━')]
         summ = paras[0][:200] if paras else "—"
-    summary = summ
+    # Strip markdown bold/italic markers from summary
+    summary = _rx.sub(r'\*+', '', summ).strip()
+    summary = _rx.sub(r'__?(.+?)__?', r'\1', summary)
+    summary = _rx.sub(r'#+\s*', '', summary).strip()[:200]
 
     # ── US stance ─────────────────────────────────────────────────────────────
     # Search F section first, then US Position label, then full text
@@ -724,8 +742,21 @@ def _extract_analysis_fields(analysis_text, meta=None):
         top_action = first_action.group(1).strip()[:120] if first_action else action_block.group(1)[:120]
     else:
         top_action = "—"
-    # Clean up bold markers
-    top_action = _rx.sub(r'\*+', '', top_action).strip()
+    # Strip markdown from all text fields
+    def _strip_md(s, max_len=200):
+        s = _rx.sub(r'\*+', '', s)
+        s = _rx.sub(r'__?(.+?)__?', r'\1', s)
+        s = _rx.sub(r'#+\s*', '', s)
+        # Strip common label prefixes
+        s = _rx.sub(r'^(?:Title|Summary|Purpose|Description)[:\s]+', '', s, flags=_rx.IGNORECASE)
+        s = _rx.sub(r'\s+', ' ', s)
+        return s.strip()[:max_len] if s.strip() else "—"
+    top_action = _strip_md(top_action, 120)
+    summary    = _strip_md(summary, 200)
+    admin      = _strip_md(admin, 60)
+    # For PATH 2 (not relevant), fill stance if empty
+    if stance == "—" and _rx.search(r'NOT RELEVANT|no further analysis', t, _rx.IGNORECASE):
+        stance = "Monitor"
 
     return {
         "Document No.":       doc_num,
@@ -4201,50 +4232,68 @@ One sentence.
             if faa_filter: filter_tag += "_" + "_".join(_bc2(f,8) for f in faa_filter)
             base_name = f"FAA_Batch_{_bc2(working_party,10)}_{n_filtered}docs{filter_tag}_{_bdate2.today()}"
 
-            dl_b1, dl_b2 = st.columns(2)
+            # Generate and persist to session state
+            try:
+                st.session_state["batch_docx_bytes"]    = _make_batch_docx(filtered_batch, filtered_triage, working_party, analysis_depth)
+                st.session_state["batch_docx_filename"] = f"{base_name}.docx"
+                st.session_state["batch_docx_label"]    = f"📄 Word — Full Detailed Report ({n_label}) (.docx)"
+            except Exception as _we:
+                st.session_state.pop("batch_docx_bytes", None)
+                st.error(f"❌ Word error: {_we}")
 
-            with dl_b1:
-                try:
-                    batch_docx_bytes = _make_batch_docx(filtered_batch, filtered_triage, working_party, analysis_depth)
-                    st.download_button(
-                        label=f"📄 Word — Full Detailed Report ({n_label}) (.docx)",
-                        data=batch_docx_bytes,
-                        file_name=f"{base_name}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        type="primary",
-                        use_container_width=True,
-                        help="Triage table + full A–F analysis for each document",
+            try:
+                _xlsx_rows = [
+                    _extract_analysis_fields(
+                        r.get("_analysis",""),
+                        {"doc_number": r.get("File",""), "working_party": working_party,
+                         "submitting_admin": r.get("Source / Admin",""),
+                         "agenda_item": r.get("Agenda Item",""), "analysis_depth": analysis_depth}
                     )
-                except Exception as we:
-                    st.error(f"❌ Word error: {we}")
-
-            with dl_b2:
-                try:
-                    xlsx_rows = [
-                        _extract_analysis_fields(
-                            r.get("_analysis",""),
-                            {"doc_number": r.get("File",""), "working_party": working_party,
-                             "submitting_admin": r.get("Source / Admin",""),
-                             "agenda_item": r.get("Agenda Item",""), "analysis_depth": analysis_depth}
-                        )
-                        for r in filtered
-                    ]
-                    xlsx_bytes = _make_summary_xlsx(xlsx_rows)
-                    st.download_button(
-                        label=f"📊 Excel — Summary Table ({n_label}) (.xlsx)",
-                        data=xlsx_bytes,
-                        file_name=f"{base_name}_summary.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        help="One row per document — source country, agenda item, bands, overlap, verdict, stance, methodology",
-                    )
-                except Exception as xe:
-                    st.error(f"❌ Excel error: {xe}")
-                    import traceback; st.code(traceback.format_exc())
+                    for r in filtered
+                ]
+                st.session_state["batch_xlsx_bytes"]    = _make_summary_xlsx(_xlsx_rows)
+                st.session_state["batch_xlsx_filename"] = f"{base_name}_summary.xlsx"
+                st.session_state["batch_xlsx_label"]    = f"📊 Excel — Summary Table ({n_label}) (.xlsx)"
+            except Exception as _xe:
+                st.session_state.pop("batch_xlsx_bytes", None)
+                st.error(f"❌ Excel error: {_xe}")
 
         except Exception as be:
             st.error(f"❌ Report generation error: {be}")
             import traceback; st.code(traceback.format_exc())
+
+    # ── Persistent batch download buttons — survive reruns and filter changes ─
+    if st.session_state.get("batch_docx_bytes") or st.session_state.get("batch_xlsx_bytes"):
+        st.markdown("---")
+        st.subheader("📥 Downloads — Last Generated Report")
+        st.caption("These buttons stay available until you clear results or reset the app.")
+        _bdl1, _bdl2 = st.columns(2)
+        with _bdl1:
+            if st.session_state.get("batch_docx_bytes"):
+                st.download_button(
+                    label=st.session_state.get("batch_docx_label","📄 Word Report (.docx)"),
+                    data=st.session_state["batch_docx_bytes"],
+                    file_name=st.session_state.get("batch_docx_filename","FAA_Batch.docx"),
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                    use_container_width=True,
+                    key="persist_batch_docx",
+                )
+        with _bdl2:
+            if st.session_state.get("batch_xlsx_bytes"):
+                st.download_button(
+                    label=st.session_state.get("batch_xlsx_label","📊 Excel Summary (.xlsx)"),
+                    data=st.session_state["batch_xlsx_bytes"],
+                    file_name=st.session_state.get("batch_xlsx_filename","FAA_Batch_Summary.xlsx"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="persist_batch_xlsx",
+                )
+        if st.button("🗑️ Clear batch downloads", key="clear_batch_dl", type="secondary"):
+            for k in ("batch_docx_bytes","batch_docx_filename","batch_docx_label",
+                      "batch_xlsx_bytes","batch_xlsx_filename","batch_xlsx_label"):
+                st.session_state.pop(k, None)
+            st.rerun()
 
     # ── Show accumulated results between runs (without re-running analysis) ──
     elif (not batch_btn) and st.session_state.get("batch_accumulated") and batch_mode_active:
@@ -4900,43 +4949,21 @@ Intermodulation / spurious response
                     "analysis_depth":  analysis_depth,
                 }
 
-                dl_col1, dl_col2 = st.columns(2)
+                # Generate and persist bytes in session state so buttons survive page reruns
+                try:
+                    st.session_state["single_docx_bytes"]    = _make_analysis_docx(analysis_text, docx_meta)
+                    st.session_state["single_docx_filename"] = f"FAA_Analysis_{safe_name}.docx"
+                except Exception as _de:
+                    st.session_state.pop("single_docx_bytes", None)
+                    st.warning(f"⚠️ Word generation failed: {_de}")
 
-                with dl_col1:
-                    try:
-                        docx_bytes_out = _make_analysis_docx(analysis_text, docx_meta)
-                        st.download_button(
-                            label="📄 Word — Full Analysis Report (.docx)",
-                            data=docx_bytes_out,
-                            file_name=f"FAA_Analysis_{safe_name}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            type="primary",
-                            use_container_width=True,
-                            help="Detailed analysis report with all sections A–F",
-                        )
-                    except Exception as docx_err:
-                        st.error(f"❌ Word error: {docx_err}")
-                        st.download_button(
-                            "⬇️ Download (.txt) — fallback",
-                            f"FAA Analysis\n{'='*60}\n{analysis_text}",
-                            file_name=f"FAA_Analysis_{safe_name}.txt",
-                            mime="text/plain",
-                        )
-
-                with dl_col2:
-                    try:
-                        xlsx_row = _extract_analysis_fields(analysis_text, docx_meta)
-                        xlsx_bytes = _make_summary_xlsx([xlsx_row])
-                        st.download_button(
-                            label="📊 Excel — Summary Table (.xlsx)",
-                            data=xlsx_bytes,
-                            file_name=f"FAA_Summary_{safe_name}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True,
-                            help="High-level summary: source, agenda item, bands, verdict, stance — one row",
-                        )
-                    except Exception as xe:
-                        st.error(f"❌ Excel error: {xe}")
+                try:
+                    _xlsx_row = _extract_analysis_fields(analysis_text, docx_meta)
+                    st.session_state["single_xlsx_bytes"]    = _make_summary_xlsx([_xlsx_row])
+                    st.session_state["single_xlsx_filename"] = f"FAA_Summary_{safe_name}.xlsx"
+                except Exception as _xe:
+                    st.session_state.pop("single_xlsx_bytes", None)
+                    st.warning(f"⚠️ Excel generation failed: {_xe}")
 
             except anthropic.AuthenticationError:
                 st.error("❌ Invalid API key. Check your Streamlit secrets configuration.")
@@ -4944,6 +4971,39 @@ Intermodulation / spurious response
                 st.error("❌ API rate limit reached. Wait a moment and try again.")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+
+    # ── Persistent single-analysis download buttons ───────────────────────────
+    # Always rendered when bytes exist — survives reruns, filter changes, Q&A interactions
+    if st.session_state.get("single_docx_bytes") or st.session_state.get("single_xlsx_bytes"):
+        st.markdown("---")
+        st.subheader("📥 Download Last Analysis")
+        _pdl1, _pdl2 = st.columns(2)
+        with _pdl1:
+            if st.session_state.get("single_docx_bytes"):
+                st.download_button(
+                    label="📄 Word — Full Analysis Report (.docx)",
+                    data=st.session_state["single_docx_bytes"],
+                    file_name=st.session_state.get("single_docx_filename", "FAA_Analysis.docx"),
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                    use_container_width=True,
+                    key="persist_docx_dl",
+                )
+        with _pdl2:
+            if st.session_state.get("single_xlsx_bytes"):
+                st.download_button(
+                    label="📊 Excel — Summary Table (.xlsx)",
+                    data=st.session_state["single_xlsx_bytes"],
+                    file_name=st.session_state.get("single_xlsx_filename", "FAA_Summary.xlsx"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="persist_xlsx_dl",
+                )
+        if st.button("🗑️ Clear downloads", key="clear_single_dl", type="secondary"):
+            for k in ("single_docx_bytes","single_docx_filename",
+                      "single_xlsx_bytes","single_xlsx_filename"):
+                st.session_state.pop(k, None)
+            st.rerun()
 
     elif not contrib_input.strip():
         st.info("👆 Paste a contribution above and click Analyze to get policy guidance.")
