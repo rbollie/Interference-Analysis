@@ -3563,10 +3563,11 @@ Once configured, the analyzer will work every time you visit the app.
                 est_lo = len(next_chunk) * 20 // 60
                 est_hi = len(next_chunk) * 35 // 60
                 time_str = f"~{max(1,est_lo)}–{max(2,est_hi)} min" if est_lo != est_hi else f"~{max(1,est_lo)} min"
+                _depth_label = analysis_depth if 'analysis_depth' in dir() else "Quick"
                 st.info(
                     f"📋 **{n_pending} files remaining.** "
                     f"Next run will process **{len(next_chunk)} files** ({time_str} at "
-                    f"{'Quick' if analysis_depth.startswith('Quick') else 'Standard'} depth). "
+                    f"{'Quick' if _depth_label.startswith('Quick') else 'Standard'} depth). "
                     + (f"**{n_done} already processed** — results preserved below." if n_done else "")
                 )
                 with st.expander(f"Next chunk — {len(next_chunk)} files"):
