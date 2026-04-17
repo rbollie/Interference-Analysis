@@ -90,8 +90,206 @@ def ok(text):
     st.markdown(f'<div class="ok-box">✅ {text}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WORD DOCUMENT GENERATORS  (module-level so they're always in scope)
+# FAA PROTECTED BAND DATABASE
 # ─────────────────────────────────────────────────────────────────────────────
+FAA_BANDS = {
+    "VOR / ILS Localizer": {
+        "f_low_mhz": 108.0, "f_high_mhz": 117.975,
+        "system": "VOR / ILS Localizer", "allocation": "ARNS",
+        "service_category": "AM(R)S + ARNS",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 6, "effective_threshold_db": -12,
+        "noise_floor_dbm": -120, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor for precision approach",
+        "spr_source": "Max EIRP toward airport; worst-case azimuth",
+        "spr_path": "FSPL; distances >20 km; free-space worst-case",
+        "spr_victim": "Receiver susceptibility mask per DO-196; −120 dBm noise floor",
+        "notes": "En-route navigation and precision approach guidance. ILS CAT III approach — 6 dB additional safety factor applies.",
+        "rtca_doc": "DO-196",
+    },
+    "ILS Glide Slope": {
+        "f_low_mhz": 328.6, "f_high_mhz": 335.4,
+        "system": "ILS Glide Slope", "allocation": "ARNS",
+        "service_category": "ARNS",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 6, "effective_threshold_db": -12,
+        "noise_floor_dbm": -115, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor; CAT III precision approach",
+        "spr_source": "Max EIRP interferer; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; free-space attenuation above 300 MHz",
+        "spr_victim": "Receiver susceptibility per DO-148; noise floor −115 dBm",
+        "notes": "Vertical guidance for precision landings (CAT I/II/III). Safety factor mandatory for CAT III.",
+        "rtca_doc": "DO-148",
+    },
+    "DME / TACAN": {
+        "f_low_mhz": 960.0, "f_high_mhz": 1215.0,
+        "system": "DME / TACAN / SSR / TCAS", "allocation": "ARNS + ANS",
+        "service_category": "ARNS + ANS",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 0, "effective_threshold_db": -6,
+        "epfd_threshold_dbw_m2_mhz": -121.5,
+        "noise_floor_dbm": -106, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB; epfd ≤ −121.5 dBW/m² in any 1 MHz band",
+        "spr_source": "Max Tx power; worst-case antenna gain toward aircraft",
+        "spr_path": "FSPL; distance separation >20 km worst-case",
+        "spr_victim": "Receiver susceptibility mask; antenna gain; noise power per DO-189",
+        "notes": "Distance measuring, ATC surveillance, collision avoidance. epfd limit applies to satellite downlinks.",
+        "rtca_doc": "DO-189 / DO-185B",
+    },
+    "ADS-B / Mode-S (1090 MHz)": {
+        "f_low_mhz": 1085.0, "f_high_mhz": 1095.0,
+        "system": "ADS-B / Mode-S Transponder", "allocation": "ARNS + ANS",
+        "service_category": "ANS (Aeronautical Navigation Service)",
+        "in_threshold_db": -10, "aviation_safety_factor_db": 0, "effective_threshold_db": -10,
+        "noise_floor_dbm": -100, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −10 dB; ASR protection level per system protection table",
+        "spr_source": "Max EIRP; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; distances >20 km",
+        "spr_victim": "Receiver susceptibility per DO-260B; noise floor −100 dBm",
+        "notes": "1090 MHz squitter — global ATC surveillance backbone. ASR threshold −10 dB applies.",
+        "rtca_doc": "DO-260B",
+    },
+    "GNSS L5 / ARNS": {
+        "f_low_mhz": 1164.0, "f_high_mhz": 1215.0,
+        "system": "GNSS L5 / Galileo E5", "allocation": "ARNS + RNSS",
+        "service_category": "RNSS + ARNS",
+        "in_threshold_db": -10, "aviation_safety_factor_db": 6, "effective_threshold_db": -16,
+        "delta_t_t_pct_aggregate": 6.0,
+        "noise_floor_dbm": -130, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −10 dB wideband; ΔT/T ≤ 6% single-entry; +6 dB aviation safety factor",
+        "spr_source": "Max EIRP; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; distances >20 km; aggregate sources",
+        "spr_victim": "Receiver susceptibility mask per DO-292; noise floor −130 dBm",
+        "notes": "Safety-of-life GNSS signal; aviation approach procedures. ΔT/T = 6% for RNSS feeder links.",
+        "rtca_doc": "DO-292",
+    },
+    "GPS L1 / GNSS": {
+        "f_low_mhz": 1559.0, "f_high_mhz": 1610.0,
+        "system": "GPS L1 / GLONASS / Galileo E1", "allocation": "RNSS + ARNS",
+        "service_category": "RNSS + ARNS",
+        "in_threshold_db": -10, "aviation_safety_factor_db": 6, "effective_threshold_db": -16,
+        "psd_threshold_dbw_mhz": -146.5,
+        "noise_floor_dbm": -130, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I < −146.5 dBW/MHz (L1 SBAS Type 1); I/N ≈ −5 dB + 6 dB safety margin (wideband RFI)",
+        "spr_source": "Max EIRP; worst-case antenna gain; signal characteristics",
+        "spr_path": "FSPL worst-case; aggregate effect of multiple sources",
+        "spr_victim": "Receiver susceptibility per DO-235B/DO-253; noise floor −130 dBm",
+        "notes": "Primary GNSS band. SBAS/WAAS critical. PSD limit −146.5 dBW/MHz for wideband RFI.",
+        "rtca_doc": "DO-235B / DO-253",
+    },
+    "En-Route Radar": {
+        "f_low_mhz": 2700.0, "f_high_mhz": 2900.0,
+        "system": "ATC En-Route Surveillance Radar (ARSR / ASR)", "allocation": "ARNS + RN",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 0, "effective_threshold_db": -6,
+        "noise_floor_dbm": -100, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "ARSR: I/N ≤ −6 dB; ASR: I/N ≤ −10 dB (per system protection levels table)",
+        "spr_source": "Max EIRP; worst-case azimuth toward radar",
+        "spr_path": "FSPL; worst-case for distances >20 km",
+        "spr_victim": "Radar receiver susceptibility; noise power; antenna gain",
+        "notes": "ARSR (long-range) I/N = −6 dB; ASR (short-range, airport) I/N = −10 dB.",
+        "rtca_doc": "N/A (ITU-R M.1849)",
+    },
+    "Radio Altimeter": {
+        "f_low_mhz": 4200.0, "f_high_mhz": 4400.0,
+        "system": "Radio Altimeter (Rad Alt)", "allocation": "ARNS",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 6, "effective_threshold_db": -12,
+        "noise_floor_dbm": -90, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor for CAT III precision approach",
+        "spr_source": "Max EIRP interferer (e.g. 5G base station); OOB/spurious emissions",
+        "spr_path": "FSPL + possible blocking; distances >20 km worst-case; aggregate effect",
+        "spr_victim": "LNA susceptibility mask; blocking threshold; noise floor −90 dBm",
+        "notes": "Critical for CAT III landings, TAWS, GPWS, helicopter ops.",
+        "rtca_doc": "DO-155 / ETSO-C87",
+    },
+    "ARNS 5 GHz": {
+        "f_low_mhz": 5000.0, "f_high_mhz": 5150.0,
+        "system": "ARNS / Future Aeronautical Systems", "allocation": "ARNS",
+        "service_category": "ARNS",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 6, "effective_threshold_db": -12,
+        "noise_floor_dbm": -95, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor; under pressure from IMT-2030 WP 5D studies",
+        "spr_source": "Potential IMT base station EIRP; OOB emissions from adjacent IMT bands",
+        "spr_path": "FSPL worst-case; P.528 for airborne victim",
+        "spr_victim": "Future ARNS receiver; noise floor −95 dBm",
+        "notes": "Protected for future aeronautical use; under pressure from IMT. WRC-27 WP 5D AI 1.2 threat.",
+        "rtca_doc": "N/A",
+    },
+    "Airborne Weather Radar": {
+        "f_low_mhz": 9000.0, "f_high_mhz": 9500.0,
+        "system": "Airborne / Surface Movement Radar", "allocation": "ARNS + RN",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 0, "effective_threshold_db": -6,
+        "noise_floor_dbm": -95, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB; safety service per RR 1.59",
+        "spr_source": "Max EIRP; worst-case signal characteristics",
+        "spr_path": "FSPL worst-case; gaseous absorption significant at X-band",
+        "spr_victim": "Radar receiver susceptibility; noise floor −95 dBm",
+        "notes": "X-band weather radar and airport surface detection.",
+        "rtca_doc": "DO-220",
+    },
+    "MLS (Microwave Landing System)": {
+        "f_low_mhz": 5030.0, "f_high_mhz": 5091.0,
+        "system": "Microwave Landing System (MLS)", "allocation": "ARNS",
+        "service_category": "ARNS (Safety Service per RR 1.59)",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 6, "effective_threshold_db": -12,
+        "pfd_threshold_dbw_m2_khz": -124.5,
+        "noise_floor_dbm": -110, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "pfd ≤ −124.5 dBW/m² in 150 kHz band; I/N ≤ −6 dB + 6 dB safety factor",
+        "spr_source": "Max EIRP; signal characteristics",
+        "spr_path": "FSPL; worst-case approach geometry",
+        "spr_victim": "MLS receiver susceptibility; noise floor −110 dBm",
+        "notes": "Precision approach system. PFD limit −124.5 dBW/m² in 150 kHz band.",
+        "rtca_doc": "N/A",
+    },
+    "L-band AMS(R)S": {
+        "f_low_mhz": 1525.0, "f_high_mhz": 1559.0,
+        "system": "L-band Aeronautical Mobile Satellite (Route) Service", "allocation": "AMS(R)S",
+        "service_category": "AMS(R)S — Aeronautical Mobile Satellite (Route) Service",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 0, "effective_threshold_db": -6,
+        "delta_t_t_pct_aggregate": 20.0, "delta_t_t_pct_single": 6.0,
+        "noise_floor_dbm": -120, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "ΔT/T ≤ 20% aggregate, ΔT/T ≤ 6% single-entry (from FAA system protection table)",
+        "spr_source": "Satellite downlink EIRP; terrestrial co-frequency EIRP",
+        "spr_path": "Slant path (P.619); FSPL worst-case for terrestrial",
+        "spr_victim": "Aircraft terminal; noise temperature; antenna gain",
+        "notes": "INMARSAT/IRIDIUM safety comms. ΔT/T metric used (not I/N). 20% aggregate = 6% single-entry.",
+        "rtca_doc": "N/A",
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WRC-27 AGENDA ITEMS DATABASE
+# ─────────────────────────────────────────────────────────────────────────────
+WRC27_AGENDA_ITEMS = {
+    "AI 1.7":  {"ref":"AI 1.7","title":"IMT in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz","service":"IMT","working_party":"WP 5D","threat_level":"HIGH","faa_systems_at_risk":["Radio Altimeter/WAICS — 4.2–4.4 GHz","FAA fixed links — 7.125–8.4 GHz","FAA fixed links — 14.8–15.35 GHz"],"faa_bands_mhz":[(4200,4400),(7125,8400),(14800,15350)],"mechanism":"OOB emissions/blocking from IMT base stations into RA band","key_concern":"4.4–4.8 GHz IMT is 0 MHz from Radio Altimeter band","citations":["RR No. 4.10","ITU-R SM.1540","ITU-R SM.1541","RR Appendix 3","RTCA DO-155"],"us_position":"Oppose IMT identification without OOB compliance per SM.1541 and coordination zones","notes":"RA is safety-of-life, 6 dB aviation safety factor applies."},
+    "AI 1.13": {"ref":"AI 1.13","title":"MSS 694–2700 MHz for DC-MSS-IMT space-to-Earth connectivity","service":"MSS+IMT","working_party":"WP 4C","threat_level":"HIGH","faa_systems_at_risk":["ARNS/AM(R)S/AMS(R)S — 960–1215 MHz","MSS SatCom DL — 1525–1559 MHz","ASR — 2700–2900 MHz"],"faa_bands_mhz":[(960,1215),(1525,1559),(2700,2900)],"candidate_bands_mhz":[(925,960),(1475,1518),(2620,2690)],"mechanism":"OOB/spurious from satellite downlinks; aggregate interference","key_concern":"Candidate bands immediately adjacent to DME, AMS(R)S, and ASR","citations":["RR No. 4.10","RR No. 5.444","ITU-R SM.2028","ITU-R M.1642","ITU-R SM.1540"],"us_position":"Require aggregate analysis per SM.2028 for all three candidate bands","notes":"960–1215 MHz contains DME — critical navigation."},
+    "AI 1.15": {"ref":"AI 1.15","title":"SRS (space-to-space) for lunar surface communications","service":"SRS","working_party":"WP 7B","threat_level":"MEDIUM","faa_systems_at_risk":["ASR — 2700–2900 MHz","3600–4200 MHz","ARNS 5 GHz — 5350–5470 MHz","Fixed — 7190–7235 MHz","Fixed — 8450–8500 MHz"],"faa_bands_mhz":[(2700,2900),(3600,4200),(5350,5470),(7190,7235),(8450,8500)],"mechanism":"Novel use case — no established Earth-Moon methodology","key_concern":"No established ITU-R methodology for lunar SRS vs terrestrial ARNS","citations":["RR No. 4.10","ITU-R SM.2028","ITU-R P.528","RR Appendix 3"],"us_position":"Require methodology before allocation","notes":"Methodology gap is the primary FAA policy argument."},
+    "AI 1.17": {"ref":"AI 1.17","title":"EESS passive space weather sensors","service":"EESS","working_party":"WP 7C","threat_level":"LOW-MEDIUM","faa_systems_at_risk":["HF comms — 2.1–29.89 MHz","ILS-related — 74.8–75.2 MHz"],"faa_bands_mhz":[(2100,29890),(74800,75200)],"mechanism":"Passive — allocation policy concern","key_concern":"Coordination obligations on FAA HF comms","citations":["RR No. 4.10","ICAO Annex 10"],"us_position":"Monitor; ensure no coordination burden on FAA","notes":"Low direct threat; procedural concern."},
+    "AI 1.19": {"ref":"AI 1.19","title":"EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz","service":"EESS","working_party":"WP 7C","threat_level":"MEDIUM","faa_systems_at_risk":["Radio Altimeter — 4.2–4.4 GHz","Fixed — 8.4–8.5 GHz"],"faa_bands_mhz":[(4200,4400),(8400,8500)],"mechanism":"Allocation precedent — weakens exclusive ARNS status","key_concern":"EESS co-primary in RA band weakens AI 1.7 defense","citations":["RR No. 4.10","RR No. 1.59","RTCA DO-155","ITU-R M.1477"],"us_position":"Oppose co-primary; demand secondary status only","notes":"Strategic link to AI 1.7 — this is the allocation table fight."},
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WP ANALYSIS PROFILES
+# ─────────────────────────────────────────────────────────────────────────────
+WP_ANALYSIS_PROFILES = {
+    "WP 5D (IMT/Mobile)": {"label":"WP 5D — IMT/Mobile (5G/6G)","interferer_type":"Terrestrial IMT base station or UE","victim_type":"Airborne or ground-based aeronautical receiver","primary_threat":"IMT identification in bands adjacent to or overlapping aeronautical allocations","propagation_models":["FSPL (worst-case)","ITU-R P.452 (terrestrial)","ITU-R P.528 (airborne victim)"],"interference_metrics":["I/N (dB) — primary metric","pfd (dBW/m²) for field strength limits"],"key_recommendations":["ITU-R M.1642","ITU-R SM.2028","ITU-R P.452","ITU-R P.528","ITU-R M.1477","ITU-R SM.1540","ITU-R SM.1541"],"protection_criteria":"I/N thresholds from FAA system protection table; +6 dB aviation safety factor for precision approach","aggregate_method":"Monte Carlo per SM.2028","specific_checks":["Propagation model P.452/P.528?","EIRP worst-case?","OOB mask per SM.1541?","Coordination zone adequate?","Aviation safety factor applied?","Aggregate interference per SM.2028?"],"common_proponent_tactics":["Using median EIRP instead of maximum","Using P.452 urban clutter for airborne victim","Claiming OOB compliance without providing mask","Single base station instead of aggregate"],"wrc27_items":["AI 1.7"],"policy_levers":["SM.1541 OOB mask compliance","Coordination zones","RR No. 4.10","RR Resolution 750"]},
+    "WP 5B (Maritime/Radiodetermination)": {"label":"WP 5B — Maritime/Radiodetermination","interferer_type":"Ship-borne, coastal, or radiodetermination transmitter","victim_type":"Airborne or ground aeronautical receiver","primary_threat":"Radiolocation/maritime allocations near DME, ATC radar, or ARNS bands","propagation_models":["FSPL","ITU-R P.452","ITU-R P.528 for airborne victim"],"interference_metrics":["I/N (dB)","pfd (dBW/m²)"],"key_recommendations":["ITU-R M.1849","ITU-R P.528","ITU-R SM.2028"],"protection_criteria":"ARSR I/N = −6 dB; ASR I/N = −10 dB","aggregate_method":"Monte Carlo per SM.2028","specific_checks":["Maritime allocation adjacent to ATC radar bands?","Ship/coastal station EIRP and emission mask?","Airborne geometry modeled?"],"common_proponent_tactics":["Sea-surface propagation only — ignores airborne victim","Average power instead of peak for pulsed systems"],"wrc27_items":[],"policy_levers":["I/N thresholds for ASR/ARSR","Coordination distances from airports","RR No. 4.10"]},
+    "WP 4C (MSS / DC-MSS-IMT)": {"label":"WP 4C — MSS/DC-MSS-IMT","interferer_type":"Satellite downlink (space-to-Earth) — LEO/MEO/GEO constellation","victim_type":"Ground-based or airborne aeronautical receiver","primary_threat":"MSS satellite downlinks in candidate bands adjacent to DME, AMS(R)S, ASR","propagation_models":["ITU-R P.619 (Earth-space) — CORRECT model for satellite downlinks","NOT P.452 — P.452 is for terrestrial links only","ITU-R P.676 for atmospheric absorption on slant path"],"interference_metrics":["epfd (dBW/m²/MHz) — PRIMARY metric for satellite downlinks","ΔT/T (%) — noise temperature rise for RNSS and AMS(R)S","I/N (dB) — for ASR"],"key_recommendations":["ITU-R P.619","ITU-R SM.2028","ITU-R S.1586","ITU-R M.1477","RR No. 5.444"],"protection_criteria":"DME: epfd ≤ −121.5 dBW/m²/MHz; AMS(R)S: ΔT/T ≤ 6% single-entry; ASR: I/N ≤ −10 dB","aggregate_method":"epfd Monte Carlo per S.1586/SM.2028 — all visible satellites contribute simultaneously","specific_checks":["P.619 used (not P.452)?","epfd calculated for full constellation?","All three candidate bands analyzed separately?","Airborne victim analyzed?","ΔT/T single-entry compliance?"],"common_proponent_tactics":["Single-satellite pfd instead of constellation epfd","P.452 instead of P.619","Ground-only victim","Average EIRP instead of nadir worst-case"],"wrc27_items":["AI 1.13"],"policy_levers":["epfd limits","ΔT/T limits for AMS(R)S","ASR I/N = −10 dB","RR No. 5.444","RR No. 4.10","ITU-R S.1586"]},
+    "WP 7B (Space Radiocommunication / Lunar SRS)": {"label":"WP 7B — Space Research/Lunar","interferer_type":"SRS transmitter — Earth-based uplink or lunar surface transmitter","victim_type":"Terrestrial aeronautical receivers","primary_threat":"Novel use case — no established ITU-R methodology for lunar SRS vs ARNS","propagation_models":["Novel geometry — no established ITU-R model for lunar-to-Earth interference","P.452/FSPL for Earth-side SRS uplinks"],"interference_metrics":["pfd (dBW/m²) at Earth surface","I/N (dB) if interference reaches terrestrial receiver"],"key_recommendations":["ITU-R SA.509","NOTE: No ITU-R Recommendation for lunar surface SRS vs terrestrial ARNS"],"protection_criteria":"ASR I/N = −10 dB; ARNS 5350–5470 MHz I/N = −6 dB","aggregate_method":"Not yet established — FAA should argue methodology must be developed BEFORE allocation","specific_checks":["Does contribution propose a coordination methodology?","Is pfd from lunar transmitters calculated?","Are Earth-side SRS uplinks analyzed for co-frequency impact?"],"common_proponent_tactics":["Claiming lunar SRS is low power without quantitative analysis","Proposing allocation before methodology is established"],"wrc27_items":["AI 1.15"],"policy_levers":["Methodology gap argument — oppose allocation before methodology","Precautionary principle","RR No. 4.10"]},
+    "WP 7C (EESS / Space Weather Sensors)": {"label":"WP 7C — EESS/Science (Passive)","interferer_type":"PASSIVE — receive-only sensors, NO transmission","victim_type":"FAA concern is ALLOCATION PRECEDENT not interference","primary_threat":"NOT interference — ALLOCATION POLICY. Co-primary in RA band weakens ARNS exclusivity for AI 1.7","propagation_models":["NOT APPLICABLE — passive sensors do not interfere with FAA systems"],"interference_metrics":["NOT APPLICABLE for direct interference","Assess allocation policy implications only"],"key_recommendations":["ITU Radio Regulations — Table of Frequency Allocations","RR Resolution 750"],"protection_criteria":"N/A — assess regulatory allocation table consequences","aggregate_method":"N/A — passive sensors do not transmit","specific_checks":["Does EESS passive allocation propose co-primary status in 4.2–4.4 GHz?","Does it weaken FAA ARNS exclusivity for AI 1.7?","Does it create coordination obligations on FAA transmitters?","Is this a stepping stone to future active allocation?"],"common_proponent_tactics":["Arguing passive = harmless = should be allowed","Using passive as foot-in-door for future active allocation"],"wrc27_items":["AI 1.17","AI 1.19"],"policy_levers":["Allocation table exclusivity","Strategic linkage to AI 1.7","Demand secondary status not co-primary"]},
+    "WP 4A (Fixed Satellite Service)": {"label":"WP 4A — Fixed Satellite Service","interferer_type":"FSS satellite downlink or Earth station uplink","victim_type":"FAA fixed microwave links, ARNS","primary_threat":"FSS downlinks/uplinks in bands shared with FAA fixed microwave links","propagation_models":["ITU-R P.619 (Earth-space)","ITU-R P.452 (Earth station to terrestrial)"],"interference_metrics":["pfd (dBW/m²)","epfd","I/N (dB)"],"key_recommendations":["ITU-R S.1586","ITU-R P.619","ITU-R SM.2028"],"protection_criteria":"FAA fixed links: coordination per national frequency assignment","aggregate_method":"epfd per S.1586","specific_checks":["FSS downlink pfd comply with RR Appendix 5?","FAA fixed links included in victim analysis?"],"common_proponent_tactics":["Using coordination distance from populated areas only"],"wrc27_items":[],"policy_levers":["RR Appendix 5 pfd limits","RR No. 4.10"]},
+}
+
+WP_PROFILE_MAP = {
+    "WP 5D (IMT/Mobile)":                         "WP 5D (IMT/Mobile)",
+    "WP 5B (Maritime/Radiodetermination)":         "WP 5B (Maritime/Radiodetermination)",
+    "WP 4C (MSS / DC-MSS-IMT)":                   "WP 4C (MSS / DC-MSS-IMT)",
+    "WP 7B (Space Radiocommunication / Lunar SRS)":"WP 7B (Space Radiocommunication / Lunar SRS)",
+    "WP 7C (EESS / Space Weather Sensors)":        "WP 7C (EESS / Space Weather Sensors)",
+    "WP 4A (Fixed Satellite Service)":             "WP 4A (Fixed Satellite Service)",
+    "WP 4B (Satellite News Gathering / ESIM)":     "WP 4A (Fixed Satellite Service)",
+}
+
+
 
 def _make_analysis_docx(analysis_md, meta):
     """
@@ -1421,17 +1619,17 @@ if st.sidebar.button("🚪 Sign Out", use_container_width=True):
 st.sidebar.markdown("---")
 
 tab_names = [
+    "🤖 Contribution Analyzer",
+    "📋 Contribution Summary",
+    "📓 Meeting Notes",
+    "🔬 Contribution Code Analyzer",
     "📡 Protected Bands",
     "🔗 Link Budget",
     "📊 Noise & I/N",
     "🌐 Propagation",
     "🎲 Monte Carlo",
-    "📋 Contribution Summary",
     "📚 Tutorial",
-    "🤖 Contribution Analyzer",
     "🎓 RF Training",
-    "📓 Meeting Notes",
-    "🔬 Code Analyzer",
     "📖 Glossary",
     "📻 Microwave Link Budget",
 ]
@@ -6535,9 +6733,9 @@ elif selected_tab == "📓 Meeting Notes":
                 import traceback; st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 11 — CODE ANALYZER
+# TAB — CONTRIBUTION CODE ANALYZER
 # ─────────────────────────────────────────────────────────────────────────────
-elif selected_tab == "🔬 Code Analyzer":
+elif selected_tab == "🔬 Contribution Code Analyzer":
     st.title("🔬 Contribution Code Analyzer")
     st.caption("Policy support for **WP 5B · WP 5D · WP 4C · WP 7B · WP 7C** — FAA aeronautical spectrum protection")
     ex("Paste MATLAB or Python code from a WP 5B, 5D, 4C, 7B, or 7C contribution. The critique checks compliance with the ITU-R methodology required for that Working Party — not general code quality.")
