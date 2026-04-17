@@ -724,22 +724,65 @@ def _extract_analysis_fields(analysis_text, meta=None):
         if not _dn_re.search(r'[/\-]\d', doc_num):
             doc_num = "—"
 
-    # ── Working party ─────────────────────────────────────────────────────────
-    wp = (m.get("working_party") or "").strip() or _first([
-        r'(WP\s*(?:5D|5B|4C|7B|7C|4A|7D|5A))',
-        r'Working Party[:\s]+([\w\s]+?)(?:\n|\()',
-    ])
+    # ── Working party — scan document text first, meta is fallback only ────────
+    # WP codes in the document itself are authoritative
+    _WP_PATTERNS = [
+        # Explicit "Working Party 5B" / "WP 5B" in text or title
+        r'\b(WP\s*5B)\b',   r'\b(WP\s*5D)\b',  r'\b(WP\s*4C)\b',
+        r'\b(WP\s*7B)\b',   r'\b(WP\s*7C)\b',  r'\b(WP\s*4A)\b',
+        r'\b(WP\s*7D)\b',   r'\b(WP\s*5A)\b',
+        r'Working Party\s+(5B|5D|4C|7B|7C|4A|7D|5A)\b',
+    ]
+    wp_from_text = "—"
+    for pat in _WP_PATTERNS:
+        _wm = _rx.search(pat, t, _rx.IGNORECASE)
+        if _wm:
+            raw = _wm.group(1).strip().upper().replace(' ','')
+            # Normalise to "WP 5B" format
+            wp_from_text = "WP " + raw.replace('WP','').strip() if raw.startswith('WP') else "WP " + raw
+            break
 
-    # ── Agenda items ──────────────────────────────────────────────────────────
-    ai_hits = _all(r'(?:AI|Agenda Item|WRC-27 AI)[:\s]*(1\.\d+)')
-    if not ai_hits:
-        ai_hits = _all(r'\b(1\.(?:7|13|15|17|19))\b')
-    # Also check meta
+    # Cross-check admin field — filenames and admins carry WP cues too
+    _admin_wp_map = {
+        "5B": "WP 5B", "5D": "WP 5D", "4C": "WP 4C",
+        "7B": "WP 7B", "7C": "WP 7C", "4A": "WP 4A",
+    }
+    if wp_from_text == "—":
+        # Check admin field and doc number for WP code embedded in WP-style strings
+        _check_str = str(admin) + " " + str(doc_num) + " " + t[:500]
+        for code, label in _admin_wp_map.items():
+            # Match "WP 4C", "WP4C", "WP-4C" patterns (not bare "4C" which is too ambiguous)
+            if _rx.search(rf'WP[\s\-_]?{code}\b', _check_str, _rx.IGNORECASE):
+                wp_from_text = label
+                break
+
+    # Use text-extracted WP if found; fall back to meta (the dropdown selection)
+    if wp_from_text != "—":
+        wp = wp_from_text
+    else:
+        _meta_wp = (m.get("working_party") or "").strip()
+        # Extract just "WP 5D" from "WP 5D (IMT/Mobile)" style strings
+        _mwm = _rx.search(r'(WP\s*(?:5[ABCD]|4[ABC]|7[ABCD]))', _meta_wp, _rx.IGNORECASE)
+        wp = _mwm.group(1).strip() if _mwm else (_meta_wp or "—")
+
+    # ── Agenda items ─ scan broadly, then filter to FAA-relevant WRC-27 AIs ────
+    # FAA-relevant WRC-27 AIs: 1.7 (RA/5G), 1.13 (MSS), 1.15 (lunar), 1.17, 1.19 (EESS)
+    FAA_RELEVANT_AIS = {"1.7","1.13","1.15","1.17","1.19"}
+
+    # Collect all AI references from text
+    _raw_ai = _all(r'(?:AI|Agenda Item|WRC-27 AI)[:\s]*(1\.\d+)')
+    if not _raw_ai:
+        _raw_ai = _all(r'\b(?:AI\s*)?(1\.\d+)\b')   # bare numbers like "1.7"
+
+    # Filter to FAA-relevant AIs first; fall back to all detected if none are relevant
+    _faa_ai = [x for x in _raw_ai if x.replace("AI ","").replace("AI","").strip() in FAA_RELEVANT_AIS]
+    ai_hits = _faa_ai if _faa_ai else _raw_ai[:6]   # cap at 6 to avoid joint-meeting noise
+
+    # Meta fallback
     if not ai_hits and m.get("agenda_item"):
         _ai_m = _rx.search(r'(1\.\d+)', m["agenda_item"])
-        if _ai_m:
-            ai_hits = [_ai_m.group(1)]
-    # Deduplicate and format
+        if _ai_m: ai_hits = [_ai_m.group(1)]
+
     ai_hits = list(dict.fromkeys(ai_hits))
     if ai_hits:
         agenda_items = ", ".join(
@@ -775,29 +818,56 @@ def _extract_analysis_fields(analysis_text, meta=None):
     # Pull only from column 1 of the frequency table (first | cell per row)
     # Table format: | proposed | bw | FAA band | system | gap | rel | type |
     prop_col = []
+    faa_col  = []
+
+    # Pattern A: 7-col table — | proposed | BW | FAA band | ...
     for row in _rx.finditer(
-        r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',
+        r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|'   # col1: proposed
+        r'[^|]+\|'                                                          # col2: BW (any content)
+        r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',      # col3: FAA band
         t, _rx.IGNORECASE | _rx.MULTILINE):
         prop_col.append(row.group(1).strip())
-    # Also catch "Proposed band: X" label in Section D
-    prop_label = _all(r'Proposed band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
-    all_prop = list(dict.fromkeys(prop_col + prop_label))
-    proposed_bands = "; ".join(all_prop[:4]) if all_prop else "—"
+        faa_col.append(row.group(2).strip())
 
-    # ── FAA bands ─────────────────────────────────────────────────────────────
-    # Pull from column 3 of the table (after proposed | BW |)
-    # Row pattern: | proposed | BW | FAA_band | ...
-    faa_col = []
-    for row in _rx.finditer(
-        r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|'  # col1: proposed
-        r'[^|]+\|'                                                             # col2: BW (any content)
-        r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',    # col3: FAA band
-        t, _rx.IGNORECASE | _rx.MULTILINE):
-        faa_col.append(row.group(2).strip())  # include even if same (IN-BAND overlap)
-    # Fallback: "FAA band: X" label in Section D
-    faa_label = _all(r'FAA band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
-    all_faa = list(dict.fromkeys(faa_col + faa_label))
-    faa_bands = "; ".join(all_faa[:4]) if all_faa else "—"
+    # Pattern B: 6-col table — | proposed | FAA band | ... (no BW column)
+    if not prop_col:
+        for row in _rx.finditer(
+            r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|'  # col1: proposed
+            r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',    # col2: FAA band (no BW)
+            t, _rx.IGNORECASE | _rx.MULTILINE):
+            prop_col.append(row.group(1).strip())
+            faa_col.append(row.group(2).strip())
+
+    # Pattern C: extract just proposed band from any table row
+    # (fallback for NOT RELEVANT tables where FAA col is "None applicable" / "N/A")
+    if not prop_col:
+        for row in _rx.finditer(
+            r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',
+            t, _rx.IGNORECASE | _rx.MULTILINE):
+            prop_col.append(row.group(1).strip())
+
+    # Fallback: Section D "Proposed band:" / "FAA band:" labels
+    prop_label = _all(r'Proposed band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+    faa_label  = _all(r'FAA band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+
+    all_prop = list(dict.fromkeys(prop_col + prop_label))
+    all_faa  = list(dict.fromkeys(faa_col  + faa_label))
+
+    # ── Prose fallback: extract bands from Section D and running text ──────────
+    if not all_prop:
+        # "proposed 4.4–4.8 GHz" / "band 925–960 MHz" patterns in prose
+        all_prop = _all(r'(?:proposed|band|allocation)[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')[:4]
+    if not all_faa:
+        # "FAA band/protected band X–Y MHz" in prose
+        all_faa  = _all(r'(?:FAA\s+band|protected\s+band)[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')[:4]
+    # Last resort: any frequency range — deduplicate proposed vs FAA by position
+    if not all_prop and not all_faa:
+        all_ranges = _all(r'(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+        if all_ranges:
+            all_prop = all_ranges[:3]
+
+    proposed_bands = "; ".join(all_prop[:5]) if all_prop else "—"
+    faa_bands      = "; ".join(all_faa[:5])  if all_faa  else "—"
 
     # ── FAA systems ───────────────────────────────────────────────────────────
     SYSTEMS = {
@@ -818,18 +888,23 @@ def _extract_analysis_fields(analysis_text, meta=None):
     faa_systems = "; ".join(sys_hits) if sys_hits else "—"
 
     # ── Overlap / Gap ─────────────────────────────────────────────────────────
-    # Capture full "GAP: 0 MHz (adjacent)" or "OVERLAP: 10 MHz" string
     og_m = _rx.search(
-        r'((?:OVERLAP|GAP)[:\s]*\d[\d,\.]*\s*MHz(?:[^\n|]{0,40})?)',
+        r'((?:OVERLAP|GAP)[:\s]*\d[\d,\.]*\s*(?:MHz|GHz)(?:[^\n|]{0,40})?)',
         t, _rx.IGNORECASE)
     if og_m:
-        overlap_gap = og_m.group(1).strip()[:60]
-    elif _rx.search(r'immediately adjacent|touching at|0\s*MHz\s*gap', t, _rx.IGNORECASE):
+        # Normalise label to uppercase and strip trailing punctuation
+        raw_og = og_m.group(1).strip()[:60]
+        overlap_gap = _rx.sub(r'^(overlap|gap)', lambda m2: m2.group(1).upper(), raw_og, flags=_rx.IGNORECASE)
+        overlap_gap = _rx.sub(r'[\)\.\,\s]+$', '', overlap_gap).strip()
+    elif _rx.search(r'immediately adjacent|touching at|0\s*MHz\s*gap|0\s*MHz.*adjacent', t, _rx.IGNORECASE):
         overlap_gap = "GAP: 0 MHz (adjacent)"
     else:
-        og_col = _rx.search(r'\|\s*(?:OVERLAP|GAP)[:\s]*(\d[\d,\.]*\s*MHz[^\|]*)\s*\|',
-                             t, _rx.IGNORECASE)
-        overlap_gap = og_col.group(1).strip()[:60] if og_col else "—"
+        # Try prose: "overlaps X by N MHz", "N MHz overlap", "N MHz gap"
+        prose_og = _rx.search(r'(\d[\d,\.]*\s*MHz)\s*(overlap|gap)', t, _rx.IGNORECASE)
+        if prose_og:
+            overlap_gap = f"{'OVERLAP' if 'overlap' in prose_og.group(2).lower() else 'GAP'}: {prose_og.group(1)}"
+        else:
+            overlap_gap = "—"
 
     # ── Relationship ──────────────────────────────────────────────────────────
     relationship = _first([
@@ -840,10 +915,31 @@ def _extract_analysis_fields(analysis_text, meta=None):
 
     # ── Study type ────────────────────────────────────────────────────────────
     study_type = _first([
-        r'\|\s*(SHARING|COMPATIBILITY)\s*\|',
-        r'\b(SHARING|COMPATIBILITY)\b.{0,30}study',
+        r'\|\s*(SHARING|COMPATIBILITY)\s*\|',           # table cell
+        r'Study Type[:\s|]+\**(SHARING|COMPATIBILITY)', # table or label
+        r'\b(SHARING|COMPATIBILITY)\b.{0,30}study',     # "compatibility study"
         r'(sharing|compatibility)\s+study',
+        r'study\s+type[:\s]+(sharing|compatibility)',   # "study type: compatibility"
+        r'requires\s+a\s+(SHARING|COMPATIBILITY)\s+study',
     ]).upper()
+
+    # If still empty but Relationship tells us — IN-BAND → SHARING, ADJACENT → COMPATIBILITY
+    if study_type in ("—", ""):
+        if relationship == "IN-BAND":
+            study_type = "SHARING"
+        elif relationship in ("ADJACENT", "NEARBY"):
+            study_type = "COMPATIBILITY"
+
+    # Infer relationship from study type or overlap when not explicitly stated
+    if relationship in ("—",""):
+        if study_type == "SHARING":
+            relationship = "IN-BAND"
+        elif study_type == "COMPATIBILITY":
+            relationship = "ADJACENT"
+        elif _rx.search(r'OVERLAP:\s*\d', t, _rx.IGNORECASE):
+            relationship = "IN-BAND"
+        elif _rx.search(r'GAP:\s*0\s*MHz', t, _rx.IGNORECASE):
+            relationship = "ADJACENT"
 
     # ── Proposal summary ─────────────────────────────────────────────────────
     # Try the Document Overview section first
@@ -883,19 +979,42 @@ def _extract_analysis_fields(analysis_text, meta=None):
         if stance != "—": break
 
     # ── Severity ─────────────────────────────────────────────────────────────
+    # Explicit: look for "Severity: High/Medium/Low" anywhere in text
     for sev in ("High", "Medium", "Low"):
         if _rx.search(rf'Severity[:\|*\s]+{sev}', t, _rx.IGNORECASE):
             severity = sev; break
     else:
-        severity = "—"
+        # Infer from relationship and verdict when no explicit severity stated
+        if relationship == "IN-BAND" and "REQUIRES HUMAN REVIEW" in verdict:
+            severity = "High"
+        elif relationship == "ADJACENT" and "REQUIRES HUMAN REVIEW" in verdict:
+            severity = "Medium"
+        elif "REQUIRES HUMAN REVIEW" in verdict and faa_systems != "—":
+            severity = "Medium"
+        else:
+            severity = "—"
 
     # ── Methodology ──────────────────────────────────────────────────────────
-    if _rx.search(r'Non-compliant|non.compliance|WRONG|FUNDAMENTAL ERROR|FLAG.*ERROR', t, _rx.IGNORECASE):
+    # Check Section E content and broader keywords
+    _sec_e = _rx.search(
+        r'##\s*E\)[^\n]*\n([\s\S]{0,800}?)(?:\n##|\Z)', t, _rx.IGNORECASE)
+    _meth_text = (_sec_e.group(1) if _sec_e else "") + " " + t
+
+    if _rx.search(r'Non-compliant|non.compliance|WRONG|FUNDAMENTAL ERROR|FLAG.*ERROR'
+                  r'|absent|omit|missing.*requir|not.*analyz|not.*provid', _meth_text, _rx.IGNORECASE):
         methodology = "Non-compliant"
-    elif _rx.search(r'No methodology|no study provided|methodology.*absent', t, _rx.IGNORECASE):
+    elif _rx.search(r'No methodology|no study provided|methodology.*absent'
+                    r'|no.*study.*present|study.*not.*found|no.*analysis.*provid', _meth_text, _rx.IGNORECASE):
         methodology = "No study"
-    elif _rx.search(r'Compliant|methodology.*sound|appears.*compliant', t, _rx.IGNORECASE):
+    elif _rx.search(r'Compliant|methodology.*sound|appears.*compliant'
+                    r'|correct.*model|appropriate.*method|properly.*appli', _meth_text, _rx.IGNORECASE):
         methodology = "Compliant"
+    elif _sec_e:
+        # Section E exists — infer from presence of P.452/M.1642/P.619 citations
+        if _rx.search(r'P\.452|P\.528|P\.619|M\.1642|SM\.2028', _meth_text, _rx.IGNORECASE):
+            methodology = "Compliant"  # cited methodology = at minimum attempting compliance
+        else:
+            methodology = "Non-compliant"
     else:
         methodology = "—"
 
