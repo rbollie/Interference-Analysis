@@ -703,6 +703,264 @@ def _make_summary_xlsx(rows):
     return buf.getvalue()
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEO4J INTEGRATION — Persistent knowledge graph for cross-document analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _neo4j_driver():
+    """Return a connected Neo4j driver using Streamlit secrets, or None if not configured."""
+    try:
+        from neo4j import GraphDatabase
+        cfg = st.secrets.get("neo4j", {})
+        uri  = cfg.get("uri")
+        user = cfg.get("username", "neo4j")
+        pwd  = cfg.get("password")
+        if not uri or not pwd:
+            return None
+        return GraphDatabase.driver(uri, auth=(user, pwd))
+    except Exception:
+        return None
+
+
+def _neo4j_write_analysis(driver, analysis_text, meta, contrib_text=""):
+    """
+    Write one analyzed contribution into Neo4j using the existing schema:
+    Document → RiskFinding, FAAProtectionBand, RecommendedAction,
+               RegulatoryIssue, SourceExcerpt, TrackedChange,
+               StudyAssumption, SimulationMethod, FrequencyBand
+    All writes use MERGE so re-running is idempotent.
+    Returns (nodes_created, rels_created) counts.
+    """
+    import re as _nr
+    from datetime import date as _nd
+
+    fields = _extract_analysis_fields(analysis_text, meta)
+    doc_id = fields.get("Document No.") or meta.get("doc_number") or "UNKNOWN"
+    if doc_id == "—":
+        doc_id = f"DOC_{hash(analysis_text) % 100000}"
+
+    nodes_c = 0
+    rels_c   = 0
+
+    with driver.session() as s:
+
+        # ── Document node ─────────────────────────────────────────────────────
+        s.run("""
+            MERGE (d:Document {doc_id: $doc_id})
+            SET d.admin         = $admin,
+                d.working_party = $wp,
+                d.agenda_items  = $ai,
+                d.doc_status    = $status,
+                d.verdict       = $verdict,
+                d.us_stance     = $stance,
+                d.severity      = $severity,
+                d.methodology   = $meth,
+                d.study_type    = $study,
+                d.summary       = $summary,
+                d.analyzed_date = $date
+        """, doc_id=doc_id,
+             admin   = fields.get("Source / Admin","—"),
+             wp      = fields.get("Working Party","—"),
+             ai      = fields.get("Agenda Item(s)","—"),
+             status  = fields.get("Doc Status","—"),
+             verdict = fields.get("Review Verdict","—"),
+             stance  = fields.get("US Stance","—"),
+             severity= fields.get("Highest Severity","—"),
+             meth    = fields.get("Methodology","—"),
+             study   = fields.get("Study Type","—"),
+             summary = fields.get("Proposal Summary","—"),
+             date    = str(_nd.today()))
+        nodes_c += 1
+
+        # ── FAA Protection Bands ──────────────────────────────────────────────
+        faa_bands_str = fields.get("FAA Band(s)","")
+        faa_systems   = fields.get("FAA System(s)","")
+        overlap_gap   = fields.get("Overlap / Gap","—")
+        relationship  = fields.get("Relationship","—")
+
+        for band in [b.strip() for b in faa_bands_str.split(";") if b.strip() and b.strip() != "—"]:
+            s.run("""
+                MERGE (b:FAAProtectionBand {band_range: $band})
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[r:AFFECTS_BAND]->(b)
+                SET r.overlap_gap = $og, r.relationship = $rel
+            """, band=band, doc_id=doc_id, og=overlap_gap, rel=relationship)
+            nodes_c += 1; rels_c += 1
+
+        for sys_name in [s2.strip() for s2 in faa_systems.split(";") if s2.strip() and s2.strip() != "—"]:
+            s.run("""
+                MERGE (fb:FrequencyBand {system_name: $sys})
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:MENTIONS_BAND]->(fb)
+            """, sys=sys_name, doc_id=doc_id)
+            nodes_c += 1; rels_c += 1
+
+        # ── Proposed bands ────────────────────────────────────────────────────
+        for pb in [b.strip() for b in fields.get("Proposed Band(s)","").split(";")
+                   if b.strip() and b.strip() != "—"]:
+            s.run("""
+                MERGE (fb:FrequencyBand {band_range: $band})
+                SET fb.proposed = true
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:ADDRESSES]->(fb)
+            """, band=pb, doc_id=doc_id)
+            nodes_c += 1; rels_c += 1
+
+        # ── Risk Findings (Section D issues) ──────────────────────────────────
+        risk_pattern = _nr.findall(
+            r'\*\*Issue\s*(\d+)[:\*]+\*\*\s*([^\n]+)\n((?:.*\n){0,8})',
+            analysis_text, _nr.IGNORECASE)
+        for issue_num, issue_title, issue_body in risk_pattern:
+            # Extract severity, mechanism, mitigation from the body block
+            sev_m = _nr.search(r'Severity[:\s]*(High|Medium|Low)', issue_body, _nr.IGNORECASE)
+            mech_m = _nr.search(r'Mechanism[:\s]*([^\n]+)', issue_body, _nr.IGNORECASE)
+            mit_m  = _nr.search(r'Mitigation[:\s]*([^\n]+)', issue_body, _nr.IGNORECASE)
+            req_m  = _nr.search(r'Required by[:\s]*([^\n]+)', issue_body, _nr.IGNORECASE)
+
+            s.run("""
+                MERGE (rf:RiskFinding {doc_id: $doc_id, issue_num: $num})
+                SET rf.title      = $title,
+                    rf.severity   = $sev,
+                    rf.mechanism  = $mech,
+                    rf.mitigation = $mit,
+                    rf.required_by= $req
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:HAS_RISK]->(rf)
+            """, doc_id=doc_id,
+                 num   = issue_num,
+                 title = issue_title.strip()[:200],
+                 sev   = sev_m.group(1) if sev_m else "—",
+                 mech  = mech_m.group(1).strip()[:100] if mech_m else "—",
+                 mit   = mit_m.group(1).strip()[:200] if mit_m else "—",
+                 req   = req_m.group(1).strip()[:100] if req_m else "—")
+            nodes_c += 1; rels_c += 1
+
+        # ── Recommended Actions (Section F) ───────────────────────────────────
+        action_pattern = _nr.findall(
+            r'^\d+\.\s*\*\*Action[:\*]+\*\*\s*([^\n|]+)',
+            analysis_text, _nr.IGNORECASE | _nr.MULTILINE)
+        for ai, action_text in enumerate(action_pattern[:5], 1):
+            s.run("""
+                MERGE (ra:RecommendedAction {doc_id: $doc_id, action_num: $num})
+                SET ra.action_text = $text
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:RECOMMENDS_ACTION]->(ra)
+            """, doc_id=doc_id, num=str(ai),
+                 text=action_text.strip()[:300])
+            nodes_c += 1; rels_c += 1
+
+        # ── Regulatory Issues ─────────────────────────────────────────────────
+        reg_pattern = _nr.findall(
+            r'(?:cite|per|required by|violation of)[:\s]*(RR[^,\n;]{5,60}|SM\.\d+[^,\n;]{0,40}|M\.\d+[^,\n;]{0,40})',
+            analysis_text, _nr.IGNORECASE)
+        for reg_ref in list(dict.fromkeys(reg_pattern))[:8]:
+            s.run("""
+                MERGE (ri:RegulatoryIssue {citation: $cit})
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:HAS_REGULATORY_ISSUE]->(ri)
+            """, cit=reg_ref.strip()[:100], doc_id=doc_id)
+            nodes_c += 1; rels_c += 1
+
+        # ── Source Excerpts (verbatim citations from document) ────────────────
+        quote_pattern = _nr.findall(r'"([^"]{20,300})"', analysis_text)
+        for qi, quote in enumerate(quote_pattern[:6], 1):
+            s.run("""
+                MERGE (se:SourceExcerpt {doc_id: $doc_id, excerpt_num: $num})
+                SET se.text = $text
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:SUPPORTED_BY]->(se)
+            """, doc_id=doc_id, num=str(qi),
+                 text=quote.strip()[:400])
+            nodes_c += 1; rels_c += 1
+
+        # ── Tracked Changes ───────────────────────────────────────────────────
+        tc_summary = meta.get("tc_summary","")
+        if tc_summary and "TRACK CHANGES DETECTED" in tc_summary:
+            ins_m = _nr.search(r'(\d+) insertions', tc_summary)
+            del_m = _nr.search(r'(\d+) deletions', tc_summary)
+            s.run("""
+                MERGE (tc:TrackedChange {doc_id: $doc_id})
+                SET tc.insertions = $ins,
+                    tc.deletions  = $dels,
+                    tc.summary    = $summ
+                MERGE (d:Document {doc_id: $doc_id})
+                MERGE (d)-[:HAS_CHANGE]->(tc)
+            """, doc_id=doc_id,
+                 ins  = int(ins_m.group(1)) if ins_m else 0,
+                 dels = int(del_m.group(1)) if del_m else 0,
+                 summ = tc_summary[:500])
+            nodes_c += 1; rels_c += 1
+
+        # ── Study Assumptions & Simulation Methods ────────────────────────────
+        for method in ["P.452","P.528","P.619","SM.2028","M.1642","P.676"]:
+            if method in analysis_text:
+                s.run("""
+                    MERGE (sm:SimulationMethod {method_name: $method})
+                    MERGE (d:Document {doc_id: $doc_id})
+                    MERGE (d)-[:USES_METHOD]->(sm)
+                """, method=method, doc_id=doc_id)
+                nodes_c += 1; rels_c += 1
+
+    return nodes_c, rels_c
+
+
+def _neo4j_nl_query(driver, question, api_key_val):
+    """
+    Convert a natural language question to Cypher via Claude,
+    execute it against Neo4j, and return a formatted answer.
+    """
+    # Step 1: Generate Cypher from NL question
+    schema_hint = """
+Node labels: Document, FAAProtectionBand, FrequencyBand, RecommendedAction,
+             RegulatoryIssue, RiskFinding, SimulationMethod, SourceExcerpt,
+             StudyAssumption, TrackedChange
+
+Key Document properties: doc_id, admin, working_party, agenda_items, verdict,
+  us_stance, severity, methodology, study_type, summary, analyzed_date
+
+Relationship types: ADDRESSES, AFFECTS_BAND, HAS_CHANGE, HAS_REGULATORY_ISSUE,
+  HAS_RISK, MAKES_ASSUMPTION, MENTIONS_BAND, RECOMMENDS_ACTION, SUPPORTED_BY,
+  USES_METHOD
+
+Example queries:
+- All docs affecting DME: MATCH (d:Document)-[:AFFECTS_BAND]->(b:FAAProtectionBand) WHERE b.band_range CONTAINS '960' RETURN d.doc_id, d.admin, d.verdict
+- High severity risks: MATCH (d:Document)-[:HAS_RISK]->(r:RiskFinding {severity:'High'}) RETURN d.doc_id, r.title
+- By admin: MATCH (d:Document) WHERE d.admin CONTAINS 'China' RETURN d.doc_id, d.verdict, d.agenda_items
+"""
+
+    import anthropic as _anth
+    client = _anth.Anthropic(api_key=api_key_val)
+
+    cypher_resp = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=400,
+        system=f"Convert the user's question to a Cypher query for this Neo4j schema. Return ONLY the Cypher query, no explanation, no markdown fences.\n\nSchema:\n{schema_hint}",
+        messages=[{"role": "user", "content": question}]
+    )
+    cypher = cypher_resp.content[0].text.strip().strip("`").replace("cypher","").strip()
+
+    # Step 2: Execute Cypher
+    try:
+        with driver.session() as s:
+            result = s.run(cypher)
+            records = [dict(r) for r in result]
+    except Exception as e:
+        return f"⚠️ Cypher error: {e}\n\nGenerated query:\n```\n{cypher}\n```", cypher, []
+
+    if not records:
+        return "No results found for this query.", cypher, []
+
+    # Step 3: Format answer in natural language
+    fmt_resp = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=600,
+        system="You are summarizing Neo4j query results for an FAA spectrum policy analyst. Be concise and direct. Use bullet points. State counts clearly.",
+        messages=[{"role": "user", "content": f"Question: {question}\n\nResults ({len(records)} rows):\n{records[:20]}"}]
+    )
+    return fmt_resp.content[0].text, cypher, records
+
+
 def _make_meeting_docx(info, sessions, docs, ais, actions):
     """Build a formatted Word trip report from Meeting Notes. Returns bytes."""
     from docx import Document as _MD
@@ -981,883 +1239,6 @@ def _make_batch_docx(batch_results, triage_rows, working_party, analysis_depth):
 
     bio = _bio.BytesIO(); bdoc.save(bio); bio.seek(0)
     return bio.getvalue()
-
-
-def _make_summary_xlsx(records):
-    """
-    Build a summary Excel workbook from a list of analysis record dicts.
-    Each record is one contribution (single or from batch).
-    Returns bytes of a valid .xlsx file.
-
-    Record keys (all optional — blank if absent):
-      file, doc_number, working_party, submitting_admin, meeting_date, agenda_item,
-      doc_type, analysis_depth, analysis_text, verdict, doc_status
-    """
-    import io as _xio
-    import re as _xre
-    from openpyxl import Workbook
-    from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
-                                  GradientFill)
-    from openpyxl.utils import get_column_letter
-    from datetime import date as _xdate
-
-    # ── Color palette ──────────────────────────────────────────────────────────
-    FAA_BLUE   = "1F4E79"
-    MED_BLUE   = "2E75B6"
-    LIGHT_BLUE = "D6E4F0"
-    RED_BG     = "FFE5E5"
-    RED_FG     = "C00000"
-    AMBER_BG   = "FFF3CD"
-    AMBER_FG   = "7F6000"
-    GREEN_BG   = "E5FFE5"
-    GREEN_FG   = "375623"
-    GRAY_BG    = "F2F2F2"
-    WHITE      = "FFFFFF"
-    DARK       = "1A1A1A"
-
-    def fill(hex_color):
-        return PatternFill("solid", fgColor=hex_color)
-
-    def border():
-        thin = Side(style="thin", color="BFBFBF")
-        return Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    def hdr_font(white=True, size=10):
-        return Font(name="Arial", bold=True, size=size,
-                    color=WHITE if white else DARK)
-
-    def body_font(bold=False, color=DARK, size=9):
-        return Font(name="Arial", bold=bold, size=size, color=color)
-
-    def wrap(p=None):
-        return Alignment(wrap_text=True, vertical="top",
-                         horizontal=p or "left")
-
-    # ── Helper: extract structured fields from analysis markdown ───────────────
-    def extract_fields(text, meta):
-        t = text or ""
-
-        # Source country / admin
-        admin = meta.get("submitting_admin","")
-        if not admin:
-            m = _xre.search(r'(?:Submitting Admin(?:istration)?|Source)[:\s]+([^\n|]+)', t, _xre.IGNORECASE)
-            admin = m.group(1).strip()[:40] if m else "—"
-
-        # Agenda item
-        ai = meta.get("agenda_item","")
-        if not ai:
-            m = _xre.search(r'(?:AI|Agenda Item)\s*(1\.\d+)', t, _xre.IGNORECASE)
-            ai = f"AI {m.group(1)}" if m else "—"
-
-        # New or revision
-        doc_status = meta.get("doc_status","")
-        if not doc_status:
-            m = _xre.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', t, _xre.IGNORECASE)
-            doc_status = m.group(1).title() if m else "—"
-
-        # Verdict
-        verdict = meta.get("verdict","")
-        if not verdict:
-            m = _xre.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', t)
-            verdict = m.group(1).strip().title() if m else "See Full Analysis"
-
-        # US position / stance
-        stance = "—"
-        if "US contribution" in t and "summary only" in t:
-            stance = "US — Summary Only"
-        else:
-            m = _xre.search(r'(?:Recommended US Position|US Position|STANCE)[:\s*]*([^\n]{10,80})', t, _xre.IGNORECASE)
-            if m:
-                stance = m.group(1).strip().rstrip('*').strip()[:80]
-
-        # Proposal summary — first non-table sentence from overview section
-        summary = "—"
-        m = _xre.search(r'## A\).*?\n((?:(?!##).)+)', t, _xre.DOTALL)
-        if m:
-            raw = _xre.sub(r'\*+|`+|\|[^\n]+\|', '', m.group(1)).strip()
-            sentences = [s.strip() for s in raw.split('.') if len(s.strip()) > 20]
-            summary = '. '.join(sentences[:2])[:200] + ('.' if sentences else '')
-
-        # Proposed bands — extract from frequency table
-        bands_proposed = []
-        for m in _xre.finditer(
-            r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))',
-            t, _xre.IGNORECASE
-        ):
-            b = m.group(1).strip()
-            if b not in bands_proposed:
-                bands_proposed.append(b)
-        proposed_bands_str = "; ".join(bands_proposed[:4]) or "—"
-
-        # Impacted FAA bands — extract FAA band column from freq table
-        faa_bands_hit = []
-        for m in _xre.finditer(
-            r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))'
-            r'\s*\|\s*([A-Za-z\s/()]+)',
-            t
-        ):
-            sys_name = m.group(2).strip()[:40]
-            if sys_name and sys_name not in faa_bands_hit and len(sys_name) > 2:
-                faa_bands_hit.append(sys_name)
-        faa_systems_str = "; ".join(faa_bands_hit[:4]) or "—"
-
-        # Overlap / gap
-        overlap = "—"
-        m = _xre.search(r'(?:OVERLAP|GAP)[:\s]+(\d+\s*MHz)', t, _xre.IGNORECASE)
-        if m: overlap = m.group(1).strip()
-
-        # Study type
-        study_type = "—"
-        if "sharing" in t.lower():     study_type = "Sharing"
-        if "compatibility" in t.lower(): study_type = "Compatibility"
-
-        # Top issue severity
-        severities = _xre.findall(r'Severity[:\s]+(High|Medium|Low)', t, _xre.IGNORECASE)
-        top_severity = ("High"   if "High"   in severities else
-                        "Medium" if "Medium" in severities else
-                        "Low"    if "Low"    in severities else "—")
-
-        # Number of issues
-        n_issues = len(_xre.findall(r'\*\*Issue\s*\d+', t))
-
-        # Top recommended action
-        action = "—"
-        m = _xre.search(r'(?:## F\)|Recommended Actions?)[^\n]*\n+\s*\d+\.\s*\*\*Action[:\*\s]+([^\n]{10,100})', t, _xre.IGNORECASE)
-        if m: action = m.group(1).strip().rstrip('*').strip()[:120]
-
-        return {
-            "File / Doc No.":       meta.get("doc_number") or meta.get("file") or "—",
-            "Source / Admin":       admin,
-            "Working Party":        meta.get("working_party","—"),
-            "Agenda Item":          ai,
-            "New or Revision":      doc_status,
-            "Proposal Summary":     summary,
-            "Proposed Bands":       proposed_bands_str,
-            "Impacted FAA Systems": faa_systems_str,
-            "Overlap / Gap":        overlap,
-            "Study Type":           study_type,
-            "US Stance":            stance,
-            "Top Issue Severity":   top_severity,
-            "No. of Issues":        n_issues if n_issues else "—",
-            "Review Verdict":       verdict,
-            "Top Recommended Action": action,
-            "Meeting / Date":       meta.get("meeting_date","—"),
-            "Analysis Depth":       meta.get("analysis_depth","—"),
-        }
-
-    # ── Build rows ─────────────────────────────────────────────────────────────
-    rows = [extract_fields(r.get("analysis_text",""), r) for r in records]
-
-    # ── Create workbook ────────────────────────────────────────────────────────
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Contribution Summary"
-    ws.sheet_view.showGridLines = False
-    ws.freeze_panes = "A3"
-
-    # Title row
-    ws.merge_cells("A1:Q1")
-    title_cell = ws["A1"]
-    title_cell.value = f"FAA ITU-R Contribution Analysis — Summary  |  Generated {_xdate.today()}"
-    title_cell.font  = Font(name="Arial", bold=True, size=13, color=WHITE)
-    title_cell.fill  = fill(FAA_BLUE)
-    title_cell.alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[1].height = 28
-
-    # Column definitions: (header, width, notes)
-    COLUMNS = [
-        ("File / Doc No.",         22, "Document number or filename"),
-        ("Source / Admin",         18, "Submitting administration"),
-        ("Working Party",          12, "WP 5D / 5B / 4C / 7B / 7C"),
-        ("Agenda Item",            10, "AI 1.7, 1.13, 1.15, etc."),
-        ("New or Revision",        14, "New Document / Revision / Unclear"),
-        ("Proposal Summary",       40, "2-sentence summary of the contribution"),
-        ("Proposed Bands",         24, "Frequency bands in the proposal (MHz/GHz)"),
-        ("Impacted FAA Systems",   28, "FAA systems at risk"),
-        ("Overlap / Gap",          14, "Overlap or gap in MHz"),
-        ("Study Type",             14, "Sharing (co-band) or Compatibility (adjacent)"),
-        ("US Stance",              30, "Recommended US position"),
-        ("Top Issue Severity",     16, "High / Medium / Low"),
-        ("No. of Issues",          12, "Count of FAA impact issues identified"),
-        ("Review Verdict",         26, "REQUIRES HUMAN REVIEW / NOT RELEVANT / etc."),
-        ("Top Recommended Action", 40, "Highest-priority action item"),
-        ("Meeting / Date",         18, "Meeting context"),
-        ("Analysis Depth",         14, "Quick / Standard / Deep"),
-    ]
-
-    # Header row (row 2)
-    for ci, (col_name, col_width, _) in enumerate(COLUMNS, 1):
-        col_letter = get_column_letter(ci)
-        cell = ws.cell(row=2, column=ci, value=col_name)
-        cell.font      = hdr_font(white=True, size=9)
-        cell.fill      = fill(MED_BLUE)
-        cell.alignment = wrap("center")
-        cell.border    = border()
-        ws.column_dimensions[col_letter].width = col_width
-    ws.row_dimensions[2].height = 36
-
-    # Data rows
-    col_keys = [c[0] for c in COLUMNS]
-    for ri, row in enumerate(rows, 3):
-        alt_bg = GRAY_BG if ri % 2 == 0 else WHITE
-        for ci, key in enumerate(col_keys, 1):
-            val = row.get(key, "—")
-            cell = ws.cell(row=ri, column=ci, value=val)
-            cell.font      = body_font()
-            cell.alignment = wrap()
-            cell.border    = border()
-
-            # Conditional formatting
-            if key == "Review Verdict":
-                if "HUMAN REVIEW" in str(val):
-                    cell.fill = fill(RED_BG); cell.font = body_font(bold=True, color=RED_FG)
-                elif "NOT RELEVANT" in str(val):
-                    cell.fill = fill(GREEN_BG); cell.font = body_font(color=GREEN_FG)
-                elif "CLARIFICATION" in str(val):
-                    cell.fill = fill(AMBER_BG); cell.font = body_font(color=AMBER_FG)
-                else:
-                    cell.fill = fill(alt_bg)
-            elif key == "Top Issue Severity":
-                if str(val) == "High":
-                    cell.fill = fill(RED_BG); cell.font = body_font(bold=True, color=RED_FG)
-                elif str(val) == "Medium":
-                    cell.fill = fill(AMBER_BG); cell.font = body_font(color=AMBER_FG)
-                elif str(val) == "Low":
-                    cell.fill = fill(GREEN_BG); cell.font = body_font(color=GREEN_FG)
-                else:
-                    cell.fill = fill(alt_bg)
-            elif key == "New or Revision":
-                if "Revision" in str(val):
-                    cell.fill = fill(AMBER_BG)
-                else:
-                    cell.fill = fill(alt_bg)
-            elif key == "US Stance":
-                if "Oppose" in str(val):
-                    cell.fill = fill(RED_BG)
-                elif "Support" in str(val):
-                    cell.fill = fill(GREEN_BG)
-                else:
-                    cell.fill = fill(alt_bg)
-            else:
-                cell.fill = fill(alt_bg)
-
-        ws.row_dimensions[ri].height = max(30, min(80, 15 + len(str(row.get("Proposal Summary",""))
-                                                                 ) // 5))
-
-    # Auto-filter on header row
-    ws.auto_filter.ref = f"A2:{get_column_letter(len(COLUMNS))}{len(rows)+2}"
-
-    # Second sheet: Legend
-    wl = wb.create_sheet("Legend")
-    wl.sheet_view.showGridLines = False
-    wl.column_dimensions["A"].width = 28
-    wl.column_dimensions["B"].width = 55
-    legend_items = [
-        ("COLUMN",                   "DESCRIPTION"),
-        ("File / Doc No.",           "ITU-R document number (e.g. 5D/123-E) or uploaded filename"),
-        ("Source / Admin",           "Submitting administration(s)"),
-        ("Working Party",            "WP 5B, 5D, 4C, 7B, or 7C"),
-        ("Agenda Item",              "WRC-27 agenda item reference (AI 1.7, 1.13, etc.)"),
-        ("New or Revision",          "Whether this is a new contribution or an update"),
-        ("Proposal Summary",         "2-sentence neutral summary of what the contribution proposes"),
-        ("Proposed Bands",           "Frequency bands stated in the proposal (exact MHz/GHz)"),
-        ("Impacted FAA Systems",     "FAA protected systems identified as at risk"),
-        ("Overlap / Gap",            "Calculated overlap or gap between proposed and FAA bands"),
-        ("Study Type",               "Sharing = co-band; Compatibility = adjacent band"),
-        ("US Stance",                "Recommended US position extracted from analysis"),
-        ("Top Issue Severity",       "Highest severity finding: High / Medium / Low"),
-        ("No. of Issues",            "Number of distinct FAA impact issues identified"),
-        ("Review Verdict",           "REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION"),
-        ("Top Recommended Action",   "Highest-priority action from the analysis"),
-        ("", ""),
-        ("COLOR CODE",               "MEANING"),
-        ("🔴 Red",                   "Requires human review / High severity / US opposes"),
-        ("🟡 Amber",                  "Flag for clarification / Medium severity / Revision"),
-        ("🟢 Green",                  "Not relevant / Low severity / US supports"),
-    ]
-    for ri, (label, desc) in enumerate(legend_items, 1):
-        la = wl.cell(row=ri, column=1, value=label)
-        lb = wl.cell(row=ri, column=2, value=desc)
-        if ri == 1 or label in ("COLOR CODE", "COLUMN"):
-            la.font = lb.font = Font(name="Arial", bold=True, size=9, color=WHITE)
-            la.fill = lb.fill = fill(FAA_BLUE)
-        else:
-            la.font = lb.font = Font(name="Arial", size=9)
-        la.border = lb.border = border()
-        la.alignment = lb.alignment = Alignment(wrap_text=True, vertical="top")
-
-    buf = _xio.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.getvalue()
-
-
-FAA_BANDS = {
-    "VOR / ILS Localizer": {
-        "f_low_mhz": 108.0, "f_high_mhz": 117.975,
-        "system": "VOR / ILS Localizer",
-        "allocation": "ARNS",
-        "service_category": "AM(R)S + ARNS",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -12,
-        "noise_floor_dbm": -120,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor for precision approach",
-        "spr_source": "Max EIRP toward airport; worst-case azimuth",
-        "spr_path": "FSPL; distances >20 km; free-space worst-case",
-        "spr_victim": "Receiver susceptibility mask per DO-196; −120 dBm noise floor",
-        "notes": "En-route navigation and precision approach guidance. ILS CAT III approach — 6 dB additional safety factor applies.",
-        "rtca_doc": "DO-196",
-    },
-    "ILS Glide Slope": {
-        "f_low_mhz": 328.6, "f_high_mhz": 335.4,
-        "system": "ILS Glide Slope",
-        "allocation": "ARNS",
-        "service_category": "ARNS",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -12,
-        "noise_floor_dbm": -115,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor; CAT III precision approach",
-        "spr_source": "Max EIRP interferer; worst-case signal characteristics",
-        "spr_path": "FSPL worst-case; free-space attenuation above 300 MHz",
-        "spr_victim": "Receiver susceptibility per DO-148; noise floor −115 dBm",
-        "notes": "Vertical guidance for precision landings (CAT I/II/III). Safety factor mandatory for CAT III.",
-        "rtca_doc": "DO-148",
-    },
-    "DME / TACAN": {
-        "f_low_mhz": 960.0, "f_high_mhz": 1215.0,
-        "system": "DME / TACAN / SSR / TCAS",
-        "allocation": "ARNS + ANS",
-        "service_category": "ARNS + ANS",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 0,
-        "effective_threshold_db": -6,
-        "epfd_threshold_dbw_m2_mhz": -121.5,
-        "noise_floor_dbm": -106,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −6 dB; epfd ≤ −121.5 dBW/m² in any 1 MHz band (from slide)",
-        "spr_source": "Max Tx power; worst-case antenna gain toward aircraft",
-        "spr_path": "FSPL; distance separation >20 km worst-case",
-        "spr_victim": "Receiver susceptibility mask; antenna gain; noise power per DO-189",
-        "notes": "Distance measuring, ATC surveillance, collision avoidance. epfd limit applies to satellite downlinks.",
-        "rtca_doc": "DO-189 / DO-185B",
-    },
-    "ADS-B / Mode-S (1090 MHz)": {
-        "f_low_mhz": 1085.0, "f_high_mhz": 1095.0,
-        "system": "ADS-B / Mode-S Transponder",
-        "allocation": "ARNS + ANS",
-        "service_category": "ANS (Aeronautical Navigation Service)",
-        "in_threshold_db": -10,
-        "aviation_safety_factor_db": 0,
-        "effective_threshold_db": -10,
-        "noise_floor_dbm": -100,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −10 dB; ASR protection level per system protection table",
-        "spr_source": "Max EIRP; worst-case signal characteristics",
-        "spr_path": "FSPL worst-case; distances >20 km",
-        "spr_victim": "Receiver susceptibility per DO-260B; noise floor −100 dBm",
-        "notes": "1090 MHz squitter — global ATC surveillance backbone. ASR threshold −10 dB applies.",
-        "rtca_doc": "DO-260B",
-    },
-    "GNSS L5 / ARNS": {
-        "f_low_mhz": 1164.0, "f_high_mhz": 1215.0,
-        "system": "GNSS L5 / Galileo E5",
-        "allocation": "ARNS + RNSS",
-        "service_category": "RNSS + ARNS",
-        "in_threshold_db": -10,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -16,
-        "delta_t_t_pct_aggregate": 6.0,
-        "noise_floor_dbm": -130,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −10 dB wideband; ΔT/T ≤ 6% single-entry for RNSS feeder links; +6 dB aviation safety factor for safety-of-life applications",
-        "spr_source": "Max EIRP; worst-case signal characteristics",
-        "spr_path": "FSPL worst-case; distances >20 km; aggregate sources",
-        "spr_victim": "Receiver susceptibility mask per DO-292; noise floor −130 dBm",
-        "notes": "Safety-of-life GNSS signal; aviation approach procedures. ΔT/T = 6% for RNSS feeder links.",
-        "rtca_doc": "DO-292",
-    },
-    "GPS L1 / GNSS": {
-        "f_low_mhz": 1559.0, "f_high_mhz": 1610.0,
-        "system": "GPS L1 / GLONASS / Galileo E1",
-        "allocation": "RNSS + ARNS",
-        "service_category": "RNSS + ARNS",
-        "in_threshold_db": -10,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -16,
-        "psd_threshold_dbw_mhz": -146.5,
-        "noise_floor_dbm": -130,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I < −146.5 dBW/MHz (L1 SBAS Type 1 acquisition); I/N ≈ −5 dB + 6 dB safety margin (wideband RFI); L2 SBAS Gnd Ref: I < −147.5 dBW/MHz, I/N ≈ −6 dB",
-        "spr_source": "Max EIRP; worst-case antenna gain; signal characteristics",
-        "spr_path": "FSPL worst-case; aggregate effect of multiple sources",
-        "spr_victim": "Receiver susceptibility per DO-235B/DO-253; noise floor −130 dBm",
-        "notes": "Primary GNSS band. SBAS/WAAS critical. PSD limit −146.5 dBW/MHz applies to wideband RFI per system protection table.",
-        "rtca_doc": "DO-235B / DO-253",
-    },
-    "En-Route Radar": {
-        "f_low_mhz": 2700.0, "f_high_mhz": 2900.0,
-        "system": "ATC En-Route Surveillance Radar (ARSR / ASR)",
-        "allocation": "ARNS + RN",
-        "service_category": "ARNS (Safety Service per RR 1.59)",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 0,
-        "effective_threshold_db": -6,
-        "noise_floor_dbm": -100,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "ARSR: I/N ≤ −6 dB; ASR: I/N ≤ −10 dB (per system protection levels table)",
-        "spr_source": "Max EIRP; worst-case azimuth toward radar",
-        "spr_path": "FSPL; worst-case for distances >20 km",
-        "spr_victim": "Radar receiver susceptibility; noise power; antenna gain",
-        "notes": "ARSR (long-range) I/N = −6 dB; ASR (short-range, airport) I/N = −10 dB. Both from FAA system protection table.",
-        "rtca_doc": "N/A (ITU-R M.1849)",
-    },
-    "Radio Altimeter": {
-        "f_low_mhz": 4200.0, "f_high_mhz": 4400.0,
-        "system": "Radio Altimeter (Rad Alt)",
-        "allocation": "ARNS",
-        "service_category": "ARNS (Safety Service per RR 1.59)",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -12,
-        "noise_floor_dbm": -90,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor for CAT III precision approach and landing",
-        "spr_source": "Max EIRP interferer (e.g. 5G base station); OOB/spurious emissions",
-        "spr_path": "FSPL + possible blocking; distances >20 km worst-case; aggregate effect",
-        "spr_victim": "LNA susceptibility mask; blocking threshold; noise floor −90 dBm",
-        "notes": "Critical for CAT III landings, TAWS, GPWS, helicopter ops. 5G adjacent band (3.7–3.98 GHz) blocking risk.",
-        "rtca_doc": "DO-155 / ETSO-C87",
-    },
-    "ARNS 5 GHz": {
-        "f_low_mhz": 5000.0, "f_high_mhz": 5150.0,
-        "system": "ARNS / Future Aeronautical Systems",
-        "allocation": "ARNS",
-        "service_category": "ARNS",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -12,
-        "noise_floor_dbm": -95,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor; under pressure from IMT-2030 WP 5D studies",
-        "spr_source": "Potential IMT base station EIRP; OOB emissions from adjacent IMT bands",
-        "spr_path": "FSPL worst-case; P.528 for airborne victim",
-        "spr_victim": "Future ARNS receiver; noise floor −95 dBm",
-        "notes": "Protected for future aeronautical use; under pressure from IMT. WRC-27 WP 5D AI 1.2 threat.",
-        "rtca_doc": "N/A",
-    },
-    "Airborne Weather Radar": {
-        "f_low_mhz": 9000.0, "f_high_mhz": 9500.0,
-        "system": "Airborne / Surface Movement Radar",
-        "allocation": "ARNS + RN",
-        "service_category": "ARNS (Safety Service per RR 1.59)",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 0,
-        "effective_threshold_db": -6,
-        "noise_floor_dbm": -95,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "I/N ≤ −6 dB; safety service per RR 1.59",
-        "spr_source": "Max EIRP; worst-case signal characteristics",
-        "spr_path": "FSPL worst-case; gaseous absorption significant at X-band",
-        "spr_victim": "Radar receiver susceptibility; noise floor −95 dBm",
-        "notes": "X-band weather radar and airport surface detection. Governed by ITU-R M.1849.",
-        "rtca_doc": "DO-220",
-    },
-    "MLS (Microwave Landing System)": {
-        "f_low_mhz": 5030.0, "f_high_mhz": 5091.0,
-        "system": "Microwave Landing System (MLS)",
-        "allocation": "ARNS",
-        "service_category": "ARNS (Safety Service per RR 1.59)",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 6,
-        "effective_threshold_db": -12,
-        "pfd_threshold_dbw_m2_khz": -124.5,
-        "noise_floor_dbm": -110,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "pfd ≤ −124.5 dBW/m² in 150 kHz band (from FAA system protection table); I/N ≤ −6 dB + 6 dB safety factor",
-        "spr_source": "Max EIRP; signal characteristics",
-        "spr_path": "FSPL; worst-case approach geometry",
-        "spr_victim": "MLS receiver susceptibility; noise floor −110 dBm",
-        "notes": "Precision approach system. PFD limit −124.5 dBW/m² in 150 kHz band.",
-        "rtca_doc": "N/A",
-    },
-    "L-band AMS(R)S": {
-        "f_low_mhz": 1525.0, "f_high_mhz": 1559.0,
-        "system": "L-band Aeronautical Mobile Satellite (Route) Service",
-        "allocation": "AMS(R)S",
-        "service_category": "AMS(R)S — Aeronautical Mobile Satellite (Route) Service",
-        "in_threshold_db": -6,
-        "aviation_safety_factor_db": 0,
-        "effective_threshold_db": -6,
-        "delta_t_t_pct_aggregate": 20.0,
-        "delta_t_t_pct_single": 6.0,
-        "noise_floor_dbm": -120,
-        "safety_of_life": True,
-        "rr_1_59": True,
-        "protection_basis": "ΔT/T ≤ 20% aggregate, ΔT/T ≤ 6% single-entry (from FAA system protection table)",
-        "spr_source": "Satellite downlink EIRP; terrestrial co-frequency EIRP",
-        "spr_path": "Slant path (P.619); FSPL worst-case for terrestrial",
-        "spr_victim": "Aircraft terminal; noise temperature; antenna gain",
-        "notes": "INMARSAT/IRIDIUM safety comms. ΔT/T metric used (not I/N). 20% aggregate = 6% single-entry per protection table.",
-        "rtca_doc": "N/A",
-    },
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# WRC-27 AGENDA ITEMS DATABASE — FAA-RELEVANT ITEMS
-# ─────────────────────────────────────────────────────────────────────────────
-WRC27_AGENDA_ITEMS = {
-    "AI 1.7": {
-        "ref": "AI 1.7 (US/ITU 5D)",
-        "title": "IMT identification in 4.4–4.8 GHz, 7.125–8.4 GHz, and 14.8–15.35 GHz",
-        "service": "IMT (International Mobile Telecommunications)",
-        "working_party": "WP 5D",
-        "threat_level": "HIGH",
-        "faa_systems_at_risk": [
-            "Radio Altimeter & WAICS — 4.2–4.4 GHz (immediately adjacent to 4.4–4.8 GHz proposal)",
-            "Fixed systems (FAA microwave backbone) — 7.125–8.4 GHz band",
-            "Fixed systems — 14.8–15.35 GHz band",
-        ],
-        "faa_bands_mhz": [(4200, 4400), (7125, 8400), (14800, 15350)],
-        "mechanism": "OOB emissions and receiver blocking from IMT base stations adjacent to RA band; in-band interference to FAA fixed links",
-        "key_concern": "4.4–4.8 GHz IMT is only 200 MHz above the Radio Altimeter band (4.2–4.4 GHz). Given 5G OOB emission levels and RA receiver blocking susceptibility, this mirrors the C-band / RA controversy at WRC-23.",
-        "citations": ["RR No. 4.10", "ITU-R SM.1540", "ITU-R SM.1541", "RR Appendix 3", "RTCA DO-155"],
-        "us_position": "Oppose IMT identification in 4.4–4.8 GHz without demonstrating compatibility with RA. Require coordination zones and OOB emission masks verified per SM.1541.",
-        "notes": "Radio Altimeter / WAICS at 4.2–4.4 GHz is a safety-of-life system per RR 1.59. 6 dB aviation safety factor applies.",
-    },
-    "AI 1.13": {
-        "ref": "AI 1.13 (US/ITU 4C)",
-        "title": "MSS 694–2700 MHz — connectivity between space stations and IMT users (DC-MSS-IMT s-E systems)",
-        "service": "Mobile Satellite Service (MSS) + IMT",
-        "working_party": "WP 4C",
-        "threat_level": "HIGH",
-        "faa_systems_at_risk": [
-            "ARNS/AM(R)S/AMS(R)S — 960–1215 MHz (DME, TACAN, SSR, TCAS)",
-            "MSS SatCom DL receivers on board aircraft — 1525–1559 MHz",
-            "ARNS Airport Surveillance Radar (ASR) — 2700–2900 MHz",
-        ],
-        "faa_bands_mhz": [(960, 1215), (1525, 1559), (2700, 2900)],
-        "candidate_bands_mhz": [(925, 960), (1475, 1518), (2620, 2690)],
-        "mechanism": "OOB and spurious emissions from DC-MSS-IMT (s-E) downlinks landing in adjacent FAA bands; receiver blocking of airborne terminals",
-        "key_concern": "Candidate band 925–960 MHz is immediately adjacent to DME/TACAN at 960 MHz. Candidate 1475–1518 MHz is adjacent to L-band AMS(R)S at 1525–1559 MHz. Aggregate interference from multiple satellite downlinks must be assessed per SM.2028.",
-        "citations": ["RR No. 4.10", "RR No. 5.444", "ITU-R SM.2028", "ITU-R M.1642", "ITU-R SM.1540"],
-        "us_position": "Require aggregate interference analysis per SM.2028 for all three candidate bands. Oppose any candidate band whose OOB/spurious products land in 960–1215 MHz or 1525–1559 MHz without demonstrated compliance with ΔT/T limits.",
-        "notes": "960–1215 MHz contains DME — critical navigation. 1525–1559 MHz is L-band AMS(R)S used for aeronautical safety comms. ASR at 2700–2900 MHz has I/N = −10 dB protection level.",
-    },
-    "AI 1.15": {
-        "ref": "AI 1.15 (US/ITU 7B)",
-        "title": "SRS (space-to-space) in various bands for lunar surface communications",
-        "service": "Space Research Service (SRS) — space-to-space links for lunar communications",
-        "working_party": "WP 7B",
-        "threat_level": "MEDIUM",
-        "faa_systems_at_risk": [
-            "ARNS En-Route / Airport Surveillance Radar — 2700–2900 MHz",
-            "Airborne weather radar and other systems — 3600–4200 MHz",
-            "ARNS 5 GHz — 5350–5470 MHz",
-            "FAA fixed systems — 7190–7235 MHz",
-            "FAA fixed systems — 8450–8500 MHz",
-        ],
-        "faa_bands_mhz": [(2700, 2900), (3600, 4200), (5350, 5470), (7190, 7235), (8450, 8500)],
-        "mechanism": "Downlink SRS transmissions from lunar spacecraft landing in or near aeronautical bands; spurious products from high-power SRS uplinks",
-        "key_concern": "Lunar SRS links operate at high EIRP over long paths. Frequency coordination is novel — no established methodology for Earth-Moon link interference into terrestrial aeronautical systems.",
-        "citations": ["RR No. 4.10", "ITU-R SM.2028", "ITU-R P.528", "RR Appendix 3"],
-        "us_position": "Require frequency coordination studies demonstrating compatibility with ARNS and fixed service in all listed bands before SRS allocation is finalized.",
-        "notes": "Lunar surface communications is a new use case — FAA must ensure any SRS allocation does not create interference precedents that compromise terrestrial aeronautical operations.",
-    },
-    "AI 1.17": {
-        "ref": "AI 1.17 (US/ITU 7C)",
-        "title": "Receive-only space weather sensors in 27.5–28, 29.7–30.2, 32.2–32.6, 37.5–38.325, 73–74.6, and 608–614 MHz",
-        "service": "Earth Exploration Satellite Service (EESS) — passive space weather monitoring",
-        "working_party": "WP 7C",
-        "threat_level": "LOW-MEDIUM",
-        "faa_systems_at_risk": [
-            "HF aeronautical communications — 2.1–29.89 MHz (AM(R)S)",
-            "ILS glide slope and related systems — 74.8–75.2 MHz",
-        ],
-        "faa_bands_mhz": [(2100, 29890), (74800, 75200)],
-        "mechanism": "Passive receive-only sensors pose low direct interference risk but their frequency allocations can restrict FAA transmissions nearby; coordination requirements could affect aeronautical operations",
-        "key_concern": "Relatively low threat — passive sensors don't transmit. Primary concern is whether allocation creates coordination obligations that restrict FAA HF and VHF communications.",
-        "citations": ["RR No. 4.10", "ICAO Annex 10"],
-        "us_position": "Monitor for secondary allocation status. Ensure passive sensor allocations do not impose coordination burdens on FAA HF comms or ILS operations.",
-        "notes": "Primary FAA concern is procedural — that passive EESS allocations don't create regulatory precedents limiting FAA frequency use in adjacent bands.",
-    },
-    "AI 1.19": {
-        "ref": "AI 1.19 (US/ITU 7C)",
-        "title": "EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz",
-        "service": "Earth Exploration Satellite Service (EESS) — passive sensing",
-        "working_party": "WP 7C",
-        "threat_level": "MEDIUM",
-        "faa_systems_at_risk": [
-            "Radio Altimeter & WAICS — 4.2–4.4 GHz (EESS passive co-primary proposal)",
-            "FAA fixed systems — 8.4–8.5 GHz",
-        ],
-        "faa_bands_mhz": [(4200, 4400), (8400, 8500)],
-        "mechanism": "Passive EESS co-primary allocation in RA band creates regulatory precedent; future active EESS or other services could use the allocation to challenge RA protection",
-        "key_concern": "4.2–4.4 GHz Radio Altimeter band is already under pressure from AI 1.7 (IMT) and was the subject of the 5G C-band controversy. Adding EESS (passive) further crowds the allocation table and weakens the FAA's exclusive ARNS status argument.",
-        "citations": ["RR No. 4.10", "RR No. 1.59", "RTCA DO-155", "ITU-R M.1477"],
-        "us_position": "Oppose EESS passive co-primary allocation in 4.2–4.4 GHz. The RA band must remain exclusively ARNS to maintain the strongest regulatory protection. Any dilution of the allocation table weakens FAA's position on AI 1.7.",
-        "notes": "This AI is strategically linked to AI 1.7 — if EESS gets a co-primary allocation in RA band, it weakens FAA's argument that 4.2–4.4 GHz is exclusive ARNS.",
-    },
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# WP ANALYSIS PROFILES — WP-SPECIFIC ANALYTICAL FRAMEWORKS
-# Each profile provides the correct lens, metrics, models, and questions
-# for contributions from that Working Party. Used to construct WP-aware
-# system prompts so the AI applies the right analysis framework.
-# ─────────────────────────────────────────────────────────────────────────────
-WP_ANALYSIS_PROFILES = {
-
-    "WP 5D (IMT/Mobile)": {
-        "label": "WP 5D — IMT/Mobile (5G/6G)",
-        "interferer_type": "Terrestrial IMT base station or UE (ground-based)",
-        "victim_type": "Airborne or ground-based aeronautical receiver",
-        "primary_threat": "IMT identification in bands adjacent to or overlapping aeronautical allocations",
-        "propagation_models": ["FSPL (worst-case)", "ITU-R P.452 (terrestrial)", "ITU-R P.528 (airborne victim)"],
-        "interference_metrics": ["I/N (dB) — primary metric", "pfd (dBW/m²) for field strength limits"],
-        "key_recommendations": ["ITU-R M.1642", "ITU-R SM.2028", "ITU-R P.452", "ITU-R P.528",
-                                  "ITU-R M.1477", "ITU-R SM.1540", "ITU-R SM.1541"],
-        "protection_criteria": "I/N thresholds from FAA system protection table; aviation safety factor +6 dB for precision approach",
-        "aggregate_method": "Monte Carlo per SM.2028; aggregate I/N from all IMT base stations within coordination zone",
-        "specific_checks": [
-            "What frequency range is proposed for IMT identification?",
-            "What is the maximum base station EIRP and antenna gain toward victim?",
-            "Is worst-case deployment scenario (urban dense, rooftop) considered?",
-            "Is the OOB emission mask defined? Does it comply with SM.1541 (23 dB at band edge)?",
-            "Is the coordination zone / exclusion zone adequate for RA and GNSS?",
-            "Does the analysis use P.452 or a more optimistic model? Challenge if FSPL not used for worst case.",
-            "Is the aviation safety factor (+6 dB) applied for precision approach systems?",
-            "Is aggregate interference from all base stations within radio horizon assessed?",
-        ],
-        "common_proponent_tactics": [
-            "Using median/typical EIRP instead of maximum — demand worst-case",
-            "Using P.452 clutter models that assume building attenuation — invalid for airborne victim",
-            "Claiming OOB mask compliance without providing the actual mask",
-            "Using separation distance from a single base station instead of aggregate analysis",
-            "Assuming directional antenna nulling toward victim — not guaranteed in real deployments",
-        ],
-        "wrc27_items": ["AI 1.7"],
-        "policy_levers": ["SM.1541 OOB mask compliance", "Coordination zones", "PFD limits", "Power limits near airports", "RR No. 4.10 harmful interference", "RR Resolution 750"],
-    },
-
-    "WP 5B (Maritime/Radiodetermination)": {
-        "label": "WP 5B — Maritime / Radiodetermination",
-        "interferer_type": "Ship-borne, coastal, or radiodetermination transmitter",
-        "victim_type": "Airborne or ground aeronautical receiver",
-        "primary_threat": "Radiolocation / maritime allocations near DME, ATC radar, or ARNS bands",
-        "propagation_models": ["FSPL", "ITU-R P.452", "ITU-R P.528 for airborne victim"],
-        "interference_metrics": ["I/N (dB)", "pfd (dBW/m²)"],
-        "key_recommendations": ["ITU-R M.1849 (ATC radar)", "ITU-R P.528", "ITU-R SM.2028"],
-        "protection_criteria": "ARSR I/N = −6 dB; ASR I/N = −10 dB per system protection table",
-        "aggregate_method": "Monte Carlo per SM.2028 for multiple maritime/coastal transmitters",
-        "specific_checks": [
-            "Is the maritime allocation adjacent to ATC radar bands (2700–2900 MHz)?",
-            "What is the ship/coastal station EIRP and emission mask?",
-            "Is the radar-to-radar separation geometry properly modeled?",
-            "Does the analysis account for airborne geometry (aircraft at altitude has greater exposure)?",
-        ],
-        "common_proponent_tactics": [
-            "Assuming sea-surface propagation only — ignores airborne victim above radio horizon",
-            "Using average power instead of peak power for pulsed radiolocation systems",
-        ],
-        "wrc27_items": [],
-        "policy_levers": ["I/N thresholds for ASR/ARSR", "Coordination distances from airports", "RR No. 4.10"],
-    },
-
-    "WP 4C (MSS / DC-MSS-IMT)": {
-        "label": "WP 4C — Mobile Satellite Service / DC-MSS-IMT",
-        "interferer_type": "Satellite downlink (space-to-Earth) — LEO/MEO/GEO constellation",
-        "victim_type": "Ground-based or airborne aeronautical receiver",
-        "primary_threat": "MSS satellite downlinks in candidate bands adjacent to DME (960 MHz), AMS(R)S (1525 MHz), ASR (2700 MHz)",
-        "propagation_models": [
-            "ITU-R P.619 (Earth-space propagation) — CORRECT model for satellite downlinks",
-            "NOT P.452 — P.452 is for terrestrial links only",
-            "ITU-R P.676 for atmospheric absorption on slant path",
-            "ITU-R P.618 for rain attenuation on slant path",
-        ],
-        "interference_metrics": [
-            "epfd (effective power flux density, dBW/m²/MHz) — PRIMARY metric for satellite downlinks",
-            "ΔT/T (%) — noise temperature rise, especially for RNSS and AMS(R)S",
-            "I/N (dB) — can be used but epfd is more appropriate for distributed satellite constellations",
-            "pfd (dBW/m²) — for individual satellite or aggregate limits at Earth surface",
-        ],
-        "key_recommendations": [
-            "ITU-R P.619 (Earth-space propagation)",
-            "ITU-R SM.2028 (Monte Carlo for aggregate satellite interference)",
-            "ITU-R M.1319 (MSS interference to aeronautical)",
-            "ITU-R S.1586 (epfd methodology)",
-            "ITU-R M.1477 (aeronautical safety margin)",
-            "RR No. 5.444 (ARNS 960–1215 MHz protection)",
-        ],
-        "protection_criteria": [
-            "DME/TACAN (960–1215 MHz): epfd ≤ −121.5 dBW/m²/MHz in any 1 MHz band",
-            "L-band AMS(R)S (1525–1559 MHz): ΔT/T ≤ 20% aggregate, ≤ 6% single-entry",
-            "ASR (2700–2900 MHz): I/N ≤ −10 dB",
-            "Aviation safety factor +6 dB applies to AMS(R)S safety communications",
-        ],
-        "aggregate_method": "epfd Monte Carlo simulation per S.1586/SM.2028; all visible satellites in constellation contribute simultaneously — this is the critical difference from terrestrial analysis",
-        "specific_checks": [
-            "Is the propagation model P.619 (correct for satellite)? If P.452 is used, that is WRONG — flag immediately",
-            "Is epfd (not just pfd) calculated? epfd accounts for aggregate interference from entire constellation",
-            "Is the full constellation density (number of satellites, orbital parameters) stated?",
-            "Is the satellite EIRP toward Earth surface stated at worst-case (nadir pointing)?",
-            "Are all three candidate bands (925–960, 1475–1518, 2620–2690 MHz) analyzed separately?",
-            "Does the epfd for 925–960 MHz candidate band comply with the −121.5 dBW/m²/MHz DME limit?",
-            "Does the ΔT/T for 1475–1518 MHz candidate band comply with 6% single-entry AMS(R)S limit?",
-            "Is the aggregate from all simultaneously visible satellites calculated (not just one)?",
-            "Does the analysis account for aircraft at altitude (higher elevation angle = stronger downlink signal)?",
-        ],
-        "common_proponent_tactics": [
-            "Using single-satellite pfd instead of full-constellation epfd — dramatically understates interference",
-            "Using P.452 or FSPL instead of P.619 — wrong model for satellite-to-Earth path",
-            "Citing average satellite EIRP rather than maximum (nadir) EIRP",
-            "Analyzing interference to ground-only victim — ignores aircraft at altitude which see stronger downlinks",
-            "Claiming ΔT/T compliance for aggregate but not showing single-entry compliance",
-            "Proposing one candidate band analysis while glossing over the others",
-        ],
-        "wrc27_items": ["AI 1.13"],
-        "policy_levers": [
-            "epfd limits per RR Appendix 5 / epfd coordination",
-            "ΔT/T limits for AMS(R)S per system protection table",
-            "ASR I/N = −10 dB",
-            "RR No. 5.444 (960–1215 MHz ARNS)",
-            "RR No. 4.10 harmful interference to safety service",
-            "ITU-R S.1586 for epfd methodology challenge",
-        ],
-    },
-
-    "WP 7B (Space Radiocommunication / Lunar SRS)": {
-        "label": "WP 7B — Space Research Service / Lunar Communications",
-        "interferer_type": "SRS transmitter — Earth-based uplink to lunar relay, or lunar surface transmitter (space-to-space)",
-        "victim_type": "Terrestrial aeronautical receivers in ASR, radar, ARNS bands",
-        "primary_threat": "Novel use case — SRS space-to-space links for lunar communications in bands that overlap FAA allocations",
-        "propagation_models": [
-            "Novel geometry — no established ITU-R model for lunar surface → Earth interference",
-            "Earth-Moon path: ~384,000 km — geometric spreading is enormous but EIRPs can be very high",
-            "For uplink (Earth→Moon): P.452 / FSPL for terrestrial portion; then no established model",
-            "KEY POINT: The lack of an established methodology is itself a FAA policy argument",
-        ],
-        "interference_metrics": [
-            "pfd (dBW/m²) at Earth surface from lunar transmitters",
-            "I/N (dB) if interference reaches terrestrial FAA receiver",
-            "NOTE: Metrics and thresholds are not yet established for lunar SRS — this is a gap to exploit",
-        ],
-        "key_recommendations": [
-            "ITU-R SA.509 (SRS protection criteria — terrestrial SRS)",
-            "ITU-R SM.2028 (Monte Carlo — if applicable)",
-            "NOTE: No ITU-R Recommendation specifically addresses lunar surface SRS interference to terrestrial ARNS",
-        ],
-        "protection_criteria": "ASR I/N = −10 dB; ARNS 5350–5470 MHz I/N = −6 dB; FAA fixed links per coordination",
-        "aggregate_method": "Not yet established for lunar SRS — FAA should argue this methodology must be developed BEFORE any allocation",
-        "specific_checks": [
-            "Does the contribution propose an interference methodology? If not, object on grounds that no methodology exists",
-            "What is the SRS transmitter EIRP from lunar surface toward Earth?",
-            "Is the Earth-surface pfd from lunar SRS calculated? Does it exceed terrestrial coordination thresholds?",
-            "Are Earth-based SRS uplink transmissions analyzed for interference to co-frequency aeronautical?",
-            "Does the proposal include any coordination mechanism with aeronautical services?",
-            "CRITICAL: Argue that methodology must be established before allocation — precedent from terrestrial SRS studies",
-        ],
-        "common_proponent_tactics": [
-            "Claiming lunar SRS is 'passive' or 'low power' without quantitative analysis",
-            "Using Earth-Moon path loss to argue interference is negligible — valid for average case but not worst-case uplink",
-            "Proposing allocation before methodology is established — FAA should oppose this sequencing",
-        ],
-        "wrc27_items": ["AI 1.15"],
-        "policy_levers": [
-            "Methodology gap argument — no established coordination method for lunar SRS vs terrestrial ARNS",
-            "Precautionary principle — allocation before methodology = wrong order",
-            "RR No. 4.10 for any co-frequency interference to safety service",
-            "Demand SRS coordination procedures as condition of any allocation",
-        ],
-    },
-
-    "WP 7C (EESS / Space Weather Sensors)": {
-        "label": "WP 7C — EESS / Science Services (Passive)",
-        "interferer_type": "PASSIVE — receive-only sensors, NO transmission",
-        "victim_type": "EESS sensor is the victim of terrestrial/aeronautical interference; but FAA concern is ALLOCATION PRECEDENT",
-        "primary_threat": "NOT interference — ALLOCATION POLICY. Adding EESS co-primary allocation in 4.2–4.4 GHz RA band (AI 1.19) weakens FAA's exclusive ARNS status for AI 1.7 (IMT)",
-        "propagation_models": ["NOT APPLICABLE — passive sensors do not interfere with FAA systems directly"],
-        "interference_metrics": [
-            "NOT APPLICABLE for direct interference analysis",
-            "For AI 1.19: the analysis must focus on ALLOCATION TABLE CONSEQUENCES, not interference",
-            "For AI 1.17: monitor whether passive allocation creates coordination obligations on FAA transmitters",
-        ],
-        "key_recommendations": [
-            "ITU Radio Regulations — Table of Frequency Allocations",
-            "RR Resolution 750 (coexistence)",
-            "NOTE: Do NOT apply M.1642 or SM.2028 to passive EESS — they are irrelevant here",
-        ],
-        "protection_criteria": "N/A for interference analysis. FAA concern is regulatory — maintaining ARNS exclusivity",
-        "aggregate_method": "N/A — passive sensors do not transmit",
-        "specific_checks": [
-            "AI 1.19 ONLY: Does the EESS passive allocation propose CO-PRIMARY status in 4.2–4.4 GHz?",
-            "If co-primary: will this set a precedent that 4.2–4.4 GHz is not exclusively ARNS? YES — this is the FAA risk",
-            "Does co-primary EESS weaken FAA's argument against AI 1.7 IMT? ASSESS THIS STRATEGICALLY",
-            "AI 1.17: Does the passive allocation create any coordination or notification requirements on FAA HF comms or ILS?",
-            "Is the allocation SECONDARY or CO-PRIMARY? Secondary is less threatening than co-primary",
-            "Does the contribution attempt to use passive EESS as a stepping stone to future active allocation?",
-        ],
-        "common_proponent_tactics": [
-            "Arguing passive = harmless = should be allowed — true for direct interference but ignores allocation precedent",
-            "Using passive allocation as a foot-in-the-door for future active allocation in the same band",
-            "Downplaying the allocation table consequences by focusing only on the passive sensor's technical benign nature",
-        ],
-        "wrc27_items": ["AI 1.17", "AI 1.19"],
-        "policy_levers": [
-            "Allocation table exclusivity argument — co-primary dilutes ARNS exclusive status",
-            "Strategic linkage to AI 1.7 — oppose AI 1.19 to strengthen AI 1.7 position",
-            "If passive allocation is unavoidable: demand SECONDARY status, not co-primary",
-            "Ensure no coordination obligation is placed on FAA ARNS transmitters",
-        ],
-    },
-
-    "WP 4A (Fixed Satellite Service)": {
-        "label": "WP 4A — Fixed Satellite Service (FSS)",
-        "interferer_type": "FSS satellite downlink or Earth station uplink",
-        "victim_type": "FAA fixed microwave links (7 GHz backbone), ARNS",
-        "primary_threat": "FSS downlinks or uplinks in bands shared with FAA fixed microwave links",
-        "propagation_models": ["ITU-R P.619 (Earth-space)", "ITU-R P.452 (Earth station → terrestrial)"],
-        "interference_metrics": ["pfd (dBW/m²)", "epfd", "I/N (dB)"],
-        "key_recommendations": ["ITU-R S.1586 (epfd)", "ITU-R P.619", "ITU-R SM.2028"],
-        "protection_criteria": "FAA fixed links: coordination per national frequency assignment",
-        "aggregate_method": "epfd per S.1586 for downlink; I/N for uplink-to-fixed",
-        "specific_checks": [
-            "Does FSS downlink pfd comply with RR Appendix 5 limits at Earth surface?",
-            "Are FAA fixed microwave links (7 GHz, 14 GHz) included in the victim analysis?",
-            "Is the Earth station uplink EIRP mask defined?",
-        ],
-        "common_proponent_tactics": ["Using coordination distance from populated areas only — ignores FAA remote sites"],
-        "wrc27_items": [],
-        "policy_levers": ["RR Appendix 5 pfd limits", "Coordination with FAA fixed link network", "RR No. 4.10"],
-    },
-}
-
-# Map selectbox display names to profile keys
-WP_PROFILE_MAP = {
-    "WP 5D (IMT/Mobile)":                        "WP 5D (IMT/Mobile)",
-    "WP 5B (Maritime/Radiodetermination)":        "WP 5B (Maritime/Radiodetermination)",
-    "WP 5A (Land Mobile)":                        "WP 5B (Maritime/Radiodetermination)",  # use 5B as closest
-    "WP 4C (MSS / DC-MSS-IMT)":                  "WP 4C (MSS / DC-MSS-IMT)",
-    "WP 7B (Space Radiocommunication / Lunar SRS)":"WP 7B (Space Radiocommunication / Lunar SRS)",
-    "WP 7C (EESS / Space Weather Sensors)":       "WP 7C (EESS / Space Weather Sensors)",
-    "WP 4A (Fixed Satellite Service)":            "WP 4A (Fixed Satellite Service)",
-    "WP 4B (Satellite News Gathering / ESIM)":    "WP 4A (Fixed Satellite Service)",  # use 4A as closest
-    "CPM (Conference Preparatory Meeting)":       "WP 5D (IMT/Mobile)",  # CPM synthesizes all — default to broadest
-}
 
 
 def noise_floor_dbm(bandwidth_hz: float, noise_figure_db: float) -> float:
@@ -3942,53 +3323,85 @@ Once configured, the analyzer will work every time you visit the app.
             st.markdown("<div style='background:#1a1a2a;border:1px dashed #444;padding:20px;border-radius:6px;text-align:center;color:#888'>📎 Drag and drop a PDF, Word, or text file here<br><small>ITU-R contributions are typically PDF — download from TIES and upload directly</small></div>", unsafe_allow_html=True)
 
     with input_tab_batch:
-        st.markdown("**📦 Batch Document Analysis**")
-        ex("Upload multiple contribution files at once. Each is analyzed in sequence. A summary triage table is produced first, followed by the full analysis for each document — and a combined Word report to download.")
-        warn("Batch analysis uses one API call per document. A batch of 10 documents takes approximately 5–8 minutes. Use Quick Assessment depth for fastest triage.")
+        st.markdown("**📦 Batch Document Analysis — Chunked Processing**")
+        ex("Upload as many files as you like. The app processes them in chunks of 15 to stay within Streamlit Cloud's timeout. Results accumulate across runs — run chunk 1, see results, run chunk 2, all results merge automatically.")
+
+        # ── Persistent accumulated results in session state ───────────────────
+        if "batch_accumulated" not in st.session_state:
+            st.session_state.batch_accumulated = []   # list of result dicts
+        if "batch_processed_names" not in st.session_state:
+            st.session_state.batch_processed_names = set()  # filenames already done
+
+        CHUNK_SIZE = 15  # safe for Streamlit Cloud ~10 min timeout at ~25s/doc
 
         batch_files_uploaded = st.file_uploader(
-            "Upload multiple ITU-R contribution documents",
+            "Upload ITU-R contribution documents (any quantity)",
             type=["pdf", "txt", "docx", "doc"],
             accept_multiple_files=True,
-            help="Streamlit Cloud limit: 200 MB total across all files. Recommended batch size: 10–20 documents per run for reliability. Each document is analyzed sequentially.",
+            help="No document count limit. Files are processed in chunks of 15. Upload all documents for the meeting and run multiple times — results accumulate.",
             key="batch_uploader"
         )
 
         if batch_files_uploaded:
-            BATCH_HARD_LIMIT = 50   # practical API + timeout ceiling
-            BATCH_WARN_LIMIT = 20   # warn above this
+            batch_mode_active = True
+            total_kb  = sum(f.size for f in batch_files_uploaded) / 1024
+            n_total   = len(batch_files_uploaded)
+            n_done    = len(st.session_state.batch_processed_names)
+            pending   = [f for f in batch_files_uploaded
+                         if f.name not in st.session_state.batch_processed_names]
+            n_pending = len(pending)
+            next_chunk = pending[:CHUNK_SIZE]
 
-            total_kb = sum(f.size for f in batch_files_uploaded) / 1024
-            n_files  = len(batch_files_uploaded)
+            # Status metrics
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("Files uploaded",    n_total)
+            mc2.metric("Already processed", n_done)
+            mc3.metric("Remaining",         n_pending)
+            mc4.metric("Next chunk size",   len(next_chunk))
 
-            if n_files > BATCH_HARD_LIMIT:
-                st.error(
-                    f"❌ {n_files} files selected — maximum supported batch size is {BATCH_HARD_LIMIT}. "
-                    f"Please split into smaller batches. "
-                    f"Tip: sort contributions by agenda item first, then upload one AI at a time."
-                )
-                batch_files = []
+            if n_pending == 0:
+                ok(f"✅ All {n_total} files have been processed. Use the filter and download below, or clear results to reprocess.")
             else:
-                batch_mode_active = True
-                batch_files = batch_files_uploaded
-
-                if n_files > BATCH_WARN_LIMIT:
-                    warn(
-                        f"⚠️ Large batch: {n_files} files ({total_kb:.0f} KB total). "
-                        f"Estimated time: {n_files * 25 // 60}–{n_files * 40 // 60} minutes. "
-                        f"Streamlit Cloud has a ~10-minute request timeout — for batches over 20 documents, "
-                        f"split into two runs and use the filter on the results."
-                    )
-                else:
-                    st.success(
-                        f"✅ {n_files} file(s) queued — {total_kb:.0f} KB total. "
-                        f"Estimated time: ~{max(1, n_files * 25 // 60)}–{max(1, n_files * 40 // 60)} min "
-                        f"({'Quick' if analysis_depth.startswith('Quick') else 'Standard'} depth)."
-                    )
-
-                with st.expander(f"📋 Files queued ({n_files})"):
-                    for f in batch_files:
+                est_lo = len(next_chunk) * 20 // 60
+                est_hi = len(next_chunk) * 35 // 60
+                time_str = f"~{max(1,est_lo)}–{max(2,est_hi)} min" if est_lo != est_hi else f"~{max(1,est_lo)} min"
+                st.info(
+                    f"📋 **{n_pending} files remaining.** "
+                    f"Next run will process **{len(next_chunk)} files** ({time_str} at "
+                    f"{'Quick' if analysis_depth.startswith('Quick') else 'Standard'} depth). "
+                    + (f"**{n_done} already processed** — results preserved below." if n_done else "")
+                )
+                with st.expander(f"Next chunk — {len(next_chunk)} files"):
+                    for f in next_chunk:
                         st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
+                if n_pending > CHUNK_SIZE:
+                    with st.expander(f"Remaining after this chunk — {n_pending - CHUNK_SIZE} files"):
+                        for f in pending[CHUNK_SIZE:]:
+                            st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
+
+            # Clear button
+            if st.session_state.batch_accumulated:
+                if st.button("🗑️ Clear all accumulated results and start fresh",
+                             key="batch_clear", type="secondary"):
+                    st.session_state.batch_accumulated   = []
+                    st.session_state.batch_processed_names = set()
+                    st.rerun()
+
+            batch_files = next_chunk  # only next chunk goes to the run button
+
+        else:
+            # Show accumulated results from prior runs even without new upload
+            if st.session_state.batch_accumulated:
+                ok(f"📂 {len(st.session_state.batch_accumulated)} results from previous run(s) available below. Upload more files to continue, or use the download buttons.")
+            else:
+                st.markdown(
+                    "<div style='background:#1a1a2a;border:1px dashed #444;padding:20px;"
+                    "border-radius:6px;text-align:center;color:#888'>"
+                    "📎 Upload your meeting documents here — no limit on quantity<br>"
+                    "<small>They will be processed in chunks of 15 automatically</small>"
+                    "</div>",
+                    unsafe_allow_html=True
+                )
 
     with input_tab_paste:
         contrib_pasted = st.text_area(
@@ -4269,11 +3682,49 @@ One sentence.
             try:
                 result_b = run_single_analysis(text_b, tc_b, fname, client_b, sys_prompt_batch, analysis_questions_b, depth_b)
                 batch_results.append({"file": fname, "text": text_b, "tc": tc_b, "analysis": result_b, "error": False})
+                # Write to Neo4j
+                _neo4j_b = _neo4j_driver()
+                if _neo4j_b:
+                    try:
+                        _neo4j_write_analysis(_neo4j_b, result_b,
+                            {"doc_number": fname, "working_party": working_party,
+                             "tc_summary": tc_b}, text_b)
+                        _neo4j_b.close()
+                    except Exception: pass
             except Exception as e:
                 batch_results.append({"file": fname, "text": text_b, "tc": tc_b, "analysis": f"❌ API error: {e}", "error": True})
 
         progress_bar.progress(1.0)
-        status_text.text(f"✅ Complete — {len(batch_files)} document(s) analyzed")
+        chunk_done = len([r for r in batch_results if not r["error"]])
+        chunk_err  = len([r for r in batch_results if r["error"]])
+        status_text.text(
+            f"✅ Chunk complete — {chunk_done} analyzed"
+            + (f", {chunk_err} error(s)" if chunk_err else "")
+        )
+
+        # ── Accumulate results into session state ─────────────────────────────
+        for r in batch_results:
+            if r["file"] not in st.session_state.batch_processed_names:
+                st.session_state.batch_accumulated.append(r)
+                st.session_state.batch_processed_names.add(r["file"])
+
+        # Use the full accumulated set for all downstream display
+        batch_results = st.session_state.batch_accumulated
+
+        n_acc = len(batch_results)
+        n_pending_after = len([
+            f for f in (batch_files_uploaded or [])
+            if f.name not in st.session_state.batch_processed_names
+        ])
+
+        acc_col1, acc_col2 = st.columns(2)
+        with acc_col1:
+            ok(f"📂 {n_acc} total results accumulated across all runs.")
+        with acc_col2:
+            if n_pending_after > 0:
+                st.info(f"⏭️ {n_pending_after} files still pending — click **Run Batch Analysis** again to process the next chunk.")
+            else:
+                ok("✅ All uploaded files processed.")
 
         # ── Triage summary table ──────────────────────────────────────────────
         st.markdown("---")
@@ -4519,6 +3970,17 @@ One sentence.
         except Exception as be:
             st.error(f"❌ Report generation error: {be}")
             import traceback; st.code(traceback.format_exc())
+
+    # ── Show accumulated results between runs (without re-running analysis) ──
+    elif (not batch_btn) and st.session_state.get("batch_accumulated") and batch_mode_active:
+        batch_results = st.session_state.batch_accumulated
+        st.markdown("---")
+        st.subheader(f"🗂️ Accumulated Results — {len(batch_results)} document(s)")
+        ex("Results from previous batch run(s). Upload more files and click Run to continue processing. All results persist until you click Clear.")
+
+        import re as _re_b  # needed for triage extraction below
+        # Fall through to triage/filter display — reuse the same code path
+        # by setting batch_results and proceeding normally
 
     if single_btn and contrib_input.strip():
 
@@ -5080,6 +4542,24 @@ Numbered list — actionable, specific, with owner and priority:
                 )
                 analysis_text = response.content[0].text
 
+                # Store for interactive Q&A
+                st.session_state["qa_contrib_text"]    = contrib_input
+                st.session_state["qa_analysis_text"]   = analysis_text
+                st.session_state["qa_doc_meta"]        = docx_meta
+                st.session_state["qa_history"]         = []   # reset on new analysis
+                st.session_state["qa_active_doc"]      = doc_number or "this document"
+
+                # ── Write to Neo4j (if configured) ────────────────────────────
+                neo4j_driver = _neo4j_driver()
+                if neo4j_driver:
+                    try:
+                        tc_meta = {**docx_meta, "tc_summary": st.session_state.get("tc_summary","")}
+                        nc, rc = _neo4j_write_analysis(neo4j_driver, analysis_text, tc_meta, contrib_input)
+                        neo4j_driver.close()
+                        st.caption(f"🔗 Neo4j: +{nc} nodes, +{rc} relationships written to knowledge graph")
+                    except Exception as neo_err:
+                        st.caption(f"⚠️ Neo4j write skipped: {neo_err}")
+
                 st.success("✅ Analysis complete")
                 st.markdown("---")
 
@@ -5192,6 +4672,249 @@ Intermodulation / spurious response
 
     elif not contrib_input.strip():
         st.info("👆 Paste a contribution above and click Analyze to get policy guidance.")
+
+    # ── Interactive Q&A — persists after analysis, survives page interactions ─
+    if st.session_state.get("qa_analysis_text") and st.session_state.get("qa_contrib_text"):
+        st.markdown("---")
+        st.subheader("💬 Ask About This Analysis")
+        ex(f"Question any finding in the analysis for **{st.session_state.get('qa_active_doc','this document')}**. "
+           "The AI will answer from the document and analysis, citing specific passages.")
+
+        # Initialize chat history
+        if "qa_history" not in st.session_state:
+            st.session_state.qa_history = []
+
+        # Show existing conversation
+        for msg in st.session_state.qa_history:
+            with st.chat_message(msg["role"],
+                                 avatar="🧑‍💼" if msg["role"] == "user" else "🤖"):
+                st.markdown(msg["content"])
+
+        # Suggested questions
+        if not st.session_state.qa_history:
+            st.markdown("**Suggested questions:**")
+            sq_cols = st.columns(3)
+            suggestions = [
+                "Where in the document does it mention this frequency?",
+                "Why is this flagged as requiring human review?",
+                "What evidence supports the severity rating?",
+                "Where is the propagation model stated?",
+                "What exact text was cited for the revision status?",
+                "Which part of the document mentions the FAA band?",
+            ]
+            for i, sq in enumerate(suggestions):
+                with sq_cols[i % 3]:
+                    if st.button(sq, key=f"sq_{i}", use_container_width=True):
+                        st.session_state.qa_history.append({"role": "user", "content": sq})
+                        st.rerun()
+
+        # Chat input
+        user_q = st.chat_input(
+            f"Ask about the analysis of {st.session_state.get('qa_active_doc','this document')}…",
+            key="qa_input"
+        )
+
+        if user_q:
+            st.session_state.qa_history.append({"role": "user", "content": user_q})
+
+            qa_system = f"""You are reviewing a completed FAA spectrum interference analysis of an ITU-R contribution.
+You have access to:
+1. THE ORIGINAL CONTRIBUTION TEXT — the source document that was analyzed
+2. THE COMPLETED ANALYSIS — the findings, verdicts, and recommendations already produced
+
+Your job is to answer the user's question about a specific finding or conclusion.
+
+RULES:
+- Always cite the exact passage from the ORIGINAL DOCUMENT that supports or contradicts the finding.
+  Use "quote marks" around direct quotes from the document.
+- If the finding is derived from absence (i.e. something was NOT in the document), say so explicitly.
+- If you cannot find the relevant passage in the provided text, say "Cannot locate in the provided document text — the original document may have more context."
+- Be concise but precise. One to three short paragraphs maximum.
+- Do not re-summarize the entire analysis — answer only the specific question asked.
+
+DOCUMENT METADATA:
+{st.session_state.get('qa_doc_meta', {})}
+
+ORIGINAL CONTRIBUTION TEXT:
+{st.session_state['qa_contrib_text'][:15000]}
+
+COMPLETED ANALYSIS:
+{st.session_state['qa_analysis_text'][:8000]}"""
+
+            # Build messages from history
+            qa_messages = [
+                {"role": m["role"], "content": m["content"]}
+                for m in st.session_state.qa_history
+            ]
+
+            try:
+                with st.spinner("Checking the document…"):
+                    qa_client = anthropic.Anthropic(api_key=api_key)
+                    qa_resp = qa_client.messages.create(
+                        model="claude-sonnet-4-5",
+                        max_tokens=1000,
+                        system=qa_system,
+                        messages=qa_messages,
+                    )
+                qa_answer = qa_resp.content[0].text
+                st.session_state.qa_history.append({"role": "assistant", "content": qa_answer})
+                st.rerun()
+            except Exception as qa_err:
+                st.error(f"❌ {qa_err}")
+
+        # Clear conversation button
+        if st.session_state.qa_history:
+            if st.button("🗑️ Clear conversation", key="qa_clear", type="secondary"):
+                st.session_state.qa_history = []
+                st.rerun()
+
+    # ── Neo4j cross-document query panel ──────────────────────────────────────
+    neo4j_drv = _neo4j_driver()
+    if neo4j_drv:
+        neo4j_drv.close()
+        st.markdown("---")
+        st.subheader("🔗 Knowledge Graph — Cross-Document Query")
+        ex("Ask questions across ALL analyzed documents in the graph — not just this session. The AI converts your question to Cypher, queries Neo4j, and summarizes the results.")
+
+        if "neo4j_history" not in st.session_state:
+            st.session_state.neo4j_history = []
+
+        # Show conversation
+        for msg in st.session_state.neo4j_history:
+            with st.chat_message(msg["role"], avatar="🗄️" if msg["role"] == "assistant" else "🧑‍💼"):
+                st.markdown(msg["content"])
+                if msg.get("cypher"):
+                    with st.expander("🔍 Cypher query used"):
+                        st.code(msg["cypher"], language="cypher")
+
+        # Suggested cross-document questions
+        if not st.session_state.neo4j_history:
+            st.markdown("**Example cross-document queries:**")
+            neo_cols = st.columns(2)
+            neo_suggestions = [
+                "Which documents from China affect the DME band?",
+                "How many HIGH severity findings are there across all documents?",
+                "Which administrations have submitted revisions (not new docs)?",
+                "List all documents where US stance is Oppose",
+                "Which documents use the P.452 propagation model?",
+                "Show all documents that affect the Radio Altimeter band",
+                "Which documents have tracked changes?",
+                "List documents related to AI 1.13",
+            ]
+            for i, sq in enumerate(neo_suggestions):
+                with neo_cols[i % 2]:
+                    if st.button(sq, key=f"neo_sq_{i}", use_container_width=True):
+                        st.session_state.neo4j_history.append({"role": "user", "content": sq})
+                        st.rerun()
+
+        neo_q = st.chat_input("Ask anything about the full document corpus…", key="neo4j_input")
+
+        if neo_q:
+            st.session_state.neo4j_history.append({"role": "user", "content": neo_q})
+            try:
+                with st.spinner("Querying knowledge graph…"):
+                    drv2 = _neo4j_driver()
+                    answer, cypher_used, raw_records = _neo4j_nl_query(drv2, neo_q, api_key)
+                    drv2.close()
+                st.session_state.neo4j_history.append({
+                    "role": "assistant", "content": answer, "cypher": cypher_used
+                })
+                # Show raw records toggle
+                if raw_records:
+                    st.session_state[f"neo4j_raw_{len(st.session_state.neo4j_history)}"] = raw_records
+                st.rerun()
+            except Exception as neo_err:
+                st.error(f"❌ Knowledge graph error: {neo_err}")
+
+        if st.session_state.neo4j_history:
+            if st.button("🗑️ Clear graph queries", key="neo4j_clear", type="secondary"):
+                st.session_state.neo4j_history = []
+                st.rerun()
+
+    # ── Batch document Q&A ─────────────────────────────────────────────────────
+    if st.session_state.get("batch_accumulated"):
+        acc = st.session_state.batch_accumulated
+        valid = [r for r in acc if not r.get("error") and r.get("analysis")]
+        if valid:
+            st.markdown("---")
+            st.subheader("💬 Ask About a Batch Document")
+            ex("Select any processed document and ask follow-up questions about its analysis findings.")
+
+            doc_names  = [r["file"] for r in valid]
+            selected_doc_name = st.selectbox(
+                "Select document to interrogate:",
+                doc_names,
+                key="qa_batch_select"
+            )
+            selected_doc = next(r for r in valid if r["file"] == selected_doc_name)
+
+            if "qa_batch_history" not in st.session_state:
+                st.session_state.qa_batch_history = {}
+            if selected_doc_name not in st.session_state.qa_batch_history:
+                st.session_state.qa_batch_history[selected_doc_name] = []
+
+            # Show history for this document
+            for msg in st.session_state.qa_batch_history[selected_doc_name]:
+                with st.chat_message(msg["role"],
+                                     avatar="🧑‍💼" if msg["role"] == "user" else "🤖"):
+                    st.markdown(msg["content"])
+
+            batch_q = st.chat_input(
+                f"Ask about {selected_doc_name}…",
+                key="qa_batch_input"
+            )
+
+            if batch_q:
+                st.session_state.qa_batch_history[selected_doc_name].append(
+                    {"role": "user", "content": batch_q}
+                )
+
+                bqa_system = f"""You are reviewing a completed FAA spectrum interference analysis of the ITU-R contribution: {selected_doc_name}
+
+You have:
+1. THE COMPLETED ANALYSIS of this document
+2. THE ORIGINAL DOCUMENT TEXT (if available from extraction)
+
+RULES:
+- Cite exact passages from the document using "quote marks" when available.
+- If a finding is based on absence of information, say so explicitly.
+- If you cannot locate the relevant text, say "Cannot locate in provided text."
+- Concise — one to three paragraphs. Answer only what is asked.
+
+COMPLETED ANALYSIS:
+{selected_doc.get('analysis','')[:8000]}
+
+ORIGINAL DOCUMENT TEXT (extracted):
+{selected_doc.get('text','')[:10000] if selected_doc.get('text') else '(Not available — document text was not stored in this session.)'}"""
+
+                bqa_messages = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.qa_batch_history[selected_doc_name]
+                ]
+
+                try:
+                    with st.spinner(f"Checking {selected_doc_name}…"):
+                        bqa_client = anthropic.Anthropic(api_key=api_key)
+                        bqa_resp = bqa_client.messages.create(
+                            model="claude-sonnet-4-5",
+                            max_tokens=1000,
+                            system=bqa_system,
+                            messages=bqa_messages,
+                        )
+                    bqa_answer = bqa_resp.content[0].text
+                    st.session_state.qa_batch_history[selected_doc_name].append(
+                        {"role": "assistant", "content": bqa_answer}
+                    )
+                    st.rerun()
+                except Exception as bqa_err:
+                    st.error(f"❌ {bqa_err}")
+
+            if st.session_state.qa_batch_history.get(selected_doc_name):
+                bcol1, bcol2 = st.columns([1, 4])
+                with bcol1:
+                    if st.button("🗑️ Clear", key="qa_batch_clear", type="secondary"):
+                        st.session_state.qa_batch_history[selected_doc_name] = []
+                        st.rerun()
 
     # Example contributions to try
     with st.expander("📋 Example contributions to test with"):

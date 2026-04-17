@@ -12,3 +12,4 @@ pdfminer.six
 python-docx
 mammoth
 openpyxl
+neo4j
