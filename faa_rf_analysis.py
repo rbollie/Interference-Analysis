@@ -518,138 +518,214 @@ def _make_analysis_docx(analysis_md, meta):
 
 def _extract_analysis_fields(analysis_text, meta=None):
     """
-    Parse a single analysis text (markdown) into a flat dict of structured fields
-    suitable for an Excel row. Works for both single and batch results.
+    Parse a single analysis text into a flat dict for Excel.
+    Uses broad, flexible patterns that match the AI's varied output formats.
     """
     import re as _rx
     t = analysis_text or ""
     m = meta or {}
 
-    def _find(pattern, default="—", flags=_rx.IGNORECASE):
-        match = _rx.search(pattern, t, flags)
-        return match.group(1).strip() if match else default
+    def _first(patterns, default="—"):
+        """Try multiple regex patterns, return first match."""
+        for pat in patterns:
+            hit = _rx.search(pat, t, _rx.IGNORECASE | _rx.DOTALL)
+            if hit:
+                return hit.group(1).strip()[:200]
+        return default
 
-    def _find_all(pattern, flags=_rx.IGNORECASE):
-        return [x.strip() for x in _rx.findall(pattern, t, flags)]
+    def _all(pattern):
+        return list(dict.fromkeys(
+            x.strip() for x in _rx.findall(pattern, t, _rx.IGNORECASE)
+            if x.strip()
+        ))
 
-    # ── Source / admin ─────────────────────────────────────────────────────────
-    # Try metadata first, then scan text
-    admin = m.get("submitting_admin") or _find(
-        r'(?:Source|Administration|Submitted by)[:\s]+([A-Z][A-Za-z,\s\(\)]+?)(?:\n|\||-)', "—")
+    # ── Source / admin ────────────────────────────────────────────────────────
+    admin = (m.get("submitting_admin") or "").strip() or _first([
+        r'(?:Source|Admin(?:istration)?|Submitted by|Proponent)[:\s/|]+([A-Z][A-Za-z ,\(\)/&-]{2,50}?)(?:\n|\||\*\*|$)',
+        r'\*\*Source[^*]*\*\*[:\s]+([A-Za-z ,\(\)/&-]{2,50})',
+        r'Administration[:\s]+([A-Za-z ,\(\)/&-]{2,50})',
+    ])
+    # Clean up admin — strip leading/trailing punctuation
+    admin = _rx.sub(r'^[\s\-|:]+|[\s\-|:]+$', '', admin) or "—"
 
     # ── Doc number ────────────────────────────────────────────────────────────
-    doc_num = m.get("doc_number") or _find(r'(?:Document(?:\s+No\.?|:))\s*([\w/\-]+)', "—")
+    doc_num = (m.get("doc_number") or "").strip() or _first([
+        r'(?:Doc(?:ument)?(?:\s+No\.?|#|:)?)\s+([A-Z0-9]{1,5}/[\w\-]+)',
+        r'([A-Z0-9]{2,5}/[\d\w\-]+(?:-E)?)\b',
+    ])
 
     # ── Working party ─────────────────────────────────────────────────────────
-    wp = m.get("working_party") or _find(r'WP\s*([\d]+[A-Z]*)', "—")
+    wp = (m.get("working_party") or "").strip() or _first([
+        r'(WP\s*(?:5D|5B|4C|7B|7C|4A|7D|5A))',
+        r'Working Party[:\s]+([\w\s]+?)(?:\n|\()',
+    ])
 
-    # ── Agenda item ───────────────────────────────────────────────────────────
-    ai_matches = _find_all(r'AI\s*(1\.\d+)')
-    agenda_items = ", ".join(dict.fromkeys(ai_matches)) if ai_matches else (
-        m.get("agenda_item") or "—")
+    # ── Agenda items ──────────────────────────────────────────────────────────
+    # Broader: match "AI 1.7", "Agenda Item 1.13", "1.19", WRC-27 AI references
+    ai_hits = _all(r'(?:AI|Agenda Item)[:\s]*(1\.\d+)')
+    if not ai_hits:
+        # Also try bare references like "(1.7)" or "WRC-27 AI 1.13"
+        ai_hits = _all(r'\b(1\.(?:7|13|15|17|19))\b')
+    agenda_items = ", ".join(ai_hits) if ai_hits else (m.get("agenda_item") or "—")
+    # Prefix with "AI" if bare numbers
+    if agenda_items and agenda_items != "—" and not agenda_items.upper().startswith("AI"):
+        agenda_items = "AI " + agenda_items.replace(", ", ", AI ")
 
     # ── Review verdict ────────────────────────────────────────────────────────
-    verdict_m = _rx.search(
-        r'REVIEW VERDICT[:\s*]+([A-Z][A-Z\s]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))',
-        t, _rx.IGNORECASE)
-    verdict = verdict_m.group(1).strip() if verdict_m else "SEE FULL ANALYSIS"
+    verdict = _first([
+        r'REVIEW VERDICT[*:\s]+([A-Z][A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION|ANALYSIS))',
+        r'\*\*REVIEW VERDICT[^*]*\*\*[:\s]*([A-Z ]+)',
+        r'VERDICT[:\s]+([A-Z][A-Z ]+)',
+    ], "SEE FULL ANALYSIS")
 
-    # ── Doc status (new vs revision) ──────────────────────────────────────────
-    status_m = _rx.search(r'STATUS[:\s]+\**(NEW DOCUMENT|REVISION|UNCLEAR)', t, _rx.IGNORECASE)
-    doc_status = status_m.group(1).upper() if status_m else "—"
+    # ── Doc status ────────────────────────────────────────────────────────────
+    doc_status = _first([
+        r'STATUS[*:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)',
+        r'📋\s*STATUS[*:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)',
+        r'\b(NEW DOCUMENT|REVISION)\b.*confidence',
+    ], "—").upper() if "NEW DOCUMENT" in t.upper() or "REVISION" in t.upper() else "—"
+    if doc_status == "—":
+        if _rx.search(r'\bNEW DOCUMENT\b', t, _rx.IGNORECASE):
+            doc_status = "NEW"
+        elif _rx.search(r'\bREVISION\b', t, _rx.IGNORECASE):
+            doc_status = "REVISION"
 
     # ── Proposed frequency bands ──────────────────────────────────────────────
-    freq_rows = _rx.findall(
-        r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))\s*\|',
-        t, _rx.IGNORECASE)
-    proposed_bands = "; ".join(dict.fromkeys(f.strip() for f in freq_rows[:4])) or "—"
+    # Pull only from column 1 of the frequency table (first | cell per row)
+    # Table format: | proposed | bw | FAA band | system | gap | rel | type |
+    prop_col = []
+    for row in _rx.finditer(
+        r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',
+        t, _rx.IGNORECASE | _rx.MULTILINE):
+        prop_col.append(row.group(1).strip())
+    # Also catch "Proposed band: X" label in Section D
+    prop_label = _all(r'Proposed band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+    all_prop = list(dict.fromkeys(prop_col + prop_label))
+    proposed_bands = "; ".join(all_prop[:4]) if all_prop else "—"
 
-    # ── FAA bands impacted ────────────────────────────────────────────────────
-    faa_band_rows = _rx.findall(
-        r'\|\s*\d[\d\s,\.–-]+(?:MHz|GHz)\s*\|\s*(\d[\d\s,\.–-]+(?:MHz|GHz))\s*\|',
-        t, _rx.IGNORECASE)
-    faa_bands = "; ".join(dict.fromkeys(f.strip() for f in faa_band_rows[:4])) or "—"
+    # ── FAA bands ─────────────────────────────────────────────────────────────
+    # Pull from column 3 of the table (after proposed | BW |)
+    # Row pattern: | proposed | BW | FAA_band | ...
+    faa_col = []
+    for row in _rx.finditer(
+        r'^\|\s*\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz)\s*\|'   # col1: proposed
+        r'\s*[\d,\.]+\s*(?:MHz|GHz)\s*\|'                               # col2: BW
+        r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',   # col3: FAA band
+        t, _rx.IGNORECASE | _rx.MULTILINE):
+        faa_col.append(row.group(1).strip())
+    # Fallback: "FAA band: X" label in Section D
+    faa_label = _all(r'FAA band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+    all_faa = list(dict.fromkeys(faa_col + faa_label))
+    faa_bands = "; ".join(all_faa[:4]) if all_faa else "—"
 
     # ── FAA systems ───────────────────────────────────────────────────────────
     SYSTEMS = {
-        "Radio Altimeter": r"radio alt(?:imeter)?|RA\b|WAICS",
-        "DME/TACAN":       r"\bDME\b|\bTACAN\b",
-        "GPS L1/GNSS":     r"GPS L1|GNSS L1|1575",
-        "GNSS L5":         r"GNSS L5|GPS L5|1164.+1215",
-        "ADS-B/Mode-S":    r"ADS-?B|Mode-?S|1090",
-        "ASR":             r"\bASR\b|airport surv",
-        "ARSR":            r"\bARSR\b|en.?route.+radar",
-        "ILS/VOR":         r"\bILS\b|\bVOR\b|localizer",
-        "L-band AMS(R)S":  r"AMS\(R\)S|L.band.+sat",
-        "MLS":             r"\bMLS\b",
-        "ARNS 5 GHz":      r"ARNS.+5\s*GHz",
+        "Radio Altimeter": r"radio alt(?:imeter)?|RA\b|WAICS|4[,\.]?2.{1,5}4[,\.]?4\s*GHz",
+        "DME / TACAN":     r"\bDME\b|\bTACAN\b|960.{1,10}1215",
+        "GPS L1 / GNSS":   r"GPS L1|GNSS L1|1575|L1\s+SBAS",
+        "GNSS L5":         r"GNSS L5|GPS L5|1164.{1,10}1215",
+        "ADS-B / Mode-S":  r"ADS-?B|Mode-?S\b|1090\s*MHz",
+        "ASR":             r"\bASR\b|airport surv|short.range.radar",
+        "ARSR":            r"\bARSR\b|en.?route.+radar|long.range.radar",
+        "ILS / VOR":       r"\bILS\b|\bVOR\b|localizer|glide slope",
+        "L-band AMS(R)S":  r"AMS\(R\)S|L.band.+sat|1525.{1,10}1559",
+        "MLS":             r"\bMLS\b|microwave landing",
+        "ARNS 5 GHz":      r"ARNS.{1,10}5\s*GHz|5000.{1,10}5150",
+        "En-Route Radar":  r"en.?route.+radar|ARSR|2700.{1,10}2900",
     }
     sys_hits = [s for s, p in SYSTEMS.items() if _rx.search(p, t, _rx.IGNORECASE)]
     faa_systems = "; ".join(sys_hits) if sys_hits else "—"
 
-    # ── Overlap / gap ─────────────────────────────────────────────────────────
-    overlap_m = _rx.search(r'(?:OVERLAP|GAP)[:\s]*(\d[\d,\.]*\s*MHz)', t, _rx.IGNORECASE)
-    overlap_gap = overlap_m.group(1).strip() if overlap_m else "—"
+    # ── Overlap / Gap ─────────────────────────────────────────────────────────
+    # Capture full "GAP: 0 MHz (adjacent)" or "OVERLAP: 10 MHz" string
+    og_m = _rx.search(
+        r'((?:OVERLAP|GAP)[:\s]*\d[\d,\.]*\s*MHz(?:[^\n|]{0,40})?)',
+        t, _rx.IGNORECASE)
+    if og_m:
+        overlap_gap = og_m.group(1).strip()[:60]
+    elif _rx.search(r'immediately adjacent|touching at|0\s*MHz\s*gap', t, _rx.IGNORECASE):
+        overlap_gap = "GAP: 0 MHz (adjacent)"
+    else:
+        og_col = _rx.search(r'\|\s*(?:OVERLAP|GAP)[:\s]*(\d[\d,\.]*\s*MHz[^\|]*)\s*\|',
+                             t, _rx.IGNORECASE)
+        overlap_gap = og_col.group(1).strip()[:60] if og_col else "—"
 
     # ── Relationship ──────────────────────────────────────────────────────────
-    rel_m = _rx.search(r'\|\s*(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\s*\|', t, _rx.IGNORECASE)
-    relationship = rel_m.group(1).upper() if rel_m else "—"
+    relationship = _first([
+        r'\|\s*(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\s*\|',
+        r'\b(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\b',
+        r'(in.band|adjacent|nearby)',
+    ]).upper()
 
     # ── Study type ────────────────────────────────────────────────────────────
-    study_m = _rx.search(r'\|\s*(SHARING|COMPATIBILITY)\s*\|', t, _rx.IGNORECASE)
-    study_type = study_m.group(1).upper() if study_m else "—"
+    study_type = _first([
+        r'\|\s*(SHARING|COMPATIBILITY)\s*\|',
+        r'\b(SHARING|COMPATIBILITY)\b.{0,30}study',
+        r'(sharing|compatibility)\s+study',
+    ]).upper()
 
     # ── Proposal summary ─────────────────────────────────────────────────────
-    # First non-heading paragraph after ## A) or "Document Overview"
-    summ_m = _rx.search(
-        r'(?:Document Overview[^\n]*\n+|##\s*A\).*?\n+)(-\s*(?:Title|Summary)[^\n]+\n(?:-[^\n]+\n)*)',
-        t, _rx.IGNORECASE | _rx.DOTALL)
-    if summ_m:
-        summary_raw = summ_m.group(1)
-        summary = _rx.sub(r'\n+', ' ', _rx.sub(r'-\s*', '', summary_raw)).strip()[:200]
-    else:
-        # Fallback: first substantive paragraph
-        paras = [p.strip() for p in _rx.split(r'\n{2,}', t) if len(p.strip()) > 60
-                 and not p.strip().startswith('#') and not p.strip().startswith('|')]
-        summary = paras[0][:200] if paras else "—"
+    # Try the Document Overview section first
+    summ = _first([
+        r'##\s*A\).*?\n+[-•]\s*(?:Title[^:]*:)?\s*([^\n]{30,200})',
+        r'Document Overview.*?\n+[-•]\s*([^\n]{30,200})',
+        r'(?:summary|purpose|proposes?)[:\s]+([^\n]{30,200})',
+    ])
+    if summ == "—":
+        # Fallback: first non-table, non-heading paragraph
+        paras = [p.strip() for p in _rx.split(r'\n{2,}', t)
+                 if len(p.strip()) > 60 and not p.strip().startswith('#')
+                 and not p.strip().startswith('|') and not p.strip().startswith('━')]
+        summ = paras[0][:200] if paras else "—"
+    summary = summ
 
-    # ── US stance / recommended position ─────────────────────────────────────
-    stance_m = _rx.search(
-        r'(?:Recommended US Position|US Position|RECOMMENDED)[^\n]*\n+[^\n]*(?:Oppose|Support|Propose|Amend|Neutral)[^\n]*',
-        t, _rx.IGNORECASE)
-    if stance_m:
-        stance_raw = stance_m.group(0)
-        for kw in ("Oppose","Support","Propose amendments","Neutral","Flag"):
-            if _rx.search(kw, stance_raw, _rx.IGNORECASE):
+    # ── US stance ─────────────────────────────────────────────────────────────
+    # Search F section first, then US Position label, then full text
+    _stance_areas = []
+    _sf = _rx.search(r'(?:##\s*F\)|Recommended Actions?)[^\n]*\n([\s\S]{0,600}?)(?:\n##|\Z)',
+                     t, _rx.IGNORECASE)
+    if _sf: _stance_areas.append(_sf.group(1))
+    _sp = _rx.search(r'(?:Recommended US Position|US Position|US\s+Stance)[:\s#*]*([\s\S]{0,300}?)(?:\n##|\n\d+\.|\Z)',
+                     t, _rx.IGNORECASE)
+    if _sp: _stance_areas.append(_sp.group(1))
+    _stance_areas.append(t)
+    stance = "—"
+    for _area in _stance_areas:
+        for kw in ("Oppose","Support","Propose amendments","Neutral",
+                   "Flag for clarification","Monitor","Abstain"):
+            if _rx.search(r'\b' + kw.split()[0], _area, _rx.IGNORECASE):
                 stance = kw; break
-        else:
-            stance = stance_raw.split("\n")[-1][:40]
-    else:
-        stance = "—"
+        if stance != "—": break
 
-    # ── Highest severity ─────────────────────────────────────────────────────
-    if _rx.search(r'Severity[:\s]*High', t, _rx.IGNORECASE):
-        severity = "High"
-    elif _rx.search(r'Severity[:\s]*Medium', t, _rx.IGNORECASE):
-        severity = "Medium"
-    elif _rx.search(r'Severity[:\s]*Low', t, _rx.IGNORECASE):
-        severity = "Low"
+    # ── Severity ─────────────────────────────────────────────────────────────
+    for sev in ("High", "Medium", "Low"):
+        if _rx.search(rf'Severity[:\|*\s]+{sev}', t, _rx.IGNORECASE):
+            severity = sev; break
     else:
         severity = "—"
 
-    # ── Methodology compliance summary ────────────────────────────────────────
-    if _rx.search(r'Non-compliant|non.?compliance|WRONG|FLAG AS FUNDAMENTAL ERROR', t, _rx.IGNORECASE):
+    # ── Methodology ──────────────────────────────────────────────────────────
+    if _rx.search(r'Non-compliant|non.compliance|WRONG|FUNDAMENTAL ERROR|FLAG.*ERROR', t, _rx.IGNORECASE):
         methodology = "Non-compliant"
-    elif _rx.search(r'No methodology non-compliance|methodology appears sound|compliant', t, _rx.IGNORECASE):
-        methodology = "Compliant"
-    elif _rx.search(r'Cannot confirm|no study|study not provided', t, _rx.IGNORECASE):
+    elif _rx.search(r'No methodology|no study provided|methodology.*absent', t, _rx.IGNORECASE):
         methodology = "No study"
+    elif _rx.search(r'Compliant|methodology.*sound|appears.*compliant', t, _rx.IGNORECASE):
+        methodology = "Compliant"
     else:
         methodology = "—"
 
-    # ── Top recommended action (first F) item) ────────────────────────────────
-    action_m = _rx.search(r'(?:## F\)|Recommended Actions)[^\n]*\n+1\.[^\n]+', t, _rx.IGNORECASE)
-    top_action = action_m.group(0).split("\n")[-1].strip()[:120] if action_m else "—"
+    # ── Top action ────────────────────────────────────────────────────────────
+    action_block = _rx.search(
+        r'(?:##\s*F\)|Recommended Actions?)[^\n]*\n([\s\S]{0,600}?)(?:\n##|\Z)',
+        t, _rx.IGNORECASE)
+    if action_block:
+        first_action = _rx.search(r'(?:1\.|\*\*Action\*\*:?)\s*([^\n]{10,120})',
+                                   action_block.group(1), _rx.IGNORECASE)
+        top_action = first_action.group(1).strip()[:120] if first_action else action_block.group(1)[:120]
+    else:
+        top_action = "—"
+    # Clean up bold markers
+    top_action = _rx.sub(r'\*+', '', top_action).strip()
 
     return {
         "Document No.":       doc_num,
