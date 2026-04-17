@@ -558,9 +558,18 @@ def _extract_analysis_fields(analysis_text, meta=None):
 
     # ── Doc number ────────────────────────────────────────────────────────────
     doc_num = (m.get("doc_number") or "").strip() or _first([
-        r'(?:Doc(?:ument)?(?:\s+No\.?|#|:)?)\s+([A-Z0-9]{1,5}/[\w\-]+)',
-        r'([A-Z0-9]{2,5}/[\d\w\-]+(?:-E)?)\b',
+        # Explicit "Document No." label
+        r'(?:Doc(?:ument)?(?:\s+No\.?|#|:\s*))([A-Z0-9]{1,3}[A-Z]?/\d[\d\w\-]{1,15})',
+        # ITU format: 5D/123-E, 5B/456, 4C/789-E  (digit+letter / number)
+        r'\b(\d[A-Z]{1,2}/\d[\d\w\-]{1,15})\b',
+        # R23-WP5B-C-0435 style
+        r'\b(R\d{2}-WP[\w]+-[\w\-]+)\b',
     ])
+    # Sanity check: must contain slash or hyphen followed by digit
+    if doc_num and doc_num != "—":
+        import re as _dn_re
+        if not _dn_re.search(r'[/\-]\d', doc_num):
+            doc_num = "—"
 
     # ── Working party ─────────────────────────────────────────────────────────
     wp = (m.get("working_party") or "").strip() or _first([
@@ -593,6 +602,9 @@ def _extract_analysis_fields(analysis_text, meta=None):
         r'\*\*REVIEW VERDICT[^*]*\*\*[:\s]*([A-Z ]+)',
         r'VERDICT[:\s]+([A-Z][A-Z ]+)',
     ], "SEE FULL ANALYSIS")
+    # US contribution override
+    if _rx.search(r'US contribution.*summary only|summary only.*review policy', t, _rx.IGNORECASE):
+        verdict = "U.S. CONTRIBUTION — SUMMARY ONLY"
 
     # ── Doc status ────────────────────────────────────────────────────────────
     doc_status = _first([
@@ -624,11 +636,11 @@ def _extract_analysis_fields(analysis_text, meta=None):
     # Row pattern: | proposed | BW | FAA_band | ...
     faa_col = []
     for row in _rx.finditer(
-        r'^\|\s*\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz)\s*\|'   # col1: proposed
-        r'\s*[\d,\.]+\s*(?:MHz|GHz)\s*\|'                               # col2: BW
-        r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',   # col3: FAA band
+        r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|'  # col1: proposed
+        r'[^|]+\|'                                                             # col2: BW (any content)
+        r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',    # col3: FAA band
         t, _rx.IGNORECASE | _rx.MULTILINE):
-        faa_col.append(row.group(1).strip())
+        faa_col.append(row.group(2).strip())  # include even if same (IN-BAND overlap)
     # Fallback: "FAA band: X" label in Section D
     faa_label = _all(r'FAA band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
     all_faa = list(dict.fromkeys(faa_col + faa_label))
@@ -711,7 +723,9 @@ def _extract_analysis_fields(analysis_text, meta=None):
     for _area in _stance_areas:
         for kw in ("Oppose","Support","Propose amendments","Neutral",
                    "Flag for clarification","Monitor","Abstain"):
-            if _rx.search(r'\b' + kw.split()[0], _area, _rx.IGNORECASE):
+            # Use full word boundary on both sides to avoid matching "Proposed" as "Propose"
+            _kw_pat = r'\b' + _rx.escape(kw) + r'\b'
+            if _rx.search(_kw_pat, _area, _rx.IGNORECASE):
                 stance = kw; break
         if stance != "—": break
 
@@ -754,9 +768,6 @@ def _extract_analysis_fields(analysis_text, meta=None):
     top_action = _strip_md(top_action, 120)
     summary    = _strip_md(summary, 200)
     admin      = _strip_md(admin, 60)
-    # For PATH 2 (not relevant), fill stance if empty
-    if stance == "—" and _rx.search(r'NOT RELEVANT|no further analysis', t, _rx.IGNORECASE):
-        stance = "Monitor"
 
     # ── Review track (routing path) ───────────────────────────────────────────
     if _rx.search(r'US contribution|PATH 1|United States|NTIA|FCC', t, _rx.IGNORECASE) and \
@@ -765,11 +776,12 @@ def _extract_analysis_fields(analysis_text, meta=None):
         review_track_justification = "Document submitted by US/NTIA — summary only per review policy."
     elif _rx.search(r'NOT RELEVANT|no further analysis|no FAA band affected', t, _rx.IGNORECASE):
         review_track = "Screened out after FAA relevance review"
-        review_track_justification = _first([
+        _rtj_raw = _first([
             r'NOT RELEVANT[^\n]*\n([^\n]{20,200})',
             r'no FAA band affected[^\n]*\n?([^\n]{20,150})',
             r'(NOT RELEVANT[^\n]{0,100})',
         ], "No FAA band overlap detected.")[:150]
+        review_track_justification = _rx.sub(r'[*_`]+', '', _rtj_raw).strip()
     else:
         review_track = "FAA-relevant foreign document"
         review_track_justification = _first([
@@ -777,22 +789,27 @@ def _extract_analysis_fields(analysis_text, meta=None):
             r'(?:IN-BAND|ADJACENT)[^\n]{0,20}(FAA[^\n]{0,100})',
         ], "Band overlap or adjacency detected with FAA protected band.")[:200]
 
+    # Fill stance for special paths (must be after review_track is set)
+    if review_track == "U.S. contribution":
+        stance = "N/A — U.S. contribution"
+    elif stance == "—" and _rx.search(r'NOT RELEVANT|no further analysis', t, _rx.IGNORECASE):
+        stance = "Monitor"
+
     # ── Stance (nuanced 4-way taxonomy) ──────────────────────────────────────
-    # risky: high-severity findings, weak methodology, proponent seeking unfavorable allocation
-    # mixed: some protective elements but open issues remain
-    # protective: document supports FAA protection criteria
-    # neutral_but_check: not directly threatening but could set precedent
-    if severity == "High" or stance == "Oppose":
+    # risky / mixed / protective / neutral_but_check
+    if review_track == "U.S. contribution":
+        nuanced_stance = "neutral_but_check"   # US docs: no adversarial stance
+    elif review_track == "Screened out after FAA relevance review":
+        nuanced_stance = "neutral_but_check"
+    elif severity == "High" or stance == "Oppose":
         nuanced_stance = "risky"
-    elif _rx.search(r'protective|supports.*FAA|FAA.*protection criteria.*met|compliant', t, _rx.IGNORECASE):
-        if severity in ("Medium", "High") or _rx.search(r'Non-compliant|missing|unresolved', t, _rx.IGNORECASE):
+    elif _rx.search(r'protective|supports.*FAA|FAA.*protection criteria.*met', t, _rx.IGNORECASE):
+        if severity in ("Medium","High") or _rx.search(r'Non-compliant|missing|unresolved', t, _rx.IGNORECASE):
             nuanced_stance = "mixed"
         else:
             nuanced_stance = "protective"
-    elif stance in ("Propose amendments", "Flag for clarification") or severity == "Medium":
+    elif stance in ("Propose amendments","Flag for clarification") or severity == "Medium":
         nuanced_stance = "mixed"
-    elif review_track == "Screened out after FAA relevance review":
-        nuanced_stance = "neutral_but_check"
     else:
         nuanced_stance = "neutral_but_check"
 
@@ -3601,47 +3618,42 @@ Once configured, the analyzer will work every time you visit the app.
             """)
         st.stop()
 
-    # Metadata inputs
-    st.subheader("Contribution Metadata")
-    ex("Fill in what you know about the document — even partial info helps the AI contextualize the analysis.")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        doc_number = st.text_input("Document Number", placeholder="e.g., 5D/123-E")
-        working_party = st.selectbox("Working Party", [
+    # ── Working Party selector (drives the analysis profile — only manual input needed) ─
+    working_party = st.selectbox(
+        "Working Party",
+        [
             "WP 5D (IMT/Mobile)",
             "WP 5B (Maritime/Radiodetermination)",
             "WP 4C (MSS / DC-MSS-IMT)",
             "WP 7B (Space Radiocommunication / Lunar SRS)",
             "WP 7C (EESS / Space Weather Sensors)",
-        ])
+        ],
+        help="Select the WP this document comes from — this loads the correct ITU-R methodology profile for that Working Party."
+    )
 
-        # Show WP-specific FAA context
-        if working_party in wp_context:
-            ai_ref, ai_desc = wp_context[working_party]
-            st.markdown(
-                f"<div style='background:#1a2a3a;border-left:4px solid #ff8844;"
-                f"padding:8px 12px;border-radius:4px;margin:4px 0'>"
-                f"<b style='color:#ff8844'>⚠️ WRC-27 Watch — {ai_ref}:</b> "
-                f"<span style='color:#ffddaa'>{ai_desc}</span></div>",
-                unsafe_allow_html=True
-            )
-    with col2:
-        submitting_admin = st.text_input("Submitting Administration(s)", placeholder="e.g., China, European Union")
-        meeting_date = st.text_input("Meeting / Date", placeholder="e.g., WP 5D #44, Oct 2025")
-    with col3:
-        agenda_item = st.text_input("WRC Agenda Item", placeholder="e.g., AI 1.2 — IMT identification")
-        doc_type = st.selectbox("Document Type", [
-            "New proposal / spectrum sharing study",
-            "Interference analysis",
-            "Draft new Recommendation",
-            "Amendment to existing Recommendation",
-            "Liaison statement",
-            "Information document",
-        ])
+    # Show WP-specific FAA context callout
+    if working_party in wp_context:
+        ai_ref, ai_desc = wp_context[working_party]
+        st.markdown(
+            f"<div style='background:#1a2a3a;border-left:4px solid #ff8844;"
+            f"padding:8px 12px;border-radius:4px;margin:4px 0'>"
+            f"<b style='color:#ff8844'>⚠️ WRC-27 Watch — {ai_ref}:</b> "
+            f"<span style='color:#ffddaa'>{ai_desc}</span></div>",
+            unsafe_allow_html=True
+        )
+
+    # All other metadata (doc number, admin, meeting date, agenda item, doc type)
+    # is extracted automatically from the document text during analysis.
+    # These variables are set to empty strings so downstream code that references
+    # them still works — the AI will identify and populate them from the document.
+    doc_number       = ""
+    submitting_admin = ""
+    meeting_date     = ""
+    agenda_item      = ""
+    doc_type         = "Auto-detected"
 
     st.subheader("Contribution Input")
-    ex("Upload a PDF or Word document, paste text, or upload multiple files for batch analysis — all feed the same AI engine.")
+    ex("Upload a PDF or Word document, paste text, or use Batch Upload. Document number, submitting administration, agenda item, and all other metadata are extracted automatically.")
 
     # ── Input method tabs ─────────────────────────────────────────────────────
     input_tab_paste, input_tab_file, input_tab_batch = st.tabs([
@@ -4099,6 +4111,10 @@ between two or more administrations</b> without prejudice to other administratio
         def run_single_analysis(text, tc_summary_text, fname, client_obj, sys_prompt, analysis_qs, depth_inst):
             """Run one API call for a single document. Returns analysis text."""
             um = f"""Analyze this ITU-R contribution. Filename: {fname}
+
+METADATA — EXTRACT FROM DOCUMENT TEXT:
+Identify and state in Section A: document number, submitting administration, meeting/date, WRC-27 agenda item, document type. Extract these from the document itself.
+
 {f"TRACK CHANGES:{chr(10)}{tc_summary_text}{chr(10)}" if tc_summary_text else ""}
 CONTRIBUTION TEXT:
 {text}
@@ -4120,7 +4136,7 @@ Compact table with actual MHz/GHz numbers:
 One sentence.
 
 ## A) Document Overview + Status
-- Title, source, date (only if in document)
+- Title, source/administration, date — extracted from the document
 - WRC-27 AI reference (if stated)
 - 📋 STATUS: [NEW DOCUMENT / REVISION / UNCLEAR] — [confidence]
 - Evidence: cite 1–2 verbatim phrases from document
@@ -4914,17 +4930,14 @@ Use clear headers. Plain language. Flag NTIA/ICAO escalation needs."""
 
         user_message = f"""Analyze this ITU-R contribution using the mandatory review checklist and produce the structured output below.
 
-DOCUMENT METADATA:
-- Document Number: {doc_number or 'Not provided'}
+DOCUMENT METADATA — EXTRACT FROM THE DOCUMENT TEXT:
+All metadata fields (document number, submitting administration, meeting/date, agenda item, document type) must be identified from the contribution text itself and stated clearly in Section A. Do not leave them blank.
 - Working Party: {working_party}
-- Submitting Administration(s): {submitting_admin or 'Not provided'}
-- Meeting/Date: {meeting_date or 'Not provided'}
-- WRC Agenda Item: {agenda_item or 'Not provided'}
-- Document Type: {doc_type}
+- All other fields: extract from the document text and state them in Section A of the output.
 
 {f"TRACK CHANGES (extracted from uploaded Word document — use for Section B):{chr(10)}{tc_summary_for_prompt}{chr(10)}" if tc_summary_for_prompt else "TRACK CHANGES: No Word document uploaded — if pasting text, note whether this is a revision."}
 
-CONTRIBUTION TEXT (final accepted version):
+CONTRIBUTION TEXT (full document):
 {contrib_input}
 
 {f"SPECIFIC FAA CONCERN TO PRIORITIZE: {user_concern}" if user_concern else ""}
@@ -5114,19 +5127,28 @@ Intermodulation / spurious response
                     import re as _rc
                     return _rc.sub(r'[^A-Za-z0-9_-]', '_', str(s or ""))[:maxlen].strip('_')
 
+                # Extract metadata automatically from the analysis text
+                _auto = _extract_analysis_fields(analysis_text, {"working_party": working_party})
+                auto_doc_num  = _auto.get("Document No.","") or doc_number
+                auto_admin    = _auto.get("Source / Admin","") or submitting_admin
+                auto_ai       = _auto.get("Agenda Item(s)","") or agenda_item
+
                 from datetime import date as _dl
                 safe_name = "_".join(filter(None, [
-                    _clean(doc_number,      20),
-                    _clean(submitting_admin, 15),
-                    _clean(working_party,   10),
+                    _clean(auto_doc_num,  20),
+                    _clean(auto_admin,    15),
+                    _clean(working_party, 10),
                     str(_dl.today()),
                 ]))
+                if not safe_name.strip("_"):
+                    safe_name = f"analysis_{_dl.today()}"
+
                 docx_meta = {
-                    "doc_number":      doc_number,
+                    "doc_number":      auto_doc_num,
                     "working_party":   working_party,
-                    "submitting_admin":submitting_admin,
+                    "submitting_admin":auto_admin,
                     "meeting_date":    meeting_date,
-                    "agenda_item":     agenda_item,
+                    "agenda_item":     auto_ai,
                     "doc_type":        doc_type,
                     "analysis_depth":  analysis_depth,
                 }
