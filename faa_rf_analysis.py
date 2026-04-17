@@ -758,24 +758,138 @@ def _extract_analysis_fields(analysis_text, meta=None):
     if stance == "—" and _rx.search(r'NOT RELEVANT|no further analysis', t, _rx.IGNORECASE):
         stance = "Monitor"
 
+    # ── Review track (routing path) ───────────────────────────────────────────
+    if _rx.search(r'US contribution|PATH 1|United States|NTIA|FCC', t, _rx.IGNORECASE) and \
+       _rx.search(r'summary only|US contribution.*summary', t, _rx.IGNORECASE):
+        review_track = "U.S. contribution"
+        review_track_justification = "Document submitted by US/NTIA — summary only per review policy."
+    elif _rx.search(r'NOT RELEVANT|no further analysis|no FAA band affected', t, _rx.IGNORECASE):
+        review_track = "Screened out after FAA relevance review"
+        review_track_justification = _first([
+            r'NOT RELEVANT[^\n]*\n([^\n]{20,200})',
+            r'no FAA band affected[^\n]*\n?([^\n]{20,150})',
+            r'(?:NOT RELEVANT[^\n]*)',
+        ], "No FAA band overlap detected.")[:150]
+    else:
+        review_track = "FAA-relevant foreign document"
+        review_track_justification = _first([
+            r'C\) Relevance Screen\n+([^\n]{30,300})',
+            r'(?:IN-BAND|ADJACENT)[^\n]{0,20}FAA[^\n]{0,100}',
+        ], "Band overlap or adjacency detected with FAA protected band.")[:200]
+
+    # ── Stance (nuanced 4-way taxonomy) ──────────────────────────────────────
+    # risky: high-severity findings, weak methodology, proponent seeking unfavorable allocation
+    # mixed: some protective elements but open issues remain
+    # protective: document supports FAA protection criteria
+    # neutral_but_check: not directly threatening but could set precedent
+    if severity == "High" or stance == "Oppose":
+        nuanced_stance = "risky"
+    elif _rx.search(r'protective|supports.*FAA|FAA.*protection criteria.*met|compliant', t, _rx.IGNORECASE):
+        if severity in ("Medium", "High") or _rx.search(r'Non-compliant|missing|unresolved', t, _rx.IGNORECASE):
+            nuanced_stance = "mixed"
+        else:
+            nuanced_stance = "protective"
+    elif stance in ("Propose amendments", "Flag for clarification") or severity == "Medium":
+        nuanced_stance = "mixed"
+    elif review_track == "Screened out after FAA relevance review":
+        nuanced_stance = "neutral_but_check"
+    else:
+        nuanced_stance = "neutral_but_check"
+
+    # Stance justification
+    _stance_just_m = _rx.search(
+        r'(?:Recommended US Position|US Position|## F\))[^\n]*\n([\s\S]{0,400}?)(?:\n##|\Z)',
+        t, _rx.IGNORECASE)
+    stance_justification = _strip_md(
+        _stance_just_m.group(1) if _stance_just_m else stance, 250)
+
+    # ── Track change fields ────────────────────────────────────────────────────
+    if doc_status == "REVISION" and _rx.search(r'TRACK CHANGES[:\s]+\d+ insert', t, _rx.IGNORECASE):
+        track_change_summary = "revision"
+    elif doc_status == "REVISION":
+        track_change_summary = "revision"
+    elif doc_status == "NEW DOCUMENT" or doc_status == "NEW":
+        track_change_summary = "new_document"
+    elif doc_status == "UNCLEAR":
+        track_change_summary = "uncertain"
+    else:
+        track_change_summary = "uncertain"
+
+    tc_just_m = _rx.search(r'(?:Track Changes|Document Status|📋 STATUS)[^\n]*\n([^\n]{20,200})', t, _rx.IGNORECASE)
+    track_changes_justification = _strip_md(
+        tc_just_m.group(1) if tc_just_m else "No revision markup detected.", 200)
+
+    has_track_changes = _rx.search(r'TRACK CHANGES.*(?:insert|delet)', t, _rx.IGNORECASE) is not None
+    tracked_change_count = 0
+    tc_count_m = _rx.search(r'(\d+) insertions?.*?(\d+) deletions?', t, _rx.IGNORECASE)
+    if tc_count_m:
+        tracked_change_count = int(tc_count_m.group(1)) + int(tc_count_m.group(2))
+
+    # ── Risk counts (from Section D) ──────────────────────────────────────────
+    high_risk_count   = len(_rx.findall(r'Severity[:\s|*]+High',   t, _rx.IGNORECASE))
+    medium_risk_count = len(_rx.findall(r'Severity[:\s|*]+Medium', t, _rx.IGNORECASE))
+    low_risk_count    = len(_rx.findall(r'Severity[:\s|*]+Low',    t, _rx.IGNORECASE))
+
+    # ── All frequency mentions (pipe-delimited) ────────────────────────────────
+    all_freq_raw = _all(r'(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+    frequency_mentions = " | ".join(dict.fromkeys(all_freq_raw[:20])) if all_freq_raw else "—"
+
+    # ── Agenda item justification ──────────────────────────────────────────────
+    ai_just_parts = []
+    for ai_ref in (agenda_items.split(", ") if agenda_items != "—" else []):
+        num = _rx.search(r'(1\.\d+)', ai_ref)
+        if num:
+            ai_just_parts.append(f"Explicit agenda-item cue detected: {ai_ref}")
+    ai_justification = "; ".join(ai_just_parts) if ai_just_parts else (
+        "No explicit WRC-27 agenda item reference detected." if agenda_items == "—"
+        else f"Detected via document text: {agenda_items}")
+
+    # ── Full recommended actions text ─────────────────────────────────────────
+    rec_block = _rx.search(
+        r'(?:## F\)|Recommended Actions?)[^\n]*\n([\s\S]{0,800}?)(?:\n##|\Z)',
+        t, _rx.IGNORECASE)
+    recommended_actions = _strip_md(
+        rec_block.group(1) if rec_block else top_action, 400)
+
     return {
-        "Document No.":       doc_num,
-        "Source / Admin":     admin,
-        "Working Party":      wp,
-        "Agenda Item(s)":     agenda_items,
-        "Doc Status":         doc_status,
-        "Review Verdict":     verdict,
-        "Proposed Band(s)":   proposed_bands,
-        "FAA Band(s)":        faa_bands,
-        "FAA System(s)":      faa_systems,
-        "Overlap / Gap":      overlap_gap,
-        "Relationship":       relationship,
-        "Study Type":         study_type,
-        "Highest Severity":   severity,
-        "Methodology":        methodology,
-        "US Stance":          stance,
-        "Proposal Summary":   summary,
-        "Top Action":         top_action,
+        # ── Core identification ──────────────────────────────────────────────
+        "Document No.":              doc_num,
+        "Source / Admin":            admin,
+        "Working Party":             wp,
+        "Agenda Item(s)":            agenda_items,
+        "Doc Status":                doc_status,
+        "Review Verdict":            verdict,
+        # ── Frequency analysis ───────────────────────────────────────────────
+        "Proposed Band(s)":          proposed_bands,
+        "FAA Band(s)":               faa_bands,
+        "FAA System(s)":             faa_systems,
+        "Overlap / Gap":             overlap_gap,
+        "Relationship":              relationship,
+        "Study Type":                study_type,
+        "All Frequency Mentions":    frequency_mentions,
+        # ── Risk assessment ──────────────────────────────────────────────────
+        "Highest Severity":          severity,
+        "High Risk Count":           high_risk_count,
+        "Medium Risk Count":         medium_risk_count,
+        "Low Risk Count":            low_risk_count,
+        "Methodology":               methodology,
+        # ── Review routing (matches reference tool schema) ───────────────────
+        "Review Track":              review_track,
+        "Review Track Justification":review_track_justification,
+        # ── Stance (nuanced 4-way + justification) ───────────────────────────
+        "Stance":                    nuanced_stance,
+        "Stance Justification":      stance_justification,
+        "US Stance":                 stance,
+        # ── Track changes ────────────────────────────────────────────────────
+        "Track Change Summary":      track_change_summary,
+        "Track Changes Justification":track_changes_justification,
+        "Has Track Changes":         has_track_changes,
+        "Tracked Change Count":      tracked_change_count,
+        # ── Narrative fields ─────────────────────────────────────────────────
+        "Agenda Item Justification": ai_justification,
+        "Proposal Summary":          summary,
+        "Recommended Actions":       recommended_actions,
+        "Top Action":                top_action,
     }
 
 
@@ -831,7 +945,55 @@ def _make_summary_xlsx(rows):
     ws1.sheet_view.showGridLines = False
 
     # Title row
-    ws1.merge_cells("A1:Q1")
+    # Group colours for column section banding
+    GRP_COLORS = {
+        "id":       FAA_BLUE,
+        "freq":     "1A5276",
+        "risk":     "7B241C",
+        "routing":  "154360",
+        "stance":   "145A32",
+        "track":    "4A235A",
+        "narrative":"2C3E50",
+    }
+
+    # Column definitions: (header, field_key, width, group)
+    COLS = [
+        ("Doc No.",              "Document No.",               14, "id"),
+        ("Source / Admin",       "Source / Admin",             18, "id"),
+        ("WP",                   "Working Party",               8, "id"),
+        ("Agenda Item(s)",       "Agenda Item(s)",             16, "id"),
+        ("Status",               "Doc Status",                 12, "id"),
+        ("Verdict",              "Review Verdict",             22, "id"),
+        ("Proposed Band(s)",     "Proposed Band(s)",           22, "freq"),
+        ("FAA Band(s)",          "FAA Band(s)",                20, "freq"),
+        ("FAA System(s)",        "FAA System(s)",              26, "freq"),
+        ("Overlap / Gap",        "Overlap / Gap",              16, "freq"),
+        ("Relationship",         "Relationship",               14, "freq"),
+        ("Study Type",           "Study Type",                 13, "freq"),
+        ("All Freq. Mentions",   "All Frequency Mentions",     35, "freq"),
+        ("Severity",             "Highest Severity",           11, "risk"),
+        ("High #",               "High Risk Count",             8, "risk"),
+        ("Med #",                "Medium Risk Count",           8, "risk"),
+        ("Low #",                "Low Risk Count",              8, "risk"),
+        ("Methodology",          "Methodology",                14, "risk"),
+        ("Review Track",         "Review Track",               26, "routing"),
+        ("Track Justification",  "Review Track Justification", 40, "routing"),
+        ("Stance",               "Stance",                     18, "stance"),
+        ("Stance Justification", "Stance Justification",       40, "stance"),
+        ("US Stance",            "US Stance",                  16, "stance"),
+        ("TC Summary",           "Track Change Summary",       14, "track"),
+        ("TC Justification",     "Track Changes Justification",35, "track"),
+        ("Has TC",               "Has Track Changes",          10, "track"),
+        ("TC Count",             "Tracked Change Count",        9, "track"),
+        ("AI Justification",     "Agenda Item Justification",  38, "narrative"),
+        ("Proposal Summary",     "Proposal Summary",           45, "narrative"),
+        ("Recommended Actions",  "Recommended Actions",        50, "narrative"),
+        ("Top Action",           "Top Action",                 38, "narrative"),
+    ]
+    n_cols = len(COLS)
+
+    # Title row
+    ws1.merge_cells(f"A1:{_gcl(n_cols)}1")
     t_cell = ws1["A1"]
     t_cell.value = "FAA RF INTERFERENCE ANALYSIS — TRIAGE SUMMARY"
     t_cell.font  = Font(name="Arial", bold=True, color=WHITE, size=13)
@@ -840,167 +1002,187 @@ def _make_summary_xlsx(rows):
     ws1.row_dimensions[1].height = 22
 
     # Sub-header row
-    ws1.merge_cells("A2:Q2")
+    ws1.merge_cells(f"A2:{_gcl(n_cols)}2")
     from datetime import date as _xdate
     sub_cell = ws1["A2"]
-    sub_cell.value = f"Generated: {_xdate.today()}  |  {len(rows)} document(s) analyzed  |  FAA RF Interference Analysis Tool"
+    sub_cell.value = (f"Generated: {_xdate.today()}  |  {len(rows)} document(s) analyzed  |  "
+                      "FAA RF Interference Analysis Tool")
     sub_cell.font  = Font(name="Arial", italic=True, color=WHITE, size=8)
     sub_cell.fill  = fill(MED_BLUE)
     sub_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws1.row_dimensions[2].height = 14
 
-    # Column definitions: (header, field_key, width)
-    COLS = [
-        ("Doc No.",          "Document No.",      14),
-        ("Source / Admin",   "Source / Admin",    18),
-        ("WP",               "Working Party",      8),
-        ("Agenda Item(s)",   "Agenda Item(s)",    14),
-        ("Status",           "Doc Status",        12),
-        ("Verdict",          "Review Verdict",    22),
-        ("Proposed Band(s)", "Proposed Band(s)",  22),
-        ("FAA Band(s)",      "FAA Band(s)",       20),
-        ("FAA System(s)",    "FAA System(s)",     26),
-        ("Overlap/Gap",      "Overlap / Gap",     13),
-        ("Relationship",     "Relationship",      14),
-        ("Study Type",       "Study Type",        13),
-        ("Severity",         "Highest Severity",  10),
-        ("Methodology",      "Methodology",       14),
-        ("US Stance",        "US Stance",         16),
-        ("Summary",          "Proposal Summary",  40),
-        ("Top Action",       "Top Action",        38),
-    ]
+    # Group label row (row 3)
+    GRP_ROW = 3
+    grp_spans = {}
+    _last_grp = None; _grp_start = 1
+    for ci, (_, _, _, grp) in enumerate(COLS, 1):
+        if grp != _last_grp:
+            if _last_grp is not None:
+                grp_spans[_last_grp] = (grp_spans[_last_grp][0], ci-1)
+            grp_spans[grp] = (ci, ci)
+            _grp_start = ci; _last_grp = grp
+        else:
+            grp_spans[grp] = (grp_spans[grp][0], ci)
+    GRP_LABELS = {"id":"IDENTIFICATION","freq":"FREQUENCY ANALYSIS","risk":"RISK ASSESSMENT",
+                  "routing":"REVIEW ROUTING","stance":"STANCE","track":"TRACK CHANGES","narrative":"NARRATIVE"}
+    for grp, (c1, c2) in grp_spans.items():
+        if c1 != c2:
+            try: ws1.merge_cells(f"{_gcl(c1)}{GRP_ROW}:{_gcl(c2)}{GRP_ROW}")
+            except Exception: pass
+        gc = ws1.cell(row=GRP_ROW, column=c1, value=GRP_LABELS.get(grp,""))
+        gc.font = Font(name="Arial", bold=True, color=WHITE, size=8)
+        gc.fill = fill(GRP_COLORS.get(grp, FAA_BLUE))
+        gc.alignment = Alignment(horizontal="center", vertical="center")
+        gc.border = thin_border()
+    ws1.row_dimensions[GRP_ROW].height = 16
 
-    # Header row
-    HDR_ROW = 3
-    for ci, (hdr, _, width) in enumerate(COLS, 1):
+    # Column header row (row 4)
+    HDR_ROW = 4
+    for ci, (hdr, _, width, grp) in enumerate(COLS, 1):
         cell = ws1.cell(row=HDR_ROW, column=ci, value=hdr)
         cell.font      = hdr_font()
-        cell.fill      = fill(FAA_BLUE)
+        cell.fill      = fill(GRP_COLORS.get(grp, FAA_BLUE))
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border    = thin_border()
         ws1.column_dimensions[_gcl(ci)].width = width
-    ws1.row_dimensions[HDR_ROW].height = 30
+    ws1.row_dimensions[HDR_ROW].height = 32
 
-    # Data rows
     VERDICT_COLORS = {
         "REQUIRES HUMAN REVIEW": (RED_BG,   "C00000"),
-        "FLAG FOR CLARIFICATION": (YELLOW_BG, "7F4000"),
+        "FLAG FOR CLARIFICATION": (YELLOW_BG,"7F4000"),
         "LIKELY NOT RELEVANT":   (GREEN_BG,  "375623"),
     }
-    SEV_COLORS = {
-        "High":   ("C00000", WHITE),
-        "Medium": ("FF8C00", WHITE),
-        "Low":    ("375623", WHITE),
-    }
+    SEV_COLORS    = {"High":("C00000",WHITE),"Medium":("FF8C00",WHITE),"Low":("375623",WHITE)}
+    STANCE_COLORS = {"risky":("C00000",WHITE),"mixed":("FF8C00",WHITE),
+                     "protective":("375623",WHITE),"neutral_but_check":("1A5276",WHITE)}
+    TRACK_COLORS  = {"revision":MED_BLUE,"new_document":"1A5276",
+                     "clean_update":"145A32","uncertain":"7D6608"}
+    ROUTING_COLORS= {"FAA-relevant foreign document":("C00000",WHITE),
+                     "Screened out after FAA relevance review":("375623",WHITE),
+                     "U.S. contribution":("1A5276",WHITE)}
 
     for ri, row in enumerate(rows):
         excel_row = HDR_ROW + 1 + ri
-        verdict   = row.get("Review Verdict", "")
-        bg_hex, fg_hex = VERDICT_COLORS.get(
-            next((k for k in VERDICT_COLORS if k in verdict), ""), (WHITE, "000000"))
+        verdict   = row.get("Review Verdict","")
+        bg_hex, _ = VERDICT_COLORS.get(
+            next((k for k in VERDICT_COLORS if k in verdict),""), (WHITE,"000000"))
 
-        for ci, (_, field, _) in enumerate(COLS, 1):
-            val  = row.get(field, "—")
+        for ci, (_, field, _, grp) in enumerate(COLS, 1):
+            val = row.get(field,"—")
+            if val is False: val = "No"
+            if val is True:  val = "Yes"
             cell = ws1.cell(row=excel_row, column=ci, value=val)
             cell.border    = thin_border()
             cell.alignment = wrap_align()
+            cell.font      = body_font()
+            base = bg_hex if bg_hex != WHITE else (LIGHT_GRAY if ri%2==1 else WHITE)
+            cell.fill = fill(base)
 
-            # Row base color from verdict
-            cell.fill = fill(bg_hex) if bg_hex != WHITE else (
-                fill(LIGHT_GRAY) if ri % 2 == 1 else fill(WHITE))
-
-            # Column-specific overrides
             if field == "Review Verdict":
-                cell.font = body_font(bold=True, color=fg_hex)
+                _, fg = VERDICT_COLORS.get(next((k for k in VERDICT_COLORS if k in str(val)),""), (WHITE,"000000"))
+                cell.font = body_font(bold=True, color=fg)
             elif field == "Highest Severity":
-                sev_fg, sev_text = SEV_COLORS.get(val, ("000000", "000000"))
-                if val in SEV_COLORS:
-                    cell.fill = fill(sev_fg)
-                    cell.font = body_font(bold=True, color=sev_text)
+                sc = SEV_COLORS.get(str(val))
+                if sc:
+                    cell.fill = fill(sc[0]); cell.font = body_font(bold=True, color=sc[1])
                     cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif field in ("High Risk Count","Medium Risk Count","Low Risk Count"):
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if field == "High Risk Count" and isinstance(val,int) and val > 0:
+                    cell.font = body_font(bold=True, color="C00000")
+                elif field == "Medium Risk Count" and isinstance(val,int) and val > 0:
+                    cell.font = body_font(bold=True, color="FF8C00")
+            elif field == "Stance":
+                sc2 = STANCE_COLORS.get(str(val))
+                if sc2:
+                    cell.fill = fill(sc2[0]); cell.font = body_font(bold=True, color=sc2[1])
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif field == "Review Track":
+                rc = ROUTING_COLORS.get(str(val))
+                if rc:
+                    cell.fill = fill(rc[0]); cell.font = body_font(bold=True, color=rc[1])
+            elif field == "Track Change Summary":
+                tc_color = TRACK_COLORS.get(str(val))
+                if tc_color:
+                    cell.fill = fill(tc_color); cell.font = body_font(bold=True, color=WHITE)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif field == "Has Track Changes":
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if val == "Yes": cell.font = body_font(bold=True, color=MED_BLUE)
             elif field == "Methodology":
-                if val == "Non-compliant":
-                    cell.font = body_font(bold=True, color="C00000")
-                elif val == "Compliant":
-                    cell.font = body_font(color="375623")
+                if str(val) == "Non-compliant": cell.font = body_font(bold=True, color="C00000")
+                elif str(val) == "Compliant":   cell.font = body_font(color="375623")
             elif field == "US Stance":
-                if val == "Oppose":
-                    cell.font = body_font(bold=True, color="C00000")
-                elif val == "Support":
-                    cell.font = body_font(color="375623")
+                if str(val) == "Oppose":   cell.font = body_font(bold=True, color="C00000")
+                elif str(val) == "Support": cell.font = body_font(color="375623")
             elif field == "Relationship":
                 if "IN-BAND" in str(val):
                     cell.fill = fill("FCE4D6"); cell.font = body_font(bold=True, color="C00000")
                 elif "ADJACENT" in str(val):
                     cell.fill = fill(YELLOW_BG)
             elif field == "Doc Status":
-                if val == "REVISION":
+                if str(val) in ("REVISION","revision"):
                     cell.font = body_font(bold=True, color=MED_BLUE)
-            else:
-                cell.font = body_font()
+        ws1.row_dimensions[excel_row].height = 52
 
-        ws1.row_dimensions[excel_row].height = 48
+    ws1.freeze_panes = f"A{HDR_ROW+1}"
+    ws1.auto_filter.ref = f"A{HDR_ROW}:{_gcl(n_cols)}{HDR_ROW+len(rows)}"
 
-    # Freeze header rows
-    ws1.freeze_panes = f"A{HDR_ROW + 1}"
-
-    # Add autofilter on header row
-    ws1.auto_filter.ref = f"A{HDR_ROW}:{_gcl(len(COLS))}{HDR_ROW + len(rows)}"
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # SHEET 2 — FIELD LEGEND
-    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 2 — LEGEND
     ws2 = wb.create_sheet("Legend")
     ws2.sheet_view.showGridLines = False
-    ws2.column_dimensions["A"].width = 22
-    ws2.column_dimensions["B"].width = 55
-    ws2.column_dimensions["C"].width = 20
-
+    ws2.column_dimensions["A"].width = 26
+    ws2.column_dimensions["B"].width = 52
+    ws2.column_dimensions["C"].width = 28
     legend_title = ws2.cell(row=1, column=1, value="FIELD LEGEND — FAA RF Interference Analysis Tool")
     legend_title.font = Font(name="Arial", bold=True, color=WHITE, size=11)
     legend_title.fill = fill(FAA_BLUE)
     ws2.merge_cells("A1:C1")
     legend_title.alignment = Alignment(horizontal="center")
     ws2.row_dimensions[1].height = 20
-
     LEGEND = [
-        ("Field", "Description", "Values / Notes"),
-        ("Review Verdict", "AI triage decision on whether this document needs human review",
-         "REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION"),
-        ("Doc Status", "Whether this is a new submission or revision of a prior document",
-         "NEW DOCUMENT / REVISION / UNCLEAR"),
-        ("Proposed Band(s)", "Exact frequency ranges proposed in the document (MHz/GHz)",
-         "Extracted from frequency table in analysis"),
-        ("FAA Band(s)", "FAA protected bands affected by the proposal",
-         "From FAA protected band database"),
-        ("FAA System(s)", "FAA aviation systems at risk",
-         "Radio Altimeter, DME, ASR, ARSR, ILS/VOR, GPS, ADS-B, etc."),
-        ("Overlap/Gap", "Calculated frequency overlap or gap between proposed and FAA bands",
-         "e.g. OVERLAP: 10 MHz / GAP: 0 MHz"),
-        ("Relationship", "Spectral relationship between proposed and FAA band",
-         "IN-BAND / ADJACENT / NEARBY / NOT RELEVANT"),
-        ("Study Type", "Type of coexistence study required",
-         "SHARING (co-band) / COMPATIBILITY (adjacent band)"),
-        ("Highest Severity", "Maximum severity of FAA impact identified",
-         "High (red) / Medium (amber) / Low (green)"),
-        ("Methodology", "Compliance with required ITU-R methodology",
-         "Compliant / Non-compliant / No study"),
-        ("US Stance", "Recommended US delegation position",
-         "Oppose / Support / Propose amendments / Neutral"),
-        ("Top Action", "Highest priority recommended action",
-         "From Section F of the full analysis"),
+        ("Field","Description","Values / Notes"),
+        ("Doc No.","Document identifier","e.g. 5D/123-E or batch filename"),
+        ("Source / Admin","Submitting country or body","e.g. China, Working Party 5B, ICAO"),
+        ("Agenda Item(s)","WRC-27 agenda items referenced","AI 1.7, AI 1.13, AI 1.15, AI 1.17, AI 1.19"),
+        ("Status","New submission or revision","NEW DOCUMENT / REVISION / UNCLEAR"),
+        ("Review Verdict","AI triage decision","REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION"),
+        ("Proposed Band(s)","Exact proposed frequency band(s)","From analysis frequency table column 1"),
+        ("FAA Band(s)","FAA protected bands affected","From analysis frequency table column 3"),
+        ("FAA System(s)","FAA aviation systems at risk","Radio Altimeter, DME, ASR, GPS, ADS-B, etc."),
+        ("Overlap / Gap","Calculated frequency overlap or gap","GAP: 0 MHz / OVERLAP: X MHz"),
+        ("Relationship","Spectral relationship","IN-BAND / ADJACENT / NEARBY / NOT RELEVANT"),
+        ("Study Type","Coexistence study type","SHARING (co-band) / COMPATIBILITY (adjacent)"),
+        ("All Freq. Mentions","All frequency ranges found (pipe-delimited)","Raw scan — for manual cross-check"),
+        ("Severity","Highest FAA impact severity","High / Medium / Low"),
+        ("High # / Med # / Low #","Issue count at each severity level","Integer — 0 means no issues at that level"),
+        ("Methodology","ITU-R methodology compliance","Compliant / Non-compliant / No study"),
+        ("Review Track","Document routing path","FAA-relevant foreign document / Screened out / U.S. contribution"),
+        ("Track Justification","Why this routing was assigned","From Section C analysis text"),
+        ("Stance","4-way stance taxonomy","risky / mixed / protective / neutral_but_check"),
+        ("Stance Justification","Why this stance was assigned","From Section F analysis text"),
+        ("US Stance","Recommended US delegation position","Oppose / Support / Propose amendments / Monitor / Neutral"),
+        ("TC Summary","Track change classification","new_document / revision / clean_update / uncertain"),
+        ("TC Justification","Evidence for track change classification","From document status section"),
+        ("Has TC","Were track changes detected in the file?","Yes / No"),
+        ("TC Count","Total insertions + deletions detected","Integer — 0 if no track changes"),
+        ("AI Justification","Why each agenda item was flagged","Cue type and location in document"),
+        ("Proposal Summary","Brief description of what the document proposes","Up to 200 characters"),
+        ("Recommended Actions","Full Section F recommended actions text","Up to 400 characters"),
+        ("Top Action","Single highest-priority action","Up to 120 characters"),
     ]
-
     for ri, (col1, col2, col3) in enumerate(LEGEND):
-        is_hdr = (ri == 0)
-        for ci, val in enumerate([col1, col2, col3], 1):
+        is_hdr = (ri==0)
+        for ci, val in enumerate([col1,col2,col3], 1):
             cell = ws2.cell(row=ri+2, column=ci, value=val)
             cell.font      = Font(name="Arial", bold=is_hdr, size=9,
                                   color=WHITE if is_hdr else "000000")
-            cell.fill      = fill(MED_BLUE if is_hdr else (LIGHT_GRAY if ri % 2 == 0 else WHITE))
+            cell.fill      = fill(MED_BLUE if is_hdr else (LIGHT_GRAY if ri%2==0 else WHITE))
             cell.border    = thin_border()
             cell.alignment = Alignment(wrap_text=True, vertical="top")
         ws2.row_dimensions[ri+2].height = 30 if not is_hdr else 18
+
 
     buf = _xio.BytesIO()
     wb.save(buf)
