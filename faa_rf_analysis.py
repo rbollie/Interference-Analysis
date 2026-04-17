@@ -326,8 +326,13 @@ def _make_analysis_docx(analysis_md, meta):
         p.paragraph_format.space_after  = Pt(3)
         r = p.add_run(text)
         r.bold = True
-        r.font.size = Pt(14 if level == 1 else 11)
-        r.font.color.rgb = FAA_BLUE if level == 1 else MED_BLUE
+        # Section G gets a distinct amber color to flag it as the actionable draft
+        if 'Draft U.S. Response' in text or 'Draft US Response' in text:
+            r.font.size = Pt(13)
+            r.font.color.rgb = RGBColor(0x7F, 0x40, 0x00)  # dark amber
+        else:
+            r.font.size = Pt(14 if level == 1 else 11)
+            r.font.color.rgb = FAA_BLUE if level == 1 else MED_BLUE
         return p
 
     def add_body(text, color=None, bold=False, size=10):
@@ -368,38 +373,130 @@ def _make_analysis_docx(analysis_md, meta):
         return p
 
     def add_md_table(rows_data):
-        """Add a simple Word table from list of lists."""
+        """
+        Add a formatted Word table from list of lists.
+        Applies column width heuristics, header shading, and semantic cell coloring.
+        """
         if not rows_data: return
+        import re as _tr
+        from docx.shared import Inches as _In
+        from docx.oxml.ns import qn as _tqn
+        from docx.oxml import OxmlElement as _TOE
+
         n_cols = max(len(r) for r in rows_data)
+        headers = [c.strip().lower() for c in rows_data[0]] if rows_data else []
+
+        # ── Column width heuristics based on header name ──────────────────────
+        # Total usable width ≈ 6.0 inches (8.5" - 2 × 1.25" margins)
+        WIDTH_HINTS = {
+            "proposed band": 1.2, "proposed bw": 0.6, "faa band": 1.1,
+            "faa system": 1.1, "overlap": 1.0, "overlap or gap": 1.0, "gap": 0.9,
+            "relationship": 0.8, "study type": 0.8, "verdict": 1.3,
+            "severity": 0.6, "mechanism": 1.0, "required by": 0.9,
+            "priority": 0.7, "owner": 0.7, "action": 1.5, "mitigation": 1.2,
+            "title": 2.0, "description": 2.0, "finding": 1.5, "recommendation": 1.5,
+        }
+        col_widths = []
+        for h in headers:
+            w = next((v for k, v in WIDTH_HINTS.items() if k in h), None)
+            if w is None: w = 1.0  # default
+            col_widths.append(w)
+        # Pad to n_cols
+        while len(col_widths) < n_cols:
+            col_widths.append(1.0)
+        # Scale so total ≈ 6.0 inches
+        total = sum(col_widths[:n_cols])
+        scale = 6.0 / total if total > 0 else 1.0
+        col_widths = [w * scale for w in col_widths[:n_cols]]
+
+        def _shd(cell, hex_color):
+            try:
+                tcPr = cell._element.get_or_add_tcPr()
+                # Remove existing shd elements
+                for s in tcPr.findall(_tqn('w:shd')):
+                    tcPr.remove(s)
+                shd = _TOE('w:shd')
+                shd.set(_tqn('w:fill'), hex_color)
+                shd.set(_tqn('w:val'), 'clear')
+                shd.set(_tqn('w:color'), 'auto')
+                tcPr.append(shd)
+            except Exception:
+                pass
+
+        def _cell_color(val, header_hint=""):
+            """Return (text_color_rgb, bg_hex or None) based on cell value."""
+            v = str(val).strip().upper()
+            h = header_hint.lower()
+            # Relationship column
+            if "IN-BAND" in v:       return RED,   "FCE4D6"
+            if "ADJACENT" in v:      return AMBER,  "FFF2CC"
+            if "NEARBY" in v:        return AMBER,  "FFF2CC"
+            if "NOT RELEVANT" in v:  return GREEN,  "E2EFDA"
+            # Verdict
+            if "REQUIRES HUMAN REVIEW" in v: return RED,   "FCE4D6"
+            if "LIKELY NOT RELEVANT"  in v:  return GREEN, "E2EFDA"
+            if "FLAG FOR CLARIFICATION" in v: return AMBER, "FFF2CC"
+            # Severity
+            if "severity" in h or v in ("HIGH","HIGH ","HIGH\n"):
+                if "HIGH" in v: return RED, None
+                if "MEDIUM" in v: return AMBER, None
+                if "LOW" in v: return GREEN, None
+            if v == "HIGH":    return RED,   None
+            if v == "MEDIUM":  return AMBER,  None
+            if v == "LOW":     return GREEN,  None
+            # Overlap/gap
+            if "OVERLAP" in v and "overlap" in h: return RED, "FCE4D6"
+            if "GAP: 0" in v:  return AMBER, "FFF2CC"
+            # Methodology
+            if "NON-COMPLIANT" in v: return RED, None
+            if "COMPLIANT" in v:     return GREEN, None
+            # Study type
+            if "SHARING" in v:       return AMBER, None
+            if "COMPATIBILITY" in v: return MED_BLUE, None
+            # Unverified
+            if "⚠️" in val or "UNVERIFIED" in v: return RED, None
+            return DARK, None
+
         tbl = doc.add_table(rows=len(rows_data), cols=n_cols)
         tbl.style = "Table Grid"
+
+        # Apply column widths
+        for ci, width_in in enumerate(col_widths):
+            for ri in range(len(rows_data)):
+                try:
+                    tbl.rows[ri].cells[ci].width = _In(width_in)
+                except Exception:
+                    pass
+
         for ri, row_cells in enumerate(rows_data):
+            is_header = (ri == 0)
             for ci in range(n_cols):
                 cell = tbl.rows[ri].cells[ci]
                 cell.paragraphs[0].clear()
-                val = row_cells[ci] if ci < len(row_cells) else ""
+                val = row_cells[ci].strip() if ci < len(row_cells) else ""
+                hdr_hint = headers[ci] if ci < len(headers) else ""
+
                 r = cell.paragraphs[0].add_run(val)
-                r.font.size = Pt(8.5)
-                r.bold = (ri == 0)
-                if ri == 0:
+                r.font.size = Pt(8.5 if n_cols > 4 else 9)
+                cell.paragraphs[0].paragraph_format.space_after  = Pt(2)
+                cell.paragraphs[0].paragraph_format.space_before = Pt(2)
+
+                if is_header:
+                    r.bold = True
                     r.font.color.rgb = WHITE
-                    # Blue header shading
-                    try:
-                        shd = _OE('w:shd')
-                        shd.set(_qn('w:fill'), '2E75B6')
-                        shd.set(_qn('w:val'),  'clear')
-                        cell._element.get_or_add_tcPr().append(shd)
-                    except Exception:
-                        pass
+                    _shd(cell, "1F4E79")  # FAA blue header
+                    cell.paragraphs[0].alignment = 1  # center
                 else:
-                    c = DARK
-                    if val.strip() == "High":   c = RED
-                    elif val.strip() == "Medium": c = AMBER
-                    elif val.strip() == "Low":    c = GREEN
-                    elif "REQUIRES HUMAN REVIEW" in val: c = RED
-                    elif "NOT RELEVANT" in val: c = GREEN
-                    r.font.color.rgb = c
+                    txt_color, bg = _cell_color(val, hdr_hint)
+                    r.font.color.rgb = txt_color
+                    # Bold for special values
+                    if txt_color in (RED, AMBER, GREEN):
+                        r.bold = True
+                    if bg:
+                        _shd(cell, bg)
+
         doc.add_paragraph()
+
 
     # ── HEADER ───────────────────────────────────────────────────────────────
     p_title = doc.add_paragraph()
@@ -468,19 +565,68 @@ def _make_analysis_docx(analysis_md, meta):
                 add_md_table(data)
 
         elif stripped.startswith('- ') or stripped.startswith('* '):
-            add_bullet(stripped[2:])
+            text_b = stripped[2:]
+            # If bullet contains " | " separators (e.g. "Severity: High | Confidence: High")
+            # render as a mini structured row with each part on same paragraph
+            if ' | ' in text_b:
+                p = doc.add_paragraph(style="List Bullet")
+                p.paragraph_format.space_after = Pt(1)
+                parts_pipe = text_b.split(' | ')
+                for pi, part in enumerate(parts_pipe):
+                    if pi > 0:
+                        sep_r = p.add_run('  |  ')
+                        sep_r.font.size = Pt(9); sep_r.font.color.rgb = GRAY
+                    # Bold labels before ':'
+                    if ':' in part:
+                        label, _, value = part.partition(':')
+                        lr = p.add_run(label + ':')
+                        lr.bold = True; lr.font.size = Pt(9); lr.font.color.rgb = MED_BLUE
+                        # Color-code the value
+                        v = value.strip()
+                        vc = DARK
+                        if v in ('High','High\n'):   vc = RED
+                        elif v in ('Medium',):        vc = AMBER
+                        elif v in ('Low',):           vc = GREEN
+                        elif '⚠️' in v or 'UNVERIFIED' in v: vc = RED
+                        vr = p.add_run(' ' + v)
+                        vr.font.size = Pt(9); vr.font.color.rgb = vc
+                    else:
+                        pr = p.add_run(part)
+                        pr.font.size = Pt(9); pr.font.color.rgb = DARK
+            else:
+                add_bullet(text_b)
 
         elif _re.match(r'^\d+\. ', stripped):
-            p = doc.add_paragraph(style="List Number")
-            p.paragraph_format.space_after = Pt(1)
-            text = _re.sub(r'^\d+\. ', '', stripped)
-            parts = _re.split(r'\*\*(.+?)\*\*', text)
-            for idx, part in enumerate(parts):
-                if not part: continue
-                r = p.add_run(part)
-                r.font.size = Pt(9.5)
-                r.bold = (idx % 2 == 1)
-                r.font.color.rgb = DARK
+            text_n = _re.sub(r'^\d+\. ', '', stripped)
+            # Numbered action items with " | " separators — render structured
+            if ' | ' in text_n:
+                p = doc.add_paragraph(style="List Number")
+                p.paragraph_format.space_after = Pt(2)
+                parts_pipe = text_n.split(' | ')
+                for pi, part in enumerate(parts_pipe):
+                    if pi > 0:
+                        sep_r = p.add_run('   ')
+                        sep_r.font.size = Pt(9)
+                    parts_bold = _re.split(r'\*\*(.+?)\*\*', part)
+                    for bi, bp in enumerate(parts_bold):
+                        if not bp: continue
+                        br = p.add_run(bp)
+                        br.font.size = Pt(9.5)
+                        br.bold = (bi % 2 == 1)
+                        # Color priority labels
+                        if 'Immediate' in bp: br.font.color.rgb = RED
+                        elif 'Before next meeting' in bp: br.font.color.rgb = AMBER
+                        else: br.font.color.rgb = DARK
+            else:
+                p = doc.add_paragraph(style="List Number")
+                p.paragraph_format.space_after = Pt(1)
+                parts = _re.split(r'\*\*(.+?)\*\*', text_n)
+                for idx, part in enumerate(parts):
+                    if not part: continue
+                    r = p.add_run(part)
+                    r.font.size = Pt(9.5)
+                    r.bold = (idx % 2 == 1)
+                    r.font.color.rgb = DARK
 
         elif stripped == '---':
             doc.add_paragraph()
@@ -494,6 +640,13 @@ def _make_analysis_docx(analysis_md, meta):
                 add_body(stripped, bold=True, size=11)
             elif stripped.startswith('📋 STATUS') or stripped.startswith('📋 **STATUS'):
                 add_body(stripped, bold=True, size=10)
+            # Section G: Draft US Response — render with a highlighted box
+            elif stripped.startswith('**Intervention Header') or stripped.startswith('Intervention Header'):
+                p = doc.add_paragraph()
+                p.paragraph_format.space_before = Pt(4)
+                p.paragraph_format.space_after  = Pt(2)
+                r_h = p.add_run(_re.sub(r'\*+', '', stripped))
+                r_h.bold = True; r_h.font.size = Pt(10); r_h.font.color.rgb = FAA_BLUE
             else:
                 add_body(stripped)
 
@@ -4142,10 +4295,12 @@ One sentence.
 - Evidence: cite 1–2 verbatim phrases from document
 
 ## B) Key FAA Concerns (3 bullets max for batch mode)
-## C) Recommended Actions (top 2 only)'''}"""
+## C) Recommended Actions (top 2 only)
+## D) Draft U.S. Response (PATH 3 only — omit for US contributions or not-relevant documents)
+One paragraph, 100–150 words. Ready-to-use US floor intervention citing specific RR articles and ITU-R Recommendations. State the US position and key technical objection in ITU-R meeting language.'''}"""
             response = client_obj.messages.create(
                 model="claude-sonnet-4-5",   # Sonnet: 3× faster than Opus, higher rate limits — optimal for batch triage
-                max_tokens=2500,
+                max_tokens=3500,
                 messages=[{"role": "user", "content": um}],
                 system=sys_prompt,
             )
@@ -5048,7 +5203,24 @@ For each concern — both the proposed band AND the FAA band must appear as exac
 
 ## F) Recommended Actions
 Numbered list — actionable, specific, with owner and priority:
-1. **Action:** | **Target:** | **Priority:** Immediate / Before next meeting / Long-term | **Owner:** FAA / NTIA / US delegation"""
+1. **Action:** | **Target:** | **Priority:** Immediate / Before next meeting / Long-term | **Owner:** FAA / NTIA / US delegation
+
+## G) Draft U.S. Response
+Write a concise, ready-to-use US floor intervention or contribution response for this document. This should be suitable for delivery at the WP session or as a formal written comment. Include:
+
+**Intervention Header:** US Position on [Document Title / Doc Number]
+
+**Opening statement** (1–2 sentences): State the US concern and the applicable WRC-27 agenda item.
+
+**Technical objections** (bullet points): Cite specific ITU-R Recommendations and Radio Regulations that are implicated. Reference actual frequencies and FAA systems at risk with the calculated overlap/gap.
+
+**Proposed language or amendments** (if applicable): Suggest specific text changes, conditions, or requirements the US would need to see before supporting the proposal. Frame in ITU-R regulatory language.
+
+**Closing**: State the US position (support/oppose/condition) and any coalition language.
+
+Keep the draft to 200–300 words. Use ITU-R meeting language. Cite specific Recommendations and RR articles. This draft should be actionable — something a delegation representative could actually use.
+
+If this is PATH 1 (US contribution) or PATH 2 (not relevant) — omit this section entirely."""
 
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
