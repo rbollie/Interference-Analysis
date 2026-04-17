@@ -4079,7 +4079,7 @@ One sentence.
 
         if not triage_df.empty:
             st.dataframe(
-                triage_df.style.applymap(color_verdict, subset=["Verdict"]),
+                triage_df.style.map(color_verdict, subset=["Verdict"]),
                 use_container_width=True, hide_index=True
             )
         else:
