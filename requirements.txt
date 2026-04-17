@@ -11,3 +11,4 @@ pymupdf
 pdfminer.six
 python-docx
 mammoth
+openpyxl

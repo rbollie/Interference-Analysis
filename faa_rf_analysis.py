@@ -317,6 +317,392 @@ def _make_analysis_docx(analysis_md, meta):
 
 
 
+
+def _extract_analysis_fields(analysis_text, meta=None):
+    """
+    Parse a single analysis text (markdown) into a flat dict of structured fields
+    suitable for an Excel row. Works for both single and batch results.
+    """
+    import re as _rx
+    t = analysis_text or ""
+    m = meta or {}
+
+    def _find(pattern, default="—", flags=_rx.IGNORECASE):
+        match = _rx.search(pattern, t, flags)
+        return match.group(1).strip() if match else default
+
+    def _find_all(pattern, flags=_rx.IGNORECASE):
+        return [x.strip() for x in _rx.findall(pattern, t, flags)]
+
+    # ── Source / admin ─────────────────────────────────────────────────────────
+    # Try metadata first, then scan text
+    admin = m.get("submitting_admin") or _find(
+        r'(?:Source|Administration|Submitted by)[:\s]+([A-Z][A-Za-z,\s\(\)]+?)(?:\n|\||-)', "—")
+
+    # ── Doc number ────────────────────────────────────────────────────────────
+    doc_num = m.get("doc_number") or _find(r'(?:Document(?:\s+No\.?|:))\s*([\w/\-]+)', "—")
+
+    # ── Working party ─────────────────────────────────────────────────────────
+    wp = m.get("working_party") or _find(r'WP\s*([\d]+[A-Z]*)', "—")
+
+    # ── Agenda item ───────────────────────────────────────────────────────────
+    ai_matches = _find_all(r'AI\s*(1\.\d+)')
+    agenda_items = ", ".join(dict.fromkeys(ai_matches)) if ai_matches else (
+        m.get("agenda_item") or "—")
+
+    # ── Review verdict ────────────────────────────────────────────────────────
+    verdict_m = _rx.search(
+        r'REVIEW VERDICT[:\s*]+([A-Z][A-Z\s]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))',
+        t, _rx.IGNORECASE)
+    verdict = verdict_m.group(1).strip() if verdict_m else "SEE FULL ANALYSIS"
+
+    # ── Doc status (new vs revision) ──────────────────────────────────────────
+    status_m = _rx.search(r'STATUS[:\s]+\**(NEW DOCUMENT|REVISION|UNCLEAR)', t, _rx.IGNORECASE)
+    doc_status = status_m.group(1).upper() if status_m else "—"
+
+    # ── Proposed frequency bands ──────────────────────────────────────────────
+    freq_rows = _rx.findall(
+        r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))\s*\|',
+        t, _rx.IGNORECASE)
+    proposed_bands = "; ".join(dict.fromkeys(f.strip() for f in freq_rows[:4])) or "—"
+
+    # ── FAA bands impacted ────────────────────────────────────────────────────
+    faa_band_rows = _rx.findall(
+        r'\|\s*\d[\d\s,\.–-]+(?:MHz|GHz)\s*\|\s*(\d[\d\s,\.–-]+(?:MHz|GHz))\s*\|',
+        t, _rx.IGNORECASE)
+    faa_bands = "; ".join(dict.fromkeys(f.strip() for f in faa_band_rows[:4])) or "—"
+
+    # ── FAA systems ───────────────────────────────────────────────────────────
+    SYSTEMS = {
+        "Radio Altimeter": r"radio alt(?:imeter)?|RA\b|WAICS",
+        "DME/TACAN":       r"\bDME\b|\bTACAN\b",
+        "GPS L1/GNSS":     r"GPS L1|GNSS L1|1575",
+        "GNSS L5":         r"GNSS L5|GPS L5|1164.+1215",
+        "ADS-B/Mode-S":    r"ADS-?B|Mode-?S|1090",
+        "ASR":             r"\bASR\b|airport surv",
+        "ARSR":            r"\bARSR\b|en.?route.+radar",
+        "ILS/VOR":         r"\bILS\b|\bVOR\b|localizer",
+        "L-band AMS(R)S":  r"AMS\(R\)S|L.band.+sat",
+        "MLS":             r"\bMLS\b",
+        "ARNS 5 GHz":      r"ARNS.+5\s*GHz",
+    }
+    sys_hits = [s for s, p in SYSTEMS.items() if _rx.search(p, t, _rx.IGNORECASE)]
+    faa_systems = "; ".join(sys_hits) if sys_hits else "—"
+
+    # ── Overlap / gap ─────────────────────────────────────────────────────────
+    overlap_m = _rx.search(r'(?:OVERLAP|GAP)[:\s]*(\d[\d,\.]*\s*MHz)', t, _rx.IGNORECASE)
+    overlap_gap = overlap_m.group(1).strip() if overlap_m else "—"
+
+    # ── Relationship ──────────────────────────────────────────────────────────
+    rel_m = _rx.search(r'\|\s*(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\s*\|', t, _rx.IGNORECASE)
+    relationship = rel_m.group(1).upper() if rel_m else "—"
+
+    # ── Study type ────────────────────────────────────────────────────────────
+    study_m = _rx.search(r'\|\s*(SHARING|COMPATIBILITY)\s*\|', t, _rx.IGNORECASE)
+    study_type = study_m.group(1).upper() if study_m else "—"
+
+    # ── Proposal summary ─────────────────────────────────────────────────────
+    # First non-heading paragraph after ## A) or "Document Overview"
+    summ_m = _rx.search(
+        r'(?:Document Overview[^\n]*\n+|##\s*A\).*?\n+)(-\s*(?:Title|Summary)[^\n]+\n(?:-[^\n]+\n)*)',
+        t, _rx.IGNORECASE | _rx.DOTALL)
+    if summ_m:
+        summary_raw = summ_m.group(1)
+        summary = _rx.sub(r'\n+', ' ', _rx.sub(r'-\s*', '', summary_raw)).strip()[:200]
+    else:
+        # Fallback: first substantive paragraph
+        paras = [p.strip() for p in _rx.split(r'\n{2,}', t) if len(p.strip()) > 60
+                 and not p.strip().startswith('#') and not p.strip().startswith('|')]
+        summary = paras[0][:200] if paras else "—"
+
+    # ── US stance / recommended position ─────────────────────────────────────
+    stance_m = _rx.search(
+        r'(?:Recommended US Position|US Position|RECOMMENDED)[^\n]*\n+[^\n]*(?:Oppose|Support|Propose|Amend|Neutral)[^\n]*',
+        t, _rx.IGNORECASE)
+    if stance_m:
+        stance_raw = stance_m.group(0)
+        for kw in ("Oppose","Support","Propose amendments","Neutral","Flag"):
+            if _rx.search(kw, stance_raw, _rx.IGNORECASE):
+                stance = kw; break
+        else:
+            stance = stance_raw.split("\n")[-1][:40]
+    else:
+        stance = "—"
+
+    # ── Highest severity ─────────────────────────────────────────────────────
+    if _rx.search(r'Severity[:\s]*High', t, _rx.IGNORECASE):
+        severity = "High"
+    elif _rx.search(r'Severity[:\s]*Medium', t, _rx.IGNORECASE):
+        severity = "Medium"
+    elif _rx.search(r'Severity[:\s]*Low', t, _rx.IGNORECASE):
+        severity = "Low"
+    else:
+        severity = "—"
+
+    # ── Methodology compliance summary ────────────────────────────────────────
+    if _rx.search(r'Non-compliant|non.?compliance|WRONG|FLAG AS FUNDAMENTAL ERROR', t, _rx.IGNORECASE):
+        methodology = "Non-compliant"
+    elif _rx.search(r'No methodology non-compliance|methodology appears sound|compliant', t, _rx.IGNORECASE):
+        methodology = "Compliant"
+    elif _rx.search(r'Cannot confirm|no study|study not provided', t, _rx.IGNORECASE):
+        methodology = "No study"
+    else:
+        methodology = "—"
+
+    # ── Top recommended action (first F) item) ────────────────────────────────
+    action_m = _rx.search(r'(?:## F\)|Recommended Actions)[^\n]*\n+1\.[^\n]+', t, _rx.IGNORECASE)
+    top_action = action_m.group(0).split("\n")[-1].strip()[:120] if action_m else "—"
+
+    return {
+        "Document No.":       doc_num,
+        "Source / Admin":     admin,
+        "Working Party":      wp,
+        "Agenda Item(s)":     agenda_items,
+        "Doc Status":         doc_status,
+        "Review Verdict":     verdict,
+        "Proposed Band(s)":   proposed_bands,
+        "FAA Band(s)":        faa_bands,
+        "FAA System(s)":      faa_systems,
+        "Overlap / Gap":      overlap_gap,
+        "Relationship":       relationship,
+        "Study Type":         study_type,
+        "Highest Severity":   severity,
+        "Methodology":        methodology,
+        "US Stance":          stance,
+        "Proposal Summary":   summary,
+        "Top Action":         top_action,
+    }
+
+
+def _make_summary_xlsx(rows):
+    """
+    Build a formatted Excel workbook from a list of dicts (one per document).
+    Returns bytes of a valid .xlsx file.
+    rows: list of dicts from _extract_analysis_fields()
+    """
+    from openpyxl import Workbook as _WB
+    from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
+                                  GradientFill)
+    from openpyxl.utils import get_column_letter as _gcl
+    import io as _xio
+
+    # ── Colours ────────────────────────────────────────────────────────────────
+    FAA_BLUE   = "1F4E79"
+    MED_BLUE   = "2E75B6"
+    LIGHT_BLUE = "D6E4F0"
+    RED_FILL   = "C00000"
+    AMBER_FILL = "FF8C00"
+    GREEN_FILL = "375623"
+    YELLOW_BG  = "FFF2CC"
+    RED_BG     = "FCE4D6"
+    GREEN_BG   = "E2EFDA"
+    WHITE      = "FFFFFF"
+    HEADER_FG  = "FFFFFF"
+    LIGHT_GRAY = "F2F2F2"
+
+    def hdr_font(bold=True):
+        return Font(name="Arial", bold=bold, color=HEADER_FG, size=9)
+
+    def body_font(bold=False, color="000000", size=9):
+        return Font(name="Arial", bold=bold, color=color, size=size)
+
+    def fill(hex_color):
+        return PatternFill("solid", fgColor=hex_color)
+
+    def thin_border():
+        s = Side(style="thin", color="BFBFBF")
+        return Border(left=s, right=s, top=s, bottom=s)
+
+    def wrap_align(h="left", v="top"):
+        return Alignment(horizontal=h, vertical=v, wrap_text=True)
+
+    wb = _WB()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 1 — TRIAGE SUMMARY (one row per document, high-level)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws1 = wb.active
+    ws1.title = "Triage Summary"
+    ws1.sheet_view.showGridLines = False
+
+    # Title row
+    ws1.merge_cells("A1:Q1")
+    t_cell = ws1["A1"]
+    t_cell.value = "FAA RF INTERFERENCE ANALYSIS — TRIAGE SUMMARY"
+    t_cell.font  = Font(name="Arial", bold=True, color=WHITE, size=13)
+    t_cell.fill  = fill(FAA_BLUE)
+    t_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws1.row_dimensions[1].height = 22
+
+    # Sub-header row
+    ws1.merge_cells("A2:Q2")
+    from datetime import date as _xdate
+    sub_cell = ws1["A2"]
+    sub_cell.value = f"Generated: {_xdate.today()}  |  {len(rows)} document(s) analyzed  |  FAA RF Interference Analysis Tool"
+    sub_cell.font  = Font(name="Arial", italic=True, color=WHITE, size=8)
+    sub_cell.fill  = fill(MED_BLUE)
+    sub_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws1.row_dimensions[2].height = 14
+
+    # Column definitions: (header, field_key, width)
+    COLS = [
+        ("Doc No.",          "Document No.",      14),
+        ("Source / Admin",   "Source / Admin",    18),
+        ("WP",               "Working Party",      8),
+        ("Agenda Item(s)",   "Agenda Item(s)",    14),
+        ("Status",           "Doc Status",        12),
+        ("Verdict",          "Review Verdict",    22),
+        ("Proposed Band(s)", "Proposed Band(s)",  22),
+        ("FAA Band(s)",      "FAA Band(s)",       20),
+        ("FAA System(s)",    "FAA System(s)",     26),
+        ("Overlap/Gap",      "Overlap / Gap",     13),
+        ("Relationship",     "Relationship",      14),
+        ("Study Type",       "Study Type",        13),
+        ("Severity",         "Highest Severity",  10),
+        ("Methodology",      "Methodology",       14),
+        ("US Stance",        "US Stance",         16),
+        ("Summary",          "Proposal Summary",  40),
+        ("Top Action",       "Top Action",        38),
+    ]
+
+    # Header row
+    HDR_ROW = 3
+    for ci, (hdr, _, width) in enumerate(COLS, 1):
+        cell = ws1.cell(row=HDR_ROW, column=ci, value=hdr)
+        cell.font      = hdr_font()
+        cell.fill      = fill(FAA_BLUE)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border    = thin_border()
+        ws1.column_dimensions[_gcl(ci)].width = width
+    ws1.row_dimensions[HDR_ROW].height = 30
+
+    # Data rows
+    VERDICT_COLORS = {
+        "REQUIRES HUMAN REVIEW": (RED_BG,   "C00000"),
+        "FLAG FOR CLARIFICATION": (YELLOW_BG, "7F4000"),
+        "LIKELY NOT RELEVANT":   (GREEN_BG,  "375623"),
+    }
+    SEV_COLORS = {
+        "High":   ("C00000", WHITE),
+        "Medium": ("FF8C00", WHITE),
+        "Low":    ("375623", WHITE),
+    }
+
+    for ri, row in enumerate(rows):
+        excel_row = HDR_ROW + 1 + ri
+        verdict   = row.get("Review Verdict", "")
+        bg_hex, fg_hex = VERDICT_COLORS.get(
+            next((k for k in VERDICT_COLORS if k in verdict), ""), (WHITE, "000000"))
+
+        for ci, (_, field, _) in enumerate(COLS, 1):
+            val  = row.get(field, "—")
+            cell = ws1.cell(row=excel_row, column=ci, value=val)
+            cell.border    = thin_border()
+            cell.alignment = wrap_align()
+
+            # Row base color from verdict
+            cell.fill = fill(bg_hex) if bg_hex != WHITE else (
+                fill(LIGHT_GRAY) if ri % 2 == 1 else fill(WHITE))
+
+            # Column-specific overrides
+            if field == "Review Verdict":
+                cell.font = body_font(bold=True, color=fg_hex)
+            elif field == "Highest Severity":
+                sev_fg, sev_text = SEV_COLORS.get(val, ("000000", "000000"))
+                if val in SEV_COLORS:
+                    cell.fill = fill(sev_fg)
+                    cell.font = body_font(bold=True, color=sev_text)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif field == "Methodology":
+                if val == "Non-compliant":
+                    cell.font = body_font(bold=True, color="C00000")
+                elif val == "Compliant":
+                    cell.font = body_font(color="375623")
+            elif field == "US Stance":
+                if val == "Oppose":
+                    cell.font = body_font(bold=True, color="C00000")
+                elif val == "Support":
+                    cell.font = body_font(color="375623")
+            elif field == "Relationship":
+                if "IN-BAND" in str(val):
+                    cell.fill = fill("FCE4D6"); cell.font = body_font(bold=True, color="C00000")
+                elif "ADJACENT" in str(val):
+                    cell.fill = fill(YELLOW_BG)
+            elif field == "Doc Status":
+                if val == "REVISION":
+                    cell.font = body_font(bold=True, color=MED_BLUE)
+            else:
+                cell.font = body_font()
+
+        ws1.row_dimensions[excel_row].height = 48
+
+    # Freeze header rows
+    ws1.freeze_panes = f"A{HDR_ROW + 1}"
+
+    # Add autofilter on header row
+    ws1.auto_filter.ref = f"A{HDR_ROW}:{_gcl(len(COLS))}{HDR_ROW + len(rows)}"
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 2 — FIELD LEGEND
+    # ══════════════════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet("Legend")
+    ws2.sheet_view.showGridLines = False
+    ws2.column_dimensions["A"].width = 22
+    ws2.column_dimensions["B"].width = 55
+    ws2.column_dimensions["C"].width = 20
+
+    legend_title = ws2.cell(row=1, column=1, value="FIELD LEGEND — FAA RF Interference Analysis Tool")
+    legend_title.font = Font(name="Arial", bold=True, color=WHITE, size=11)
+    legend_title.fill = fill(FAA_BLUE)
+    ws2.merge_cells("A1:C1")
+    legend_title.alignment = Alignment(horizontal="center")
+    ws2.row_dimensions[1].height = 20
+
+    LEGEND = [
+        ("Field", "Description", "Values / Notes"),
+        ("Review Verdict", "AI triage decision on whether this document needs human review",
+         "REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION"),
+        ("Doc Status", "Whether this is a new submission or revision of a prior document",
+         "NEW DOCUMENT / REVISION / UNCLEAR"),
+        ("Proposed Band(s)", "Exact frequency ranges proposed in the document (MHz/GHz)",
+         "Extracted from frequency table in analysis"),
+        ("FAA Band(s)", "FAA protected bands affected by the proposal",
+         "From FAA protected band database"),
+        ("FAA System(s)", "FAA aviation systems at risk",
+         "Radio Altimeter, DME, ASR, ARSR, ILS/VOR, GPS, ADS-B, etc."),
+        ("Overlap/Gap", "Calculated frequency overlap or gap between proposed and FAA bands",
+         "e.g. OVERLAP: 10 MHz / GAP: 0 MHz"),
+        ("Relationship", "Spectral relationship between proposed and FAA band",
+         "IN-BAND / ADJACENT / NEARBY / NOT RELEVANT"),
+        ("Study Type", "Type of coexistence study required",
+         "SHARING (co-band) / COMPATIBILITY (adjacent band)"),
+        ("Highest Severity", "Maximum severity of FAA impact identified",
+         "High (red) / Medium (amber) / Low (green)"),
+        ("Methodology", "Compliance with required ITU-R methodology",
+         "Compliant / Non-compliant / No study"),
+        ("US Stance", "Recommended US delegation position",
+         "Oppose / Support / Propose amendments / Neutral"),
+        ("Top Action", "Highest priority recommended action",
+         "From Section F of the full analysis"),
+    ]
+
+    for ri, (col1, col2, col3) in enumerate(LEGEND):
+        is_hdr = (ri == 0)
+        for ci, val in enumerate([col1, col2, col3], 1):
+            cell = ws2.cell(row=ri+2, column=ci, value=val)
+            cell.font      = Font(name="Arial", bold=is_hdr, size=9,
+                                  color=WHITE if is_hdr else "000000")
+            cell.fill      = fill(MED_BLUE if is_hdr else (LIGHT_GRAY if ri % 2 == 0 else WHITE))
+            cell.border    = thin_border()
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws2.row_dimensions[ri+2].height = 30 if not is_hdr else 18
+
+    buf = _xio.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def _make_meeting_docx(info, sessions, docs, ais, actions):
     """Build a formatted Word trip report from Meeting Notes. Returns bytes."""
     from docx import Document as _MD
@@ -595,6 +981,315 @@ def _make_batch_docx(batch_results, triage_rows, working_party, analysis_depth):
 
     bio = _bio.BytesIO(); bdoc.save(bio); bio.seek(0)
     return bio.getvalue()
+
+
+def _make_summary_xlsx(records):
+    """
+    Build a summary Excel workbook from a list of analysis record dicts.
+    Each record is one contribution (single or from batch).
+    Returns bytes of a valid .xlsx file.
+
+    Record keys (all optional — blank if absent):
+      file, doc_number, working_party, submitting_admin, meeting_date, agenda_item,
+      doc_type, analysis_depth, analysis_text, verdict, doc_status
+    """
+    import io as _xio
+    import re as _xre
+    from openpyxl import Workbook
+    from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
+                                  GradientFill)
+    from openpyxl.utils import get_column_letter
+    from datetime import date as _xdate
+
+    # ── Color palette ──────────────────────────────────────────────────────────
+    FAA_BLUE   = "1F4E79"
+    MED_BLUE   = "2E75B6"
+    LIGHT_BLUE = "D6E4F0"
+    RED_BG     = "FFE5E5"
+    RED_FG     = "C00000"
+    AMBER_BG   = "FFF3CD"
+    AMBER_FG   = "7F6000"
+    GREEN_BG   = "E5FFE5"
+    GREEN_FG   = "375623"
+    GRAY_BG    = "F2F2F2"
+    WHITE      = "FFFFFF"
+    DARK       = "1A1A1A"
+
+    def fill(hex_color):
+        return PatternFill("solid", fgColor=hex_color)
+
+    def border():
+        thin = Side(style="thin", color="BFBFBF")
+        return Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def hdr_font(white=True, size=10):
+        return Font(name="Arial", bold=True, size=size,
+                    color=WHITE if white else DARK)
+
+    def body_font(bold=False, color=DARK, size=9):
+        return Font(name="Arial", bold=bold, size=size, color=color)
+
+    def wrap(p=None):
+        return Alignment(wrap_text=True, vertical="top",
+                         horizontal=p or "left")
+
+    # ── Helper: extract structured fields from analysis markdown ───────────────
+    def extract_fields(text, meta):
+        t = text or ""
+
+        # Source country / admin
+        admin = meta.get("submitting_admin","")
+        if not admin:
+            m = _xre.search(r'(?:Submitting Admin(?:istration)?|Source)[:\s]+([^\n|]+)', t, _xre.IGNORECASE)
+            admin = m.group(1).strip()[:40] if m else "—"
+
+        # Agenda item
+        ai = meta.get("agenda_item","")
+        if not ai:
+            m = _xre.search(r'(?:AI|Agenda Item)\s*(1\.\d+)', t, _xre.IGNORECASE)
+            ai = f"AI {m.group(1)}" if m else "—"
+
+        # New or revision
+        doc_status = meta.get("doc_status","")
+        if not doc_status:
+            m = _xre.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', t, _xre.IGNORECASE)
+            doc_status = m.group(1).title() if m else "—"
+
+        # Verdict
+        verdict = meta.get("verdict","")
+        if not verdict:
+            m = _xre.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', t)
+            verdict = m.group(1).strip().title() if m else "See Full Analysis"
+
+        # US position / stance
+        stance = "—"
+        if "US contribution" in t and "summary only" in t:
+            stance = "US — Summary Only"
+        else:
+            m = _xre.search(r'(?:Recommended US Position|US Position|STANCE)[:\s*]*([^\n]{10,80})', t, _xre.IGNORECASE)
+            if m:
+                stance = m.group(1).strip().rstrip('*').strip()[:80]
+
+        # Proposal summary — first non-table sentence from overview section
+        summary = "—"
+        m = _xre.search(r'## A\).*?\n((?:(?!##).)+)', t, _xre.DOTALL)
+        if m:
+            raw = _xre.sub(r'\*+|`+|\|[^\n]+\|', '', m.group(1)).strip()
+            sentences = [s.strip() for s in raw.split('.') if len(s.strip()) > 20]
+            summary = '. '.join(sentences[:2])[:200] + ('.' if sentences else '')
+
+        # Proposed bands — extract from frequency table
+        bands_proposed = []
+        for m in _xre.finditer(
+            r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))',
+            t, _xre.IGNORECASE
+        ):
+            b = m.group(1).strip()
+            if b not in bands_proposed:
+                bands_proposed.append(b)
+        proposed_bands_str = "; ".join(bands_proposed[:4]) or "—"
+
+        # Impacted FAA bands — extract FAA band column from freq table
+        faa_bands_hit = []
+        for m in _xre.finditer(
+            r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))'
+            r'\s*\|\s*([A-Za-z\s/()]+)',
+            t
+        ):
+            sys_name = m.group(2).strip()[:40]
+            if sys_name and sys_name not in faa_bands_hit and len(sys_name) > 2:
+                faa_bands_hit.append(sys_name)
+        faa_systems_str = "; ".join(faa_bands_hit[:4]) or "—"
+
+        # Overlap / gap
+        overlap = "—"
+        m = _xre.search(r'(?:OVERLAP|GAP)[:\s]+(\d+\s*MHz)', t, _xre.IGNORECASE)
+        if m: overlap = m.group(1).strip()
+
+        # Study type
+        study_type = "—"
+        if "sharing" in t.lower():     study_type = "Sharing"
+        if "compatibility" in t.lower(): study_type = "Compatibility"
+
+        # Top issue severity
+        severities = _xre.findall(r'Severity[:\s]+(High|Medium|Low)', t, _xre.IGNORECASE)
+        top_severity = ("High"   if "High"   in severities else
+                        "Medium" if "Medium" in severities else
+                        "Low"    if "Low"    in severities else "—")
+
+        # Number of issues
+        n_issues = len(_xre.findall(r'\*\*Issue\s*\d+', t))
+
+        # Top recommended action
+        action = "—"
+        m = _xre.search(r'(?:## F\)|Recommended Actions?)[^\n]*\n+\s*\d+\.\s*\*\*Action[:\*\s]+([^\n]{10,100})', t, _xre.IGNORECASE)
+        if m: action = m.group(1).strip().rstrip('*').strip()[:120]
+
+        return {
+            "File / Doc No.":       meta.get("doc_number") or meta.get("file") or "—",
+            "Source / Admin":       admin,
+            "Working Party":        meta.get("working_party","—"),
+            "Agenda Item":          ai,
+            "New or Revision":      doc_status,
+            "Proposal Summary":     summary,
+            "Proposed Bands":       proposed_bands_str,
+            "Impacted FAA Systems": faa_systems_str,
+            "Overlap / Gap":        overlap,
+            "Study Type":           study_type,
+            "US Stance":            stance,
+            "Top Issue Severity":   top_severity,
+            "No. of Issues":        n_issues if n_issues else "—",
+            "Review Verdict":       verdict,
+            "Top Recommended Action": action,
+            "Meeting / Date":       meta.get("meeting_date","—"),
+            "Analysis Depth":       meta.get("analysis_depth","—"),
+        }
+
+    # ── Build rows ─────────────────────────────────────────────────────────────
+    rows = [extract_fields(r.get("analysis_text",""), r) for r in records]
+
+    # ── Create workbook ────────────────────────────────────────────────────────
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Contribution Summary"
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A3"
+
+    # Title row
+    ws.merge_cells("A1:Q1")
+    title_cell = ws["A1"]
+    title_cell.value = f"FAA ITU-R Contribution Analysis — Summary  |  Generated {_xdate.today()}"
+    title_cell.font  = Font(name="Arial", bold=True, size=13, color=WHITE)
+    title_cell.fill  = fill(FAA_BLUE)
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    # Column definitions: (header, width, notes)
+    COLUMNS = [
+        ("File / Doc No.",         22, "Document number or filename"),
+        ("Source / Admin",         18, "Submitting administration"),
+        ("Working Party",          12, "WP 5D / 5B / 4C / 7B / 7C"),
+        ("Agenda Item",            10, "AI 1.7, 1.13, 1.15, etc."),
+        ("New or Revision",        14, "New Document / Revision / Unclear"),
+        ("Proposal Summary",       40, "2-sentence summary of the contribution"),
+        ("Proposed Bands",         24, "Frequency bands in the proposal (MHz/GHz)"),
+        ("Impacted FAA Systems",   28, "FAA systems at risk"),
+        ("Overlap / Gap",          14, "Overlap or gap in MHz"),
+        ("Study Type",             14, "Sharing (co-band) or Compatibility (adjacent)"),
+        ("US Stance",              30, "Recommended US position"),
+        ("Top Issue Severity",     16, "High / Medium / Low"),
+        ("No. of Issues",          12, "Count of FAA impact issues identified"),
+        ("Review Verdict",         26, "REQUIRES HUMAN REVIEW / NOT RELEVANT / etc."),
+        ("Top Recommended Action", 40, "Highest-priority action item"),
+        ("Meeting / Date",         18, "Meeting context"),
+        ("Analysis Depth",         14, "Quick / Standard / Deep"),
+    ]
+
+    # Header row (row 2)
+    for ci, (col_name, col_width, _) in enumerate(COLUMNS, 1):
+        col_letter = get_column_letter(ci)
+        cell = ws.cell(row=2, column=ci, value=col_name)
+        cell.font      = hdr_font(white=True, size=9)
+        cell.fill      = fill(MED_BLUE)
+        cell.alignment = wrap("center")
+        cell.border    = border()
+        ws.column_dimensions[col_letter].width = col_width
+    ws.row_dimensions[2].height = 36
+
+    # Data rows
+    col_keys = [c[0] for c in COLUMNS]
+    for ri, row in enumerate(rows, 3):
+        alt_bg = GRAY_BG if ri % 2 == 0 else WHITE
+        for ci, key in enumerate(col_keys, 1):
+            val = row.get(key, "—")
+            cell = ws.cell(row=ri, column=ci, value=val)
+            cell.font      = body_font()
+            cell.alignment = wrap()
+            cell.border    = border()
+
+            # Conditional formatting
+            if key == "Review Verdict":
+                if "HUMAN REVIEW" in str(val):
+                    cell.fill = fill(RED_BG); cell.font = body_font(bold=True, color=RED_FG)
+                elif "NOT RELEVANT" in str(val):
+                    cell.fill = fill(GREEN_BG); cell.font = body_font(color=GREEN_FG)
+                elif "CLARIFICATION" in str(val):
+                    cell.fill = fill(AMBER_BG); cell.font = body_font(color=AMBER_FG)
+                else:
+                    cell.fill = fill(alt_bg)
+            elif key == "Top Issue Severity":
+                if str(val) == "High":
+                    cell.fill = fill(RED_BG); cell.font = body_font(bold=True, color=RED_FG)
+                elif str(val) == "Medium":
+                    cell.fill = fill(AMBER_BG); cell.font = body_font(color=AMBER_FG)
+                elif str(val) == "Low":
+                    cell.fill = fill(GREEN_BG); cell.font = body_font(color=GREEN_FG)
+                else:
+                    cell.fill = fill(alt_bg)
+            elif key == "New or Revision":
+                if "Revision" in str(val):
+                    cell.fill = fill(AMBER_BG)
+                else:
+                    cell.fill = fill(alt_bg)
+            elif key == "US Stance":
+                if "Oppose" in str(val):
+                    cell.fill = fill(RED_BG)
+                elif "Support" in str(val):
+                    cell.fill = fill(GREEN_BG)
+                else:
+                    cell.fill = fill(alt_bg)
+            else:
+                cell.fill = fill(alt_bg)
+
+        ws.row_dimensions[ri].height = max(30, min(80, 15 + len(str(row.get("Proposal Summary",""))
+                                                                 ) // 5))
+
+    # Auto-filter on header row
+    ws.auto_filter.ref = f"A2:{get_column_letter(len(COLUMNS))}{len(rows)+2}"
+
+    # Second sheet: Legend
+    wl = wb.create_sheet("Legend")
+    wl.sheet_view.showGridLines = False
+    wl.column_dimensions["A"].width = 28
+    wl.column_dimensions["B"].width = 55
+    legend_items = [
+        ("COLUMN",                   "DESCRIPTION"),
+        ("File / Doc No.",           "ITU-R document number (e.g. 5D/123-E) or uploaded filename"),
+        ("Source / Admin",           "Submitting administration(s)"),
+        ("Working Party",            "WP 5B, 5D, 4C, 7B, or 7C"),
+        ("Agenda Item",              "WRC-27 agenda item reference (AI 1.7, 1.13, etc.)"),
+        ("New or Revision",          "Whether this is a new contribution or an update"),
+        ("Proposal Summary",         "2-sentence neutral summary of what the contribution proposes"),
+        ("Proposed Bands",           "Frequency bands stated in the proposal (exact MHz/GHz)"),
+        ("Impacted FAA Systems",     "FAA protected systems identified as at risk"),
+        ("Overlap / Gap",            "Calculated overlap or gap between proposed and FAA bands"),
+        ("Study Type",               "Sharing = co-band; Compatibility = adjacent band"),
+        ("US Stance",                "Recommended US position extracted from analysis"),
+        ("Top Issue Severity",       "Highest severity finding: High / Medium / Low"),
+        ("No. of Issues",            "Number of distinct FAA impact issues identified"),
+        ("Review Verdict",           "REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION"),
+        ("Top Recommended Action",   "Highest-priority action from the analysis"),
+        ("", ""),
+        ("COLOR CODE",               "MEANING"),
+        ("🔴 Red",                   "Requires human review / High severity / US opposes"),
+        ("🟡 Amber",                  "Flag for clarification / Medium severity / Revision"),
+        ("🟢 Green",                  "Not relevant / Low severity / US supports"),
+    ]
+    for ri, (label, desc) in enumerate(legend_items, 1):
+        la = wl.cell(row=ri, column=1, value=label)
+        lb = wl.cell(row=ri, column=2, value=desc)
+        if ri == 1 or label in ("COLOR CODE", "COLUMN"):
+            la.font = lb.font = Font(name="Arial", bold=True, size=9, color=WHITE)
+            la.fill = lb.fill = fill(FAA_BLUE)
+        else:
+            la.font = lb.font = Font(name="Arial", size=9)
+        la.border = lb.border = border()
+        la.alignment = lb.alignment = Alignment(wrap_text=True, vertical="top")
+
+    buf = _xio.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
 
 
 FAA_BANDS = {
@@ -3255,16 +3950,45 @@ Once configured, the analyzer will work every time you visit the app.
             "Upload multiple ITU-R contribution documents",
             type=["pdf", "txt", "docx", "doc"],
             accept_multiple_files=True,
-            help="Upload all documents you want to triage in one session. Each is analyzed separately.",
+            help="Streamlit Cloud limit: 200 MB total across all files. Recommended batch size: 10–20 documents per run for reliability. Each document is analyzed sequentially.",
             key="batch_uploader"
         )
 
         if batch_files_uploaded:
-            batch_mode_active = True
-            batch_files = batch_files_uploaded
-            st.success(f"✅ {len(batch_files)} file(s) queued for batch analysis")
-            for f in batch_files:
-                st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
+            BATCH_HARD_LIMIT = 50   # practical API + timeout ceiling
+            BATCH_WARN_LIMIT = 20   # warn above this
+
+            total_kb = sum(f.size for f in batch_files_uploaded) / 1024
+            n_files  = len(batch_files_uploaded)
+
+            if n_files > BATCH_HARD_LIMIT:
+                st.error(
+                    f"❌ {n_files} files selected — maximum supported batch size is {BATCH_HARD_LIMIT}. "
+                    f"Please split into smaller batches. "
+                    f"Tip: sort contributions by agenda item first, then upload one AI at a time."
+                )
+                batch_files = []
+            else:
+                batch_mode_active = True
+                batch_files = batch_files_uploaded
+
+                if n_files > BATCH_WARN_LIMIT:
+                    warn(
+                        f"⚠️ Large batch: {n_files} files ({total_kb:.0f} KB total). "
+                        f"Estimated time: {n_files * 25 // 60}–{n_files * 40 // 60} minutes. "
+                        f"Streamlit Cloud has a ~10-minute request timeout — for batches over 20 documents, "
+                        f"split into two runs and use the filter on the results."
+                    )
+                else:
+                    st.success(
+                        f"✅ {n_files} file(s) queued — {total_kb:.0f} KB total. "
+                        f"Estimated time: ~{max(1, n_files * 25 // 60)}–{max(1, n_files * 40 // 60)} min "
+                        f"({'Quick' if analysis_depth.startswith('Quick') else 'Standard'} depth)."
+                    )
+
+                with st.expander(f"📋 Files queued ({n_files})"):
+                    for f in batch_files:
+                        st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
 
     with input_tab_paste:
         contrib_pasted = st.text_area(
@@ -3503,7 +4227,7 @@ One sentence.
 ## B) Key FAA Concerns (3 bullets max for batch mode)
 ## C) Recommended Actions (top 2 only)'''}"""
             response = client_obj.messages.create(
-                model="claude-opus-4-5",
+                model="claude-sonnet-4-5",   # Sonnet: 3× faster than Opus, higher rate limits — optimal for batch triage
                 max_tokens=2500,
                 messages=[{"role": "user", "content": um}],
                 system=sys_prompt,
@@ -3554,68 +4278,247 @@ One sentence.
         # ── Triage summary table ──────────────────────────────────────────────
         st.markdown("---")
         st.subheader("🗂️ Triage Summary")
-        ex("Quick-scan table — review verdict is extracted from each analysis. Documents flagged REQUIRES HUMAN REVIEW need manual follow-up.")
+        ex("Filter by Agenda Item or FAA system to quickly isolate documents that matter to a specific concern. The triage table and filtered results update instantly.")
 
         import re as _re_b
+
+        # ── Known FAA entity aliases for matching ──────────────────────────────
+        FAA_ENTITY_PATTERNS = {
+            "Radio Altimeter (RA)":     r"radio alt(?:imeter)?|RA\b|WAICS|4[,.]?2.+4[,.]?4",
+            "DME / TACAN":              r"DME|TACAN|distance measur|960.+1215|1215.+960",
+            "GPS / GNSS L1":            r"GPS L1|GNSS L1|1559.+1610|1575",
+            "GNSS L5 / ARNS":           r"GNSS L5|GPS L5|L5\b|1164.+1215",
+            "ADS-B / Mode-S":           r"ADS-?B|Mode-?S|1090",
+            "ASR (Airport Radar)":      r"ASR\b|airport surv|2700.+2900|2900.+2700",
+            "ARSR (En-Route Radar)":    r"ARSR\b|en.?route.+radar|air route surv",
+            "ILS / VOR":                r"ILS\b|VOR\b|localizer|glide slope|108.+118",
+            "L-band AMS(R)S":           r"AMS\(R\)S|L.band.+sat|1525.+1559|1559.+1525",
+            "MLS":                      r"\bMLS\b|microwave landing",
+            "ARNS 5 GHz":               r"ARNS.+5|5[,.]?0.+5[,.]?15|5350.+5470",
+            "Weather Radar":            r"weather radar|airborne.+radar|9[,.]?0.+9[,.]?5",
+        }
+
+        # ── Known Agenda Item patterns ─────────────────────────────────────────
+        AI_PATTERNS = {
+            "AI 1.7":  r"AI\s*1\.7|agenda item\s*1\.7|1\.7\b.*IMT|IMT.*4[,.]?4|4[,.]?8.*GHz",
+            "AI 1.13": r"AI\s*1\.13|agenda item\s*1\.13|1\.13\b|MSS.+694|DC.MSS|925.+960|1475.+1518|2620.+2690",
+            "AI 1.15": r"AI\s*1\.15|agenda item\s*1\.15|1\.15\b|lunar|SRS.*space.+space",
+            "AI 1.17": r"AI\s*1\.17|agenda item\s*1\.17|1\.17\b|space weather|EESS.*passive.*27|27.*28.*GHz",
+            "AI 1.19": r"AI\s*1\.19|agenda item\s*1\.19|1\.19\b|EESS.*4[,.]?2|4[,.]?2.*EESS|passive.*4[,.]?4",
+        }
+
         triage_rows = []
         for res in batch_results:
             if res["error"]:
-                triage_rows.append({"File": res["file"], "Verdict": "ERROR", "Status": "—", "Key Finding": res["analysis"][:80]})
+                triage_rows.append({
+                    "File": res["file"], "Verdict": "ERROR", "Doc Status": "—",
+                    "Proposed Freq": "—", "Agenda Item": "—", "FAA Systems": "—",
+                    "_analysis": res["analysis"], "_error": True,
+                })
                 continue
-            # Extract verdict from analysis
-            verdict_match = _re_b.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', res["analysis"])
-            verdict = verdict_match.group(1).strip() if verdict_match else "SEE FULL ANALYSIS"
-            status_match = _re_b.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', res["analysis"], _re_b.IGNORECASE)
-            status = status_match.group(1).upper() if status_match else "—"
-            # Extract first frequency table row if present
-            freq_match = _re_b.search(r'\|\s*(\d[\d.,\-–\s]*(?:MHz|GHz)[^\|]*)\|', res["analysis"])
-            freq_str = freq_match.group(1).strip()[:40] if freq_match else "—"
-            triage_rows.append({"File": res["file"], "Verdict": verdict, "Doc Status": status, "Proposed Freq": freq_str})
 
-        triage_df = pd.DataFrame(triage_rows)
+            text = res["analysis"]
+
+            # Verdict
+            vm = _re_b.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', text)
+            verdict = vm.group(1).strip() if vm else "SEE ANALYSIS"
+
+            # Doc status
+            sm = _re_b.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', text, _re_b.IGNORECASE)
+            status = sm.group(1).upper() if sm else "—"
+
+            # Proposed frequency — extract all freq mentions from table rows
+            freq_matches = _re_b.findall(
+                r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))[^|]*\|',
+                text, _re_b.IGNORECASE
+            )
+            freq_str = "; ".join(dict.fromkeys(f.strip() for f in freq_matches[:3])) or "—"
+
+            # Agenda item — match from analysis text
+            ai_hits = []
+            for ai_label, pattern in AI_PATTERNS.items():
+                if _re_b.search(pattern, text, _re_b.IGNORECASE):
+                    ai_hits.append(ai_label)
+            ai_str = ", ".join(ai_hits) if ai_hits else "—"
+
+            # FAA entities — scan for mentions
+            faa_hits = []
+            for entity, pattern in FAA_ENTITY_PATTERNS.items():
+                if _re_b.search(pattern, text, _re_b.IGNORECASE):
+                    faa_hits.append(entity)
+            faa_str = ", ".join(faa_hits) if faa_hits else "—"
+
+            triage_rows.append({
+                "File":         res["file"],
+                "Verdict":      verdict,
+                "Doc Status":   status,
+                "Proposed Freq":freq_str[:50],
+                "Agenda Item":  ai_str,
+                "FAA Systems":  faa_str,
+                "_analysis":    text,
+                "_error":       False,
+            })
+
+        # ── Filter controls ────────────────────────────────────────────────────
+        all_ai  = sorted({r["Agenda Item"] for r in triage_rows if r["Agenda Item"] not in ("—","")})
+        all_faa = sorted({
+            ent.strip()
+            for r in triage_rows
+            for ent in r["FAA Systems"].split(",")
+            if ent.strip() not in ("—","")
+        })
+
+        fcol1, fcol2, fcol3 = st.columns([1, 2, 2])
+        with fcol1:
+            verdict_filter = st.multiselect(
+                "Filter by Verdict",
+                ["REQUIRES HUMAN REVIEW", "FLAG FOR CLARIFICATION", "LIKELY NOT RELEVANT", "ERROR"],
+                default=[],
+                key="batch_verdict_filter",
+            )
+        with fcol2:
+            ai_filter = st.multiselect(
+                "Filter by Agenda Item",
+                options=all_ai if all_ai else ["— none detected —"],
+                default=[],
+                key="batch_ai_filter",
+            )
+        with fcol3:
+            faa_filter = st.multiselect(
+                "Filter by FAA System",
+                options=all_faa if all_faa else ["— none detected —"],
+                default=[],
+                key="batch_faa_filter",
+            )
+
+        # Apply filters
+        def row_matches(r):
+            if verdict_filter and not any(v in r["Verdict"] for v in verdict_filter):
+                return False
+            if ai_filter and not any(ai in r["Agenda Item"] for ai in ai_filter):
+                return False
+            if faa_filter and not any(faa in r["FAA Systems"] for faa in faa_filter):
+                return False
+            return True
+
+        filtered = [r for r in triage_rows if row_matches(r)]
+        n_total    = len(triage_rows)
+        n_filtered = len(filtered)
+        n_review   = sum(1 for r in filtered if "HUMAN REVIEW" in r["Verdict"])
+
+        # Filter stats
+        sf1, sf2, sf3, sf4 = st.columns(4)
+        sf1.metric("Total documents",      n_total)
+        sf2.metric("Matching filters",     n_filtered)
+        sf3.metric("Requires human review", n_review,
+                   delta=f"{n_review}/{n_filtered}" if n_filtered else None)
+        sf4.metric("Not relevant",
+                   sum(1 for r in filtered if "NOT RELEVANT" in r["Verdict"]))
+
+        # ── Triage table (filtered) ────────────────────────────────────────────
+        display_cols = ["File","Verdict","Doc Status","Proposed Freq","Agenda Item","FAA Systems"]
+        triage_df = pd.DataFrame([{k: r[k] for k in display_cols} for r in filtered])
 
         def color_verdict(val):
-            if "HUMAN REVIEW" in str(val): return "background-color:#3a1a1a;color:#ff8888;font-weight:bold"
-            if "NOT RELEVANT" in str(val):  return "background-color:#1a3a1a;color:#88ff88"
-            if "CLARIFICATION" in str(val): return "background-color:#3a3a1a;color:#ffff88"
+            v = str(val)
+            if "HUMAN REVIEW" in v:   return "background-color:#3a1a1a;color:#ff8888;font-weight:bold"
+            if "NOT RELEVANT"  in v:  return "background-color:#1a3a1a;color:#88ff88"
+            if "CLARIFICATION" in v:  return "background-color:#3a3a1a;color:#ffff88"
+            if v == "ERROR":          return "background-color:#2a1a2a;color:#ff88ff"
             return ""
 
-        st.dataframe(triage_df.style.applymap(color_verdict, subset=["Verdict"]),
-                     use_container_width=True, hide_index=True)
+        if not triage_df.empty:
+            st.dataframe(
+                triage_df.style.applymap(color_verdict, subset=["Verdict"]),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.info("No documents match the selected filters.")
 
-        # ── Individual results ────────────────────────────────────────────────
+        # ── Individual results (filtered) ─────────────────────────────────────
         st.markdown("---")
-        st.subheader("📋 Full Analysis — Each Document")
-        for res in batch_results:
-            with st.expander(f"{'🔴' if 'HUMAN REVIEW' in res['analysis'] else '🟢'} {res['file']}"):
-                st.markdown(res["analysis"])
+        active_filters = []
+        if verdict_filter: active_filters.append(f"Verdict: {', '.join(verdict_filter)}")
+        if ai_filter:      active_filters.append(f"AI: {', '.join(ai_filter)}")
+        if faa_filter:     active_filters.append(f"FAA system: {', '.join(faa_filter)}")
+        filter_desc = f" — Filtered: {', '.join(active_filters)}" if active_filters else f" — All {n_total} documents"
+        st.subheader(f"📋 Full Analysis ({n_filtered} document{'s' if n_filtered != 1 else ''}){filter_desc}")
 
-        # ── Combined Word report ──────────────────────────────────────────────
+        for res in filtered:
+            icon = "🔴" if "HUMAN REVIEW" in res["Verdict"] \
+                   else ("🟢" if "NOT RELEVANT" in res["Verdict"] \
+                   else ("⚠️" if "CLARIFICATION" in res["Verdict"] else "⚪"))
+            ai_tag  = f" [{res['Agenda Item']}]"  if res["Agenda Item"]  != "—" else ""
+            faa_tag = f" [{res['FAA Systems'][:40]}]" if res["FAA Systems"] != "—" else ""
+            label   = f"{icon} {res['File']}{ai_tag}{faa_tag}"
+            with st.expander(label):
+                st.markdown(res["_analysis"])
+
+
+        # ── Downloads: Word + Excel ────────────────────────────────────────────
         st.markdown("---")
-        st.subheader("📄 Download Combined Batch Report (.docx)")
-        ex("Single Word document with the triage table followed by the full analysis for every document.")
+        n_label = f"{n_filtered} document{'s' if n_filtered != 1 else ''}"
+        filter_note = f" (filtered: {', '.join(active_filters)})" if active_filters else f" — all {n_total} docs"
+        st.subheader(f"📥 Download Reports — {n_label}{filter_note}")
 
         try:
             from datetime import date as _bdate2
-            import re as _brc
-            def _bc(s, n=20): return _brc.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
-            batch_fname = f"FAA_Batch_{_bc(working_party,15)}_{len(batch_files)}docs_{_bdate2.today()}.docx"
-            batch_docx_bytes = _make_batch_docx(
-                batch_results, triage_rows, working_party, analysis_depth
-            )
-            st.download_button(
-                label=f"📄 Download Batch Report — {len(batch_files)} documents (.docx)",
-                data=batch_docx_bytes,
-                file_name=batch_fname,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary",
-                use_container_width=True,
-            )
+            import re as _brc2
+            def _bc2(s, n=20): return _brc2.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
+
+            filtered_triage = [{k: r[k] for k in display_cols} for r in filtered]
+            filtered_batch  = [{"file": r["File"], "analysis": r["_analysis"],
+                                 "tc": "", "error": r["_error"]} for r in filtered]
+
+            filter_tag = ""
+            if ai_filter:  filter_tag += "_" + "_".join(_bc2(a,8) for a in ai_filter)
+            if faa_filter: filter_tag += "_" + "_".join(_bc2(f,8) for f in faa_filter)
+            base_name = f"FAA_Batch_{_bc2(working_party,10)}_{n_filtered}docs{filter_tag}_{_bdate2.today()}"
+
+            dl_b1, dl_b2 = st.columns(2)
+
+            with dl_b1:
+                try:
+                    batch_docx_bytes = _make_batch_docx(filtered_batch, filtered_triage, working_party, analysis_depth)
+                    st.download_button(
+                        label=f"📄 Word — Full Detailed Report ({n_label}) (.docx)",
+                        data=batch_docx_bytes,
+                        file_name=f"{base_name}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary",
+                        use_container_width=True,
+                        help="Triage table + full A–F analysis for each document",
+                    )
+                except Exception as we:
+                    st.error(f"❌ Word error: {we}")
+
+            with dl_b2:
+                try:
+                    xlsx_rows = [
+                        _extract_analysis_fields(
+                            r.get("_analysis",""),
+                            {"doc_number": r.get("File",""), "working_party": working_party,
+                             "submitting_admin": r.get("Source / Admin",""),
+                             "agenda_item": r.get("Agenda Item",""), "analysis_depth": analysis_depth}
+                        )
+                        for r in filtered
+                    ]
+                    xlsx_bytes = _make_summary_xlsx(xlsx_rows)
+                    st.download_button(
+                        label=f"📊 Excel — Summary Table ({n_label}) (.xlsx)",
+                        data=xlsx_bytes,
+                        file_name=f"{base_name}_summary.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="One row per document — source country, agenda item, bands, overlap, verdict, stance, methodology",
+                    )
+                except Exception as xe:
+                    st.error(f"❌ Excel error: {xe}")
+                    import traceback; st.code(traceback.format_exc())
+
         except Exception as be:
-            st.error(f"❌ Batch Word report error: {be}")
-            import traceback
-            st.code(traceback.format_exc())
-            import re as _bre
+            st.error(f"❌ Report generation error: {be}")
+            import traceback; st.code(traceback.format_exc())
 
     if single_btn and contrib_input.strip():
 
@@ -3771,11 +4674,49 @@ COMPATIBILITY vs SHARING DISTINCTION (use correct term in output):
 - COMPATIBILITY STUDY: Proposed service is in an ADJACENT or NEARBY BAND — ITU-R requires
   the proposer to demonstrate the FAA incumbent is protected.
 
-1. RELEVANCE SCREEN — FREQUENCY-FIRST
-   Step 1: Extract ALL frequencies/bands mentioned (exact MHz/GHz numbers only).
-   Step 2: Cross-check against FAA protected band list — IN-BAND, ADJACENT, NEARBY, or NOT RELEVANT.
-   Step 3: State RELEVANCE VERDICT first. If USA contribution: summarize only, do not critique.
-   Step 4: Identify WRC-27 AI (1.7, 1.13, 1.15, 1.17, 1.19) and study type (SHARING / COMPATIBILITY).
+═══════════════════════════════════════════════════════════════════
+DOCUMENT ROUTING — APPLY BEFORE ANY OTHER ANALYSIS
+Three paths. Determine which path applies FIRST, then stop at that level.
+═══════════════════════════════════════════════════════════════════
+
+PATH 1 — US CONTRIBUTION (submitting administration is USA / United States / NTIA / FCC):
+  → SUMMARIZE ONLY. Do not critique, challenge, or flag concerns.
+  → Produce only: document title, submitting admin, WRC-27 AI reference, and a
+    3–5 sentence neutral summary of what the US is proposing or supporting.
+  → End with: "US contribution — summary only per review policy."
+  → Do NOT proceed to Sections B–F.
+
+PATH 2 — FOREIGN CONTRIBUTION, NO FAA IMPACT:
+  → The proposed frequencies/bands are NOT in-band, adjacent, or otherwise threatening
+    to any FAA protected band. Clearly state the gap in MHz/GHz.
+  → Produce only: the Frequency Relevance Summary table (with the gap), a one-sentence
+    explanation of why this does not affect FAA interests, and the REVIEW VERDICT:
+    "LIKELY NOT RELEVANT — [reason]."
+  → End with: "No FAA band affected — no further analysis required."
+  → Do NOT proceed to Sections B–F.
+
+PATH 3 — FOREIGN CONTRIBUTION WITH FAA IMPACT (or uncertain relevance):
+  → Proceed with the full analysis below (Sections A–F).
+  → Apply all methodology compliance checks for the applicable Working Party.
+  → Every finding must cite the specific ITU-R Recommendation that requires it.
+
+To determine the path:
+  - Check the submitting administration field first. Any US-origin contribution → PATH 1.
+  - If foreign: run the frequency screen. No FAA band in-band or adjacent → PATH 2.
+  - If foreign AND frequencies threaten FAA bands → PATH 3.
+  - If submitting administration is unclear: state "Administration not identified — treating
+    as PATH 3 pending clarification."
+
+1. RELEVANCE SCREEN — FREQUENCY-FIRST (PATH 3 only)
+   Step 1: Extract ALL frequencies/bands from the document — exact low MHz, high MHz, and bandwidth.
+           State what the document actually says, verbatim if possible.
+   Step 2: For each proposed band, identify the closest FAA protected band and calculate:
+           - If proposed band overlaps FAA band: OVERLAP = min(prop_high, faa_high) − max(prop_low, faa_low) MHz
+           - If proposed band is below FAA band:  GAP = FAA_low − prop_high  MHz
+           - If proposed band is above FAA band:  GAP = prop_low − FAA_high  MHz
+           State the arithmetic result. Never write "adjacent" or "nearby" without the number.
+   Step 3: State RELEVANCE VERDICT with the actual calculated overlap/gap.
+           Identify WRC-27 AI and study type (SHARING if overlap > 0, COMPATIBILITY if gap = 0 or small).
 
 2. AVIATION/FAA IMPACT ASSESSMENT
    Only raise concerns that are grounded in a specific ITU-R requirement or RR provision.
@@ -4024,97 +4965,109 @@ CONTRIBUTION TEXT (final accepted version):
 {analysis_questions}
 
 ═══════════════════════════════════════════════════════════════════
-REQUIRED OUTPUT STRUCTURE — produce all sections below in order
+REQUIRED OUTPUT STRUCTURE
+Apply the correct path determined above.
 ═══════════════════════════════════════════════════════════════════
 
-## ⚡ FREQUENCY RELEVANCE SUMMARY  ← PRODUCE THIS FIRST, BEFORE ANYTHING ELSE
-Show a compact table. Use exact MHz or GHz numbers. No prose, no paragraphs — just the table.
+━━━ PATH 1 — US CONTRIBUTION (use this format only) ━━━
 
-| Proposed Frequency | FAA Band | FAA System | Gap / Overlap | Relationship | Study Type |
-|---|---|---|---|---|---|
-| [exact MHz/GHz from doc] | [exact MHz/GHz from FAA list] | [system name] | [e.g. 0 MHz gap / 40 MHz gap / 200 MHz overlap] | IN-BAND / ADJACENT / NEARBY / NOT RELEVANT | SHARING / COMPATIBILITY / N/A |
+## Document Overview
+- Title (if found in document)
+- Submitting Administration: USA / United States / NTIA / FCC
+- WRC-27 Agenda Item: [number if stated]
+- Summary: [3–5 neutral sentences describing what the US is proposing or supporting]
 
-If a proposed frequency is NOT near any FAA band, say so in one line: "No FAA band within [X] MHz — not relevant."
-If you cannot find the exact proposed frequency in the document, write "Frequency not stated in document — flag for clarification."
+*US contribution — summary only per review policy.*
 
-**REVIEW VERDICT: [REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION]**
-One sentence explaining the verdict.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ PATH 2 — FOREIGN, NO FAA IMPACT (use this format only) ━━━
+
+## ⚡ FREQUENCY RELEVANCE SUMMARY
+Show the proposed band AND the nearest FAA band with exact numbers — always both columns populated.
+
+| Proposed Band (from doc) | FAA Band (from protected list) | FAA System | Gap (MHz) | Verdict |
+|---|---|---|---|---|
+| [low MHz]–[high MHz] ([BW] MHz) | [low MHz]–[high MHz] | [system name] | [exact gap in MHz — calculated, not estimated] | NOT RELEVANT |
+
+Rule for gap calculation: Gap = FAA_low − Proposed_high  (or Proposed_low − FAA_high if above).
+If proposed band is above the FAA band: Gap = Proposed_low_MHz − FAA_high_MHz.
+If proposed band is below the FAA band: Gap = FAA_low_MHz − Proposed_high_MHz.
+State the number explicitly, e.g. "Gap: 340 MHz" — never write "significant gap" without the number.
+
+**REVIEW VERDICT: LIKELY NOT RELEVANT — [one sentence with the actual gap number]**
+Example: "Proposed 27.5–28 GHz is 23,100 MHz above the nearest FAA band (Radio Altimeter 4.2–4.4 GHz). No in-band or adjacent overlap."
+
+- [Confirm no overlap and state the gap]
+- [Note indirect risks only if a specific harmonic or OOB path exists — state the math, e.g. "2nd harmonic of 960 MHz = 1920 MHz, not in FAA band"]
+
+*No FAA band affected — no further analysis required.*
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ PATH 3 — FOREIGN WITH FAA IMPACT (full analysis) ━━━
+
+## ⚡ FREQUENCY RELEVANCE SUMMARY  ← ALWAYS FIRST, ALWAYS EXPLICIT NUMBERS
+
+One row per proposed band / FAA band pair. Both columns MUST contain exact MHz or GHz numbers — never abbreviations or names alone.
+
+| Proposed Band | Proposed BW | FAA Band | FAA System | Overlap or Gap | Relationship | Study Type |
+|---|---|---|---|---|---|---|
+| [low]–[high] MHz/GHz | [BW] MHz | [low]–[high] MHz/GHz | [system name] | OVERLAP: [X] MHz  –or–  GAP: [X] MHz | IN-BAND / ADJACENT / NEARBY | SHARING / COMPATIBILITY |
+
+Overlap/Gap calculation rules (show the arithmetic):
+- IN-BAND overlap: state "OVERLAP: [min(prop_high, faa_high) − max(prop_low, faa_low)] MHz"
+  Example: Proposed 1085–1095 MHz overlaps ADS-B 1085–1095 MHz → OVERLAP: 10 MHz (full band)
+- ADJACENT gap: state "GAP: [FAA_low − Prop_high] MHz" or "GAP: [Prop_low − FAA_high] MHz"
+  Example: Proposed 4400–4800 MHz, FAA 4200–4400 MHz → GAP: 0 MHz (immediately adjacent, touching)
+  Example: Proposed 925–960 MHz, FAA 960–1215 MHz → GAP: 0 MHz (touching at 960 MHz)
+- NEARBY: state "GAP: [X] MHz — OOB/harmonic risk possible"
+  Example: Proposed 3700–3980 MHz, FAA 4200–4400 MHz → GAP: 220 MHz (OOB risk)
+
+If the document does not state exact frequencies: write "Exact band not stated in document — [what was stated]. Flag for clarification."
+
+**REVIEW VERDICT: [REQUIRES HUMAN REVIEW / FLAG FOR CLARIFICATION]**
+One sentence including the actual overlap or gap number.
+Example: "REQUIRES HUMAN REVIEW — proposed 4.4–4.8 GHz is 0 MHz from Radio Altimeter 4.2–4.4 GHz (immediately adjacent, touching at 4.4 GHz)."
 
 ---
 
-## A) Document Overview
-- Title, source/administration, date (only if found in document — do not invent)
-- 2–4 sentence summary of the contribution's purpose
-- WRC-27 Agenda Item: state the number if clearly stated; otherwise "Not explicitly stated"
-- If USA contribution: summarize position and key proposals — do not adversarially critique
+## A) Document Overview + Status
+- Title, source/administration, date (only if in document — do not invent)
+- WRC-27 Agenda Item (if stated)
+- 📋 STATUS: [NEW DOCUMENT / REVISION / UNCLEAR] — [confidence]
+- Evidence: cite 1–2 verbatim phrases supporting the status determination
 
-## B) Document Status — NEW or REVISION?
-**Start with a clear status line in this exact format:**
-
-> 📋 STATUS: [NEW DOCUMENT / REVISION / UNCLEAR] — [High / Medium / Low] confidence
-
-Then provide:
-- **Evidence from document text** (cite 1–2 actual phrases verbatim in "quotation marks"):
-  e.g. *"This document updates 5D/123-E in response to comments received at the Geneva meeting"* → confirms REVISION
-  e.g. *"This is a new contribution proposing..."* → confirms NEW DOCUMENT
-  If no linguistic signal found: state "No revision language found in document text."
-- **Track changes signal**: state whether track changes were detected and how many (if uploaded as Word file)
-- **Combined assessment**: state your conclusion and confidence level
-
-If this is a REVISION:
-- Bullet list of the most consequential changes vs previous version (use track changes data if available, or infer from context)
-- For each change: what changed and why it matters for FAA compatibility
-- If track changes detected but no revision language: note the discrepancy
-
-If this is NEW:
-- State: "New document — full text analyzed below."
+## B) Track Changes Summary
+- If track changes detected: bullet list of consequential changes and FAA impact
+- If new document: "New document — full text analyzed"
 
 ## C) Relevance Screen
-One short paragraph. Reference the frequency table above. State:
-- Which bands are in-band, which are adjacent (with the actual MHz gap)
-- Whether this requires a sharing study (co-band) or compatibility study (adjacent)
-- Any indirect risks even if not directly relevant (harmonics, OOB landing in FAA band, blocking)
-- If not relevant: say so plainly and give the reason
+Two parts:
+1. **Proposed bands:** List every frequency band proposed in the document with exact MHz/GHz numbers and bandwidth.
+2. **FAA band impacts:** For each proposed band, state the FAA band it overlaps or is adjacent to, the exact overlap in MHz (or gap if no overlap), and whether it requires a sharing study (co-band) or compatibility study (adjacent). Use numbers throughout — no prose substitutions for numerical values.
 
 ## D) FAA Impact Findings
-For each concern, use this exact format — keep it concise:
+For each concern — both the proposed band AND the FAA band must appear as exact numbers:
 
 **Issue [N]:** [one-line description]
-- Bands: [proposed freq in MHz/GHz] vs [FAA band in MHz/GHz] — [gap or overlap]
-- FAA system: [system name and what it does]
-- Mechanism: [in-band / OOB / blocking / spurious / intermod]
+- Proposed band: [low]–[high] MHz/GHz ([BW] MHz)
+- FAA band: [low]–[high] MHz/GHz — [FAA system name]
+- Overlap / Gap: [OVERLAP: X MHz]  or  [GAP: X MHz]
+- Mechanism: [in-band / OOB (state the OOB boundary) / blocking / spurious / intermod]
+- Required by: [specific Recommendation/RR article]
 - Severity: [Low / Medium / High] | Confidence: [Low / Medium / High]
-- Mitigation: [specific technical fix or text change]
-- ⚠️ UNVERIFIED: [flag any claims you cannot confirm from the document]
-
-If no FAA impact found: state "No direct FAA impact identified from available document content."
-Do NOT manufacture impact findings if the document does not provide sufficient evidence.
+- Mitigation: [specific fix with numbers where possible]
+- ⚠️ UNVERIFIED: [anything that cannot be confirmed from the document]
 
 ## E) Methodology Compliance
-Assess ONLY whether the study follows the methodology required by the applicable ITU-R
-Recommendations for this Working Party. Do not critique general engineering design choices.
-
-Structure as three sub-sections:
-**Compliant:** What the contribution does correctly per the applicable methodology
-**Non-compliant:** What deviates from a specific required methodology — cite the Recommendation
-**Missing:** What the applicable Recommendation requires but the contribution omits — cite it
-
-Format for each non-compliant or missing item:
-- **Finding:** [what is wrong or absent]
-- **Required by:** [specific Recommendation/RR article that mandates it]
-- **Impact:** [how this affects the FAA protection finding]
-
-If no methodology violations are found: state "No methodology non-compliance identified against applicable ITU-R Recommendations."
-Do NOT flag something as missing unless a specific Recommendation explicitly requires it for this WP and scenario.
+**Compliant:** [what the study does correctly per the applicable Recommendation]
+**Non-compliant:** [deviations — cite the specific Recommendation for each]
+**Missing:** [what the applicable Recommendation requires but is absent — cite it]
 
 ## F) Recommended Actions
-Numbered list. For each action:
-1. **Action:** what specifically to do
-2. **Target:** which section/parameter in the contribution
-3. **Priority:** Immediate / Before next meeting / Long-term
-4. **Owner:** FAA / NTIA / US delegation / ICAO
-
-If no actions warranted: state clearly. Do not pad with generic recommendations."""
+Numbered list — actionable, specific, with owner and priority:
+1. **Action:** | **Target:** | **Priority:** Immediate / Before next meeting / Long-term | **Owner:** FAA / NTIA / US delegation"""
 
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
@@ -4169,7 +5122,7 @@ Intermodulation / spurious response
 
                 # ── Word Document Download ────────────────────────────────────
                 st.markdown("---")
-                st.subheader("📄 Download Analysis Report")
+                st.subheader("📥 Download Analysis Report")
 
                 def _clean(s, maxlen=20):
                     import re as _rc
@@ -4191,24 +5144,44 @@ Intermodulation / spurious response
                     "doc_type":        doc_type,
                     "analysis_depth":  analysis_depth,
                 }
-                try:
-                    docx_bytes_out = _make_analysis_docx(analysis_text, docx_meta)
-                    st.download_button(
-                        label="📄 Download Analysis Report (.docx)",
-                        data=docx_bytes_out,
-                        file_name=f"FAA_Analysis_{safe_name}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        type="primary",
-                        use_container_width=True,
-                    )
-                except Exception as docx_err:
-                    st.error(f"❌ Word generation error: {docx_err}")
-                    st.download_button(
-                        "⬇️ Download Analysis (.txt) — fallback",
-                        f"FAA Analysis\n{'='*60}\n{analysis_text}",
-                        file_name=f"FAA_Analysis_{safe_name}.txt",
-                        mime="text/plain",
-                    )
+
+                dl_col1, dl_col2 = st.columns(2)
+
+                with dl_col1:
+                    try:
+                        docx_bytes_out = _make_analysis_docx(analysis_text, docx_meta)
+                        st.download_button(
+                            label="📄 Word — Full Analysis Report (.docx)",
+                            data=docx_bytes_out,
+                            file_name=f"FAA_Analysis_{safe_name}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="primary",
+                            use_container_width=True,
+                            help="Detailed analysis report with all sections A–F",
+                        )
+                    except Exception as docx_err:
+                        st.error(f"❌ Word error: {docx_err}")
+                        st.download_button(
+                            "⬇️ Download (.txt) — fallback",
+                            f"FAA Analysis\n{'='*60}\n{analysis_text}",
+                            file_name=f"FAA_Analysis_{safe_name}.txt",
+                            mime="text/plain",
+                        )
+
+                with dl_col2:
+                    try:
+                        xlsx_row = _extract_analysis_fields(analysis_text, docx_meta)
+                        xlsx_bytes = _make_summary_xlsx([xlsx_row])
+                        st.download_button(
+                            label="📊 Excel — Summary Table (.xlsx)",
+                            data=xlsx_bytes,
+                            file_name=f"FAA_Summary_{safe_name}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            help="High-level summary: source, agenda item, bands, verdict, stance — one row",
+                        )
+                    except Exception as xe:
+                        st.error(f"❌ Excel error: {xe}")
 
             except anthropic.AuthenticationError:
                 st.error("❌ Invalid API key. Check your Streamlit secrets configuration.")
