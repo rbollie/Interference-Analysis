@@ -768,13 +768,13 @@ def _extract_analysis_fields(analysis_text, meta=None):
         review_track_justification = _first([
             r'NOT RELEVANT[^\n]*\n([^\n]{20,200})',
             r'no FAA band affected[^\n]*\n?([^\n]{20,150})',
-            r'(?:NOT RELEVANT[^\n]*)',
+            r'(NOT RELEVANT[^\n]{0,100})',
         ], "No FAA band overlap detected.")[:150]
     else:
         review_track = "FAA-relevant foreign document"
         review_track_justification = _first([
             r'C\) Relevance Screen\n+([^\n]{30,300})',
-            r'(?:IN-BAND|ADJACENT)[^\n]{0,20}FAA[^\n]{0,100}',
+            r'(?:IN-BAND|ADJACENT)[^\n]{0,20}(FAA[^\n]{0,100})',
         ], "Band overlap or adjacency detected with FAA protected band.")[:200]
 
     # ── Stance (nuanced 4-way taxonomy) ──────────────────────────────────────
