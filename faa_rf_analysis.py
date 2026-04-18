@@ -3617,7 +3617,7 @@ elif selected_tab == "📚 Tutorial":
 2. ASSESS    →  Run link budget + Monte Carlo to quantify the threat
 3. COMPARE   →  Check results against ITU-R protection criteria
 4. DRAFT     →  Build the US contribution with technical findings
-5. ENGAGE    →  Submit through NTIA, coordinate with ICAO/allies
+5. ENGAGE    →  Submit through FAA or NTIA, coordinate with ICAO/allies
 ```
     """)
 
@@ -6754,7 +6754,7 @@ When preparing for a Working Party meeting, your position paper should follow th
 **Week 3 — Policy**
 - Complete Lesson 10
 - Use the Contribution Analyzer with the three example contributions
-- Read two real US contributions from a past WP 5D meeting (ask NTIA for access)
+- Read two real US contributions from a past WP 5D meeting (ask FAA or NTIA for access)
 
 **Week 4 — Integration**
 - Draft a mock US contribution using the Contribution Summary module
@@ -8458,7 +8458,7 @@ elif selected_tab == "📖 Glossary":
          "🔤 Acronyms — Systems & Organizations"),
 
         ("NTIA", "National Telecommunications and Information Administration",
-         "The US government agency, part of the Department of Commerce, responsible for managing the federal government's use of radio spectrum. NTIA coordinates all US government positions for ITU-R meetings and submits official US contributions. FAA spectrum concerns are channeled through NTIA.",
+         "The US government agency, part of the Department of Commerce, responsible for managing the federal government's use of radio spectrum. NTIA coordinates all US government positions for ITU-R meetings and submits official US contributions. FAA submits contributions directly on technical aviation matters and coordinates its spectrum positions through NTIA for policy alignment.",
          "🔤 Acronyms — Systems & Organizations"),
 
         ("OOBE", "Out-of-Band Emissions",
