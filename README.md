@@ -1,5 +1,5 @@
 # FAA RF Interference Analysis Tool
-### For ITU-R WP 5D / 5B Policy Support
+### For ITU-R WP Policy Support
 
 A browser-based RF engineering tool to support FAA spectrum protection 
 work in ITU-R proceedings. Built to help RF engineers supporting NTIA/FAA 
