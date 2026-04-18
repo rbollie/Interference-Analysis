@@ -2043,10 +2043,15 @@ def eirp_dbm(tx_power_dbm: float, tx_gain_dbi: float) -> float:
     return tx_power_dbm + tx_gain_dbi
 
 def pfd_dbm_per_m2(eirp_dbm_val: float, dist_km: float, freq_mhz: float) -> float:
-    """Power flux density at receiver: PFD = EIRP - FSPL - 10log10(4π/λ²)... simplified."""
-    fspl = free_space_path_loss_db(freq_mhz, dist_km)
-    wavelength_m = 300.0 / freq_mhz
-    return eirp_dbm_val - fspl - 10.0 * np.log10(4.0 * np.pi / wavelength_m**2)
+    """
+    Power flux density at receiver (dBW/m²).
+    PFD(dBW/m²) = EIRP(dBW) - 10·log10(4π·d²)
+    This is frequency-independent — it only depends on EIRP and distance.
+    freq_mhz retained in signature for API compatibility but not used.
+    """
+    eirp_dbw = eirp_dbm_val - 30.0          # dBm → dBW
+    d_m      = dist_km * 1000.0             # km → m
+    return eirp_dbw - 10.0 * np.log10(4.0 * np.pi * d_m**2)
 
 # ─── Simplified ITU-R P.452 terrestrial interference model ───────────────────
 def p452_basic_loss_db(freq_mhz: float, dist_km: float,
@@ -5785,6 +5790,11 @@ elif selected_tab == "🎓 RF Training":
         "Lesson 8 — Propagation Models: P.452, P.528, P.676",
         "Lesson 9 — Monte Carlo & Aggregate Interference",
         "Lesson 10 — From RF Math to ITU-R Policy",
+        "── WP-Specific Case Studies ──",
+        "Lesson 11 — WP 5D: IMT vs Radio Altimeter (AI 1.7)",
+        "Lesson 12 — WP 5B: Maritime Radar vs ARSR/ASR",
+        "Lesson 13 — WP 4C: MSS Satellite Downlinks vs DME/AMS(R)S (AI 1.13)",
+        "Lesson 14 — WP 7B & 7C: Lunar SRS and EESS Passive (AI 1.15, 1.17, 1.19)",
     ])
 
     st.markdown("---")
@@ -5824,8 +5834,11 @@ This compares two power levels. When you say a signal is "30 dB stronger," you m
         """)
 
         st.subheader("Converting Between Watts and dBm")
-        st.latex(r"P_{\text{dBm}} = 10 \cdot \log_{10}(P_{\text{mW}})")
-        st.latex(r"P_{\text{mW}} = 10^{P_{\text{dBm}}/10}")
+        st.latex(r"P_{\text{dBm}} = 10 \cdot \log_{10}(P_{\text{mW}}) = 10 \cdot \log_{10}(P_{\text{W}} \times 1000)")
+        st.latex(r"P_{\text{W}} = \frac{10^{P_{\text{dBm}}/10}}{1000} = 10^{(P_{\text{dBm}} - 30)/10}")
+        st.markdown("""
+> **Quick rule:** dBW = dBm − 30 &nbsp;&nbsp;|&nbsp;&nbsp; dBm = dBW + 30 &nbsp;&nbsp;|&nbsp;&nbsp; 0 dBW = 30 dBm = 1 W
+        """)
 
         st.markdown("**Common conversions to memorize:**")
         conv_data = {
@@ -6012,8 +6025,10 @@ the same signal strength in the direction of maximum radiation.
         st.markdown("""
 PFD describes how much power arrives per unit area at a given distance. 
 ITU-R uses PFD limits in the Radio Regulations to protect Earth-based receivers from satellites.
+PFD depends only on EIRP and distance — it is **frequency-independent**.
         """)
         st.latex(r"\text{PFD (dBW/m}^2) = \text{EIRP (dBW)} - 10\log_{10}(4\pi d^2)")
+        st.markdown("> where *d* is in metres. To use km: substitute $d_m = d_{km} \\times 1000$")
 
         d_km_l3 = st.slider("Distance (km)", 1, 500, 10)
         eirp_dbw = eirp_val - 30
@@ -6748,6 +6763,382 @@ When preparing for a Working Party meeting, your position paper should follow th
         """)
 
         ok("You've completed the RF Training curriculum. You now have the fundamentals to run interference analyses, interpret results, and translate findings into ITU-R policy language.")
+
+    # ── LESSON 11 — WP 5D ────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 11"):
+        st.header("📡 Lesson 11 — WP 5D: IMT vs Radio Altimeter (AI 1.7)")
+        ex("WRC-27 Agenda Item 1.7 is the highest-priority FAA concern: IMT identification at 4.4–4.8 GHz sits immediately adjacent to the Radio Altimeter band at 4.2–4.4 GHz. This lesson walks through the complete interference analysis as WP 5D sees it.")
+
+        st.subheader("The Threat in Numbers")
+        st.markdown("""
+| Parameter | Value | Significance |
+|---|---|---|
+| IMT proposed band | 4,400–4,800 MHz | WRC-27 AI 1.7 candidate |
+| Radio Altimeter band | 4,200–4,400 MHz | ARNS safety-of-life |
+| Gap at band edge | **0 MHz** (touching at 4,400 MHz) | No guard band whatsoever |
+| RA I/N threshold | −6 dB + 6 dB safety factor = **−12 dB** | ITU-R M.1477 Annex 5 |
+| RA noise floor | −90 dBm (200 MHz BW, 5 dB NF) | Derived from DO-155 |
+| Max interference allowed | −90 + (−12) = **−102 dBm** | At RA receiver input |
+
+The Radio Altimeter is a FMCW ranging radar — it transmits at 4.2–4.4 GHz and measures the return time.
+Its receiver front-end is **broadband** — it cannot filter out an adjacent 4.4 GHz IMT signal.
+This creates a **blocking and desensitization** risk, not just in-band interference.
+        """)
+
+        st.subheader("Step 1 — Identify the Interference Mechanism")
+        st.markdown("""
+WP 5D's methodology (ITU-R M.1642) requires two separate analyses:
+
+**Path A — OOB emissions from IMT landing in RA band:**
+- ITU-R SM.1541 requires IMT OOB emissions to be ≥23 dB below the carrier at the 250% bandwidth boundary
+- The 250% BN boundary of 4,400–4,800 MHz (400 MHz BW) = 4,400 − (400 × 1.5) = **3,800 MHz** (lower boundary)
+- The upper OOB boundary is at 4,400 + (400 × 1.5) = **5,000 MHz**
+- The RA band (4,200–4,400 MHz) is **inside** the lower OOB domain of the IMT band
+- SM.1541 mask level at 4,200 MHz: OOB emissions must be ≤ carrier − 23 dB
+
+**Path B — IMT blocking/desensitization of RA receiver front-end:**
+- A strong IMT signal at 4,400 MHz can saturate the RA LNA even if spectrally out of band
+- DO-155 defines the RA blocking threshold — typically 0 dBm at antenna port
+- 5G NR base station EIRP can be 60–70 dBm — FSPL at 1 km is only ~125 dB → received = −65 dBm >> blocking threshold
+        """)
+
+        st.subheader("Step 2 — Run the Link Budget")
+        st.markdown("""
+**Worked example — worst case airborne scenario (M.1642 §4):**
+
+```
+IMT base station EIRP:           +63 dBm  (46 dBm Tx + 17 dBi antenna)
+FSPL at 1 km, 4,400 MHz:        −124 dB   (20·log10(1) + 20·log10(4400) + 32.44)
+Aircraft altitude gain bonus:     +6 dB    (aircraft sees stronger signal than ground)
+RA receive antenna gain:           0 dBi   (worst case)
+────────────────────────────────────────────
+Received interference at RA:    = 63 − 124 + 6 + 0 = −55 dBm
+
+RA noise floor:                  −90 dBm
+I/N ratio:                    −55 − (−90) = +35 dB
+I/N threshold (M.1477 + 6 dB safety): −12 dB
+Protection margin:              −12 − 35 = −47 dB  ← VIOLATED by 47 dB
+```
+At 1 km the IMT station would be completely incompatible. The question WP 5D must answer: **at what minimum distance is the RA protected?**
+        """)
+
+        st.subheader("Step 3 — The SM.1541 OOB Mask Test")
+        st.latex(r"\text{OOB limit at } f_{\text{edge}} = P_{\text{carrier}} - 23 \text{ dB (SM.1541, 250\% BN boundary)}")
+        st.markdown("""
+For a 400 MHz IMT carrier at 46 dBm transmit power:
+- OOB limit at boundary = 46 − 23 = **23 dBm** EIRP in the OOB domain
+- The RA band sits 200 MHz below the IMT lower edge — inside the OOB domain
+- A country arguing the OOB mask is met must show that emissions at 4,200–4,400 MHz are ≤23 dBm EIRP
+
+**What FAA challenges:** Most contributions use average OOB power, not peak. For a 5G NR signal with high PAPR, peak OOB can be 10–15 dB above the average — SM.1541 specifies the average but RA receivers respond to peaks.
+        """)
+
+        st.subheader("Step 4 — US Policy Position and Key Arguments")
+        st.markdown("""
+**US position:** Oppose IMT identification at 4.4–4.8 GHz without:
+1. OOB emission limits compliant with SM.1541 for the RA band
+2. Coordination zones derived from worst-case airborne M.1642 analysis
+3. Monte Carlo aggregate interference per SM.2028 (not just single-entry)
+4. Recognition that aviation safety factor (+6 dB) applies per M.1477
+
+**Key counter-arguments when proponents say "OOB is within SM.1541":**
+- Ask: is the claimed OOB level per carrier or aggregate for a MIMO system?
+- Ask: is it average power or peak power (relevant for FMCW RA receiver)?
+- Ask: does the analysis include aircraft at altitude (not just ground receivers)?
+- Cite: M.1642 §4 requires airborne victim — if absent, the study is methodologically incomplete
+
+**Floor language template:**
+> *"The delegation of the United States notes that the analysis in [Doc X] does not include an airborne victim scenario as required by ITU-R M.1642. The United States requests that the Working Party postpone any decisions on CPM text pending a methodology-complete study addressing the Radio Altimeter protection criterion of I/N ≤ −12 dB (including the aviation safety factor per M.1477)."*
+        """)
+
+        with st.expander("✅ Self-Check — WP 5D"):
+            st.markdown("""
+**Q1:** Why is the aviation safety factor +6 dB applied on top of the I/N threshold for Radio Altimeters?
+> **Answer:** M.1477 Annex 5 requires an additional 6 dB margin for safety-of-life precision approach systems to account for real-world variability, model uncertainty, and the consequence of failure during CAT III approaches.
+
+**Q2:** A proponent shows their IMT OOB power at 4,200 MHz is −80 dBm EIRP. The RA maximum interference limit is −102 dBm at the receiver. Does this pass?
+> **Answer:** −80 dBm EIRP is the transmitted power — it must then be attenuated by path loss before reaching the RA. At 1 km FSPL is ~124 dB, so received = −80 − 124 = −204 dBm — easily below −102 dBm at that distance. The analysis must show at what distance the limit is met, and that distance becomes the coordination zone.
+
+**Q3:** What is the SM.1541 OOB emission boundary for a 100 MHz wide IMT carrier?
+> **Answer:** 250% of 100 MHz BW = 250 MHz from carrier edge. For a 4,400–4,500 MHz carrier, the lower boundary is 4,500 − 250 = **4,250 MHz** — inside the RA band.
+            """)
+
+    # ── LESSON 12 — WP 5B ────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 12"):
+        st.header("🚢 Lesson 12 — WP 5B: Maritime Radar vs ARSR/ASR")
+        ex("WP 5B governs maritime and radiodetermination services. The key FAA concern is co-channel and adjacent-band interference between ship-borne and coastal radiolocation systems and ATC radar (ASR/ARSR) in the 2,700–2,900 MHz band.")
+
+        st.subheader("The Interference Scenario")
+        st.markdown("""
+**Victim system:** ATC En-Route Surveillance Radar (ARSR/ASR)
+- Band: 2,700–2,900 MHz (200 MHz, fully shared with marine radar)
+- Protection criterion: ARSR I/N ≤ −6 dB; ASR I/N ≤ −10 dB
+- Receiver noise floor: −100 dBm (typical ASR bandwidth ~1 MHz)
+- Maximum interference: −100 + (−10) = **−110 dBm** at ASR receiver
+
+**Interferer:** Marine/coastal surveillance radar (WP 5B)
+- Typical ship radar Tx power: 25–30 kW peak (44–45 dBm)
+- Pulse duty cycle: 0.1% (average power = 44 − 30 = 14 dBm average)
+- Antenna gain: 25–30 dBi
+
+**Critical ITU-R distinction:** ATC radar receivers are pulsed — they integrate energy within the pulse window. Marine radar pulses can appear as **co-channel clutter** if their PRF is not sufficiently different from the ASR PRF.
+        """)
+
+        st.subheader("The Sharing Challenge — Why M.1849 Governs")
+        st.markdown("""
+ITU-R M.1849 is the WP 5B methodology document for radar coexistence. It addresses:
+
+1. **Pulse-on-pulse interference** — radar pulses from one system landing within the receive window of another
+2. **Clutter injection** — marine surface returns appearing on ATC radar displays
+3. **Desensitization** — strong marine radar sidelobes reducing ATC radar sensitivity
+
+**Key M.1849 parameters FAA defends:**
+| Parameter | ASR requirement | ARSR requirement |
+|---|---|---|
+| I/N threshold | −10 dB | −6 dB |
+| Probability of interference | <5% of radar rotations | <1% |
+| Minimum separation | Coordination zone | Coordination zone |
+
+**The airborne victim problem (unique to this WP):**
+Unlike terrestrial ASR analysis, aircraft at altitude can receive marine radar signals directly (no terrain screening). A ship 200 km at sea with 30 dBi antenna at 20 kW peak:
+```
+EIRP_peak = 43 dBm + 30 dBi = 73 dBm
+FSPL at 200 km, 2800 MHz = 20·log10(200) + 20·log10(2800) + 32.44 = 155 dB
+Received by aircraft (at altitude, line-of-sight) = 73 − 155 = −82 dBm peak
+ASR noise floor = −100 dBm → I/N = −82 − (−100) = +18 dB >> −10 dB threshold
+```
+This shows marine radar interference to ASR at 200 km is a real threat for airborne surveillance.
+        """)
+
+        st.subheader("WP 5B Study Approach — What FAA Checks")
+        st.markdown("""
+When reviewing a WP 5B contribution, check:
+
+1. **Is P.452 or P.528 used?**
+   - Ground-to-ground path: P.452 ✅
+   - Ship-to-aircraft path: P.528 ✅ (Earth-space isn't exactly right but P.528 gives airborne geometry)
+   - Ground-to-ground ONLY (ignoring airborne): 🚩 flag this as incomplete
+
+2. **Is average or peak power used?**
+   - For pulsed radar interference, peak power × duty cycle → average power
+   - But ASR receivers respond to PEAK pulse power, not average → check which metric is used
+
+3. **Is the coordination zone realistic?**
+   - M.1849 defines required separation as a function of terrain, power, and geometry
+   - A proponent using "urban clutter" to reduce apparent range is underestimating the threat
+
+4. **Are all radar bands treated separately?**
+   - 2,700–2,900 MHz (ASR/ARSR) ← direct co-channel concern
+   - 9,000–9,500 MHz (airborne weather radar) ← separate WP 5B concern
+
+**US floor language template:**
+> *"The United States notes that the study in [Doc X] uses average transmitter power rather than peak pulse power for the interference calculation. ITU-R M.1849 requires that interference analysis use peak power when the victim is a pulsed radar system. The United States requests revision of the analysis using peak power before the Working Party proceeds to CPM text."*
+        """)
+
+        with st.expander("✅ Self-Check — WP 5B"):
+            st.markdown("""
+**Q1:** Why does a ship radar with 0.1% duty cycle still pose an interference threat to ASR despite its low average power?
+> **Answer:** ASR receivers use pulse compression and range gating — they integrate power within a narrow receive window. A marine radar pulse that falls within an ASR range gate appears as a full-power return, regardless of the low average duty cycle. The interference is measured by the peak pulse power, not the average.
+
+**Q2:** A WP 5B contribution analyzes only a 20 km coordination zone. What should the US delegation challenge?
+> **Answer:** Aircraft at altitude have line-of-sight to marine transmitters at hundreds of km. The analysis must include the airborne victim geometry using P.528. A 20 km zone is only valid for ground-level ASR receivers.
+
+**Q3:** What is the ASR I/N threshold and why is it stricter than the ARSR threshold?
+> **Answer:** ASR = −10 dB (tighter), ARSR = −6 dB. Airport surveillance radars operate in terminal environments where traffic density is high and false targets or missed detections have immediate safety consequences. En-route ARSR has more geometric diversity and computational filtering, so the 4 dB relaxation is accepted.
+            """)
+
+    # ── LESSON 13 — WP 4C ────────────────────────────────────────────────────
+    elif lesson.startswith("Lesson 13"):
+        st.header("🛰️ Lesson 13 — WP 4C: MSS Satellite Downlinks vs DME/AMS(R)S (AI 1.13)")
+        ex("WP 4C governs Mobile Satellite Service (MSS) and direct satellite-to-device (DC-MSS-IMT) systems. WRC-27 AI 1.13 proposes MSS downlinks in three candidate bands, all immediately adjacent to FAA aviation systems. The key methodological trap is using terrestrial propagation models for satellite geometry.")
+
+        st.subheader("The Three Candidate Bands and Their FAA Victims")
+        data = {
+            "Candidate Band": ["925–960 MHz", "1,475–1,518 MHz", "2,620–2,690 MHz"],
+            "FAA Band at Risk": ["DME/TACAN 960–1,215 MHz", "L-band AMS(R)S 1,525–1,559 MHz", "ASR/ARSR 2,700–2,900 MHz"],
+            "Gap": ["0 MHz (touching at 960)", "7 MHz", "10 MHz"],
+            "Protection Metric": ["epfd ≤ −121.5 dBW/m²/MHz", "ΔT/T ≤ 6% single-entry", "I/N ≤ −10 dB (ASR)"],
+            "Key Standard": ["RR 5.444 + ITU-R S.1586", "ITU-R S.1598", "ITU-R M.1849"],
+        }
+        import pandas as pd
+        st.table(pd.DataFrame(data))
+
+        st.subheader("The Critical Methodology Error — P.452 vs P.619")
+        st.markdown("""
+**The most common WP 4C error:** Using ITU-R P.452 (terrestrial link model) instead of ITU-R P.619 (Earth-space propagation) for satellite downlink interference analysis.
+
+**Why this matters:**
+- P.452 models ground-to-ground propagation — it includes terrain diffraction, clutter, and ducting
+- P.619 models satellite slant-path geometry — includes free-space spreading plus atmospheric effects on the slant path
+- A satellite downlink arrives from **above** — there is no terrain between the satellite and the aircraft receiver
+- Using P.452 adds fictitious terrain losses that make the interference appear smaller than it is
+
+**The numerical difference can be 10–30 dB** — the difference between "compatible" and "harmful" in a protection study.
+
+**FAA floor challenge:** *"The delegation of the United States notes that the interference analysis uses ITU-R P.452, which is not applicable to satellite-to-Earth paths. The correct propagation model for this geometry is ITU-R P.619. The United States requests that the proponent revise the analysis using the appropriate Earth-space propagation model before this Working Party makes any decisions."*
+        """)
+
+        st.subheader("The epfd Concept for the 925–960 MHz Band")
+        st.latex(r"\text{epfd} = \sum_{i=1}^{N} \frac{P_i \cdot G_i(\theta_i)}{4\pi d_i^2} \cdot \frac{\lambda^2 G_r(\phi_i)}{4\pi}")
+        st.markdown("""
+**epfd (equivalent power flux density)** is the ITU-R metric for satellite constellation aggregate interference. Unlike single-satellite pfd, epfd sums the contributions of ALL simultaneously visible satellites.
+
+**Why single-satellite pfd is insufficient:**
+- A LEO constellation may have 10–20 satellites visible simultaneously
+- Each contributes interference to the DME receiver
+- The aggregate is 10–20× (10–13 dB) larger than the single-satellite contribution
+- Proponents who cite single-satellite pfd are systematically underestimating the interference
+
+**DME protection limit:** epfd ≤ −121.5 dBW/m²/MHz (from RR No. 5.444 and the FAA system protection table)
+
+**Worked check:**
+```
+Single LEO satellite pfd at aircraft:  −130 dBW/m²/MHz  (proponent's claim)
+Number of visible satellites (LEO):     15
+Aggregate epfd:  −130 + 10·log10(15) = −130 + 11.8 = −118.2 dBW/m²/MHz
+Protection limit:                       −121.5 dBW/m²/MHz
+Margin:                                 −121.5 − (−118.2) = −3.3 dB  ← VIOLATED
+```
+        """)
+
+        st.subheader("The ΔT/T Metric for L-band AMS(R)S")
+        st.latex(r"\Delta T/T = \frac{T_{\text{interference}}}{T_{\text{system}}} \times 100\%")
+        st.markdown("""
+For L-band AMS(R)S satellite receivers, interference raises the system noise temperature. The WP 4C protection criterion is:
+- ΔT/T ≤ **6% single-entry** (per system protection table)
+- ΔT/T ≤ **20% aggregate** (all systems combined)
+
+**Converting I/N to ΔT/T:**
+> ΔT/T (%) ≈ 100 × 10^(I/N_dB / 10)
+
+So I/N = −12.2 dB → ΔT/T = 6%. A 6% ΔT/T corresponds to roughly **I/N ≤ −12.2 dB** — tighter than the generic −6 dB threshold.
+
+**Why the gap at 1,475–1,518 MHz is deceptive:**
+The 7 MHz gap between the MSS candidate band and AMS(R)S at 1,525 MHz seems comfortable — but at L-band, OOB emissions from a high-power satellite downlink can easily exceed the ΔT/T limit across a 7 MHz gap. The 250% BN boundary per SM.1541 for a 43 MHz wide MSS carrier extends to 1,525 − (43 × 1.5) = **1,460 MHz** — already inside the candidate band.
+        """)
+
+        with st.expander("✅ Self-Check — WP 4C"):
+            st.markdown("""
+**Q1:** A proponent presents a WP 4C study using P.452 and shows I/N = −15 dB at the DME receiver. Should the US support this result?
+> **Answer:** No. P.452 is a terrestrial propagation model and must not be used for satellite-to-Earth geometry. The US should request the study be redone with P.619. The actual interference could be 10–30 dB higher, which could push the result above the epfd limit.
+
+**Q2:** The 925–960 MHz candidate band has epfd = −125 dBW/m²/MHz from a single satellite. The full constellation has 20 visible satellites simultaneously. Does the constellation comply with the −121.5 dBW/m²/MHz epfd limit?
+> **Answer:** −125 + 10·log10(20) = −125 + 13 = **−112 dBW/m²/MHz** — exceeds the −121.5 limit by 9.5 dB. The full constellation is non-compliant even though a single satellite appeared compliant.
+
+**Q3:** What is the WP 4C working group title and why does it matter for FAA?
+> **Answer:** WP 4C is responsible for Mobile Satellite Service (MSS). Its AI 1.13 specifically addresses new MSS allocations in 694–2700 MHz, which covers bands immediately adjacent to DME (960 MHz), AMS(R)S (1525 MHz), and ASR (2700 MHz) — three FAA safety systems. FAA must actively participate in WP 4C to protect these bands.
+            """)
+
+    # ── LESSON 14 — WP 7B & 7C ───────────────────────────────────────────────
+    elif lesson.startswith("Lesson 14"):
+        st.header("🔭 Lesson 14 — WP 7B & 7C: Lunar SRS and EESS Passive (AI 1.15, 1.17, 1.19)")
+        ex("WP 7B (Space Research) and WP 7C (EESS/Science) address novel allocation scenarios where the interference pathway is less obvious than for terrestrial or satellite services. The FAA concern is primarily strategic — allocation precedent in safety bands.")
+
+        st.subheader("WP 7B — Lunar Surface Communications (AI 1.15)")
+        st.markdown("""
+**What AI 1.15 proposes:** New SRS (Space Research Service) allocations for communications between Earth and the lunar surface, and among systems on the lunar surface.
+
+**Why it matters for FAA:** The candidate bands include frequencies near:
+- **2,700–2,900 MHz** — en-route ATC radar (ASR/ARSR)
+- **5,350–5,470 MHz** — ARNS and EESS (passive)
+- **7,190–7,235 MHz** and **8,450–8,500 MHz** — FAA fixed point-to-point links
+
+**The methodology gap — the key FAA argument:**
+No established ITU-R Recommendation covers Earth-Moon propagation interference to terrestrial ARNS receivers. The path geometry involves:
+1. A lunar transmitter pointing toward Earth
+2. Signal travels ~384,000 km (1.28 light-seconds)
+3. Signal arrives at Earth surface and can propagate to ground-based receivers
+
+This is fundamentally different from both terrestrial (P.452) and Earth-satellite (P.619) scenarios.
+**If no methodology exists, no allocation should be made until one is established.**
+
+**Worked order-of-magnitude check:**
+```
+Lunar surface transmitter EIRP (assumed):   +40 dBW  (10W, 10 dBi — small lunar lander)
+Free-space path loss (384,000 km, 2800 MHz): 20·log10(384000) + 20·log10(2800) + 32.44
+                                           = 111.7 + 68.9 + 32.44 = 213 dB
+Received PFD at Earth surface:              40 − 213 = −173 dBW → pfd ≈ −173 − 71 = −244 dBW/m²
+ASR sensitivity threshold:                 Approximately −130 dBW/m² (typical)
+Margin:                                    −244 − (−130) = −114 dB — not a concern
+
+But: a LARGE lunar relay station with +60 dBW EIRP → received pfd = −224 − 71 = −224 dBW/m²
+Still well below ASR threshold. Geometry protects here.
+```
+
+**The real concern is not immediate interference but allocation precedent:**
+Once SRS gets a primary allocation in a band containing ARNS, it becomes harder to defend exclusivity in future WRCs. The US should argue for **secondary** not primary allocations for lunar SRS in all bands containing ARNS.
+        """)
+
+        st.subheader("WP 7C — EESS Passive: AI 1.17 and AI 1.19")
+        st.markdown("""
+EESS (passive) sensors **do not transmit** — they only receive natural Earth emissions (microwave radiometry). They cannot directly interfere with FAA systems. **The concern is purely allocational and strategic.**
+
+**AI 1.17 — Space Weather Sensors (below 30 MHz):**
+- Proposed allocations: 2.1–29.89 MHz (HF), 74.8–75.2 MHz (VHF)
+- FAA concern: These bands contain HF SELCAL communications and ILS-related frequencies
+- The threat: A EESS passive co-primary allocation in HF/VHF could create coordination obligations requiring FAA to constrain its own transmitters to protect passive space sensors
+
+**AI 1.19 — EESS Passive in 4.2–4.4 GHz:**
+- This is the **most strategically significant** WP 7C agenda item for FAA
+- The Radio Altimeter band (4,200–4,400 MHz) is the exact band proposed for EESS passive
+- If EESS gets a **co-primary** allocation here, the regulatory status of the RA band changes
+
+**Why this weakens FAA's position on AI 1.7:**
+```
+Current status:    4,200–4,400 MHz  →  ARNS primary (exclusive)
+After AI 1.19:     4,200–4,400 MHz  →  ARNS primary + EESS passive co-primary
+Consequence for AI 1.7:  IMT proponents argue the band is "already shared" and
+                          that ARNS exclusivity has been diluted, weakening FAA's
+                          basis for opposing IMT interference at 4,400 MHz
+```
+
+**The US policy argument:**
+> *"The delegation of the United States opposes the assignment of co-primary status to EESS (passive) in 4,200–4,400 MHz. While passive sensors do not transmit, a co-primary footnote in the Radio Regulations would undermine the exclusive ARNS status that underpins the United States' position on WRC-27 AI 1.7. The United States proposes secondary allocation only, with no coordination obligation on ARNS operations."*
+
+**The I/N calculation for AI 1.19 (academic — passive sensors have no I/N):**
+There is no interference metric for EESS passive → ARNS, because EESS passive cannot transmit.
+The analysis is purely regulatory — can ARNS transmitters (i.e., Radio Altimeters themselves) interfere with EESS passive sensors? The answer is yes, and a co-primary allocation would require RA manufacturers to consider EESS passive protection — adding regulatory complexity to aviation-certified equipment.
+        """)
+
+        st.subheader("Strategic Connections — The Three-Agenda-Item Linkage")
+        st.markdown("""
+These agenda items are strategically connected:
+
+```
+AI 1.19 (WP 7C)     →  weakens RA band exclusivity
+     ↓
+AI 1.7  (WP 5D)     →  IMT proponents cite "shared" status to push OOB limits
+     ↓
+AI 1.13 (WP 4C)     →  MSS proponents cite precedent from AI 1.7 for MSS downlinks
+```
+
+**US Strategy:**
+1. **Oppose AI 1.19 first** — protect the RA band allocation table status
+2. **Use AI 1.19 rejection in AI 1.7 debates** — "the band is ARNS-exclusive, no sharing precedent"
+3. **Coordinate with ICAO** — ICAO has standing to submit liaison statements on safety-of-life impacts
+4. **Build a coalition** — European administrations with active RA programs (UK, France, Germany) share these concerns
+
+**The WP 7C passive allocation argument structure:**
+| Proponent claims | US counter-argument |
+|---|---|
+| "Passive sensors can't interfere" | "Co-primary status creates regulatory precedent and coordination obligations on ARNS" |
+| "This is just a footnote" | "Footnotes in the Radio Regulations are binding — they change the allocation table permanently" |
+| "We only need a small bandwidth" | "The RA band is only 200 MHz — any sharing of allocation status is significant" |
+| "This helps Earth observation science" | "Safety-of-life must take precedence over science in aviation bands — cite RR No. 4.10" |
+        """)
+
+        with st.expander("✅ Self-Check — WP 7B & 7C"):
+            st.markdown("""
+**Q1:** A WP 7B contribution proposes lunar SRS allocation at 2,700–2,900 MHz. The analysis shows the received PFD at Earth from the lunar transmitter is −220 dBW/m². The ASR threshold is approximately −130 dBW/m². Should FAA oppose this?
+> **Answer:** On interference grounds alone, −220 dBW/m² is 90 dB below the ASR threshold — not an immediate threat. However, FAA should still oppose **primary allocation** and argue that (a) no ITU-R methodology exists for this geometry, (b) a secondary allocation with no coordination rights for lunar SRS is appropriate, and (c) establishing any SRS primary allocation in ARNS bands sets a dangerous precedent.
+
+**Q2:** Why is AI 1.19 considered a higher strategic priority than AI 1.17 for FAA?
+> **Answer:** AI 1.19 targets the Radio Altimeter band (4,200–4,400 MHz) — a safety-of-life band directly adjacent to the AI 1.7 IMT proposal. A co-primary EESS allocation in this band would weaken FAA's regulatory basis for opposing IMT interference under AI 1.7. AI 1.17 affects HF/VHF bands where the coordination obligations are less direct.
+
+**Q3:** What regulatory mechanism does the US use to connect WP 7C AI 1.19 to WP 5D AI 1.7?
+> **Answer:** At the CPM (Conference Preparatory Meeting) level, the US argues that the allocation table status of 4,200–4,400 MHz must be considered holistically — any change to ARNS exclusivity under AI 1.19 must be evaluated against the implications for IMT OOB emission limits under AI 1.7. This forces the two Working Parties to coordinate rather than treating the bands as independent questions.
+            """)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 10 — MEETING NOTES
