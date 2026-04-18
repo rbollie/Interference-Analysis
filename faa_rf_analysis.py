@@ -2220,7 +2220,12 @@ tab_names = [
 # Admin-only tab
 if is_admin():
     tab_names.append("⚙️ Admin Panel")
-selected_tab = st.sidebar.radio("Module", tab_names)
+# Handle programmatic navigation (e.g. from tutorial "Go to module" buttons)
+if "_nav_to" in st.session_state:
+    _nav_target = st.session_state.pop("_nav_to")
+    selected_tab = st.sidebar.radio("Module", tab_names, index=tab_names.index(_nav_target) if _nav_target in tab_names else 0)
+else:
+    selected_tab = st.sidebar.radio("Module", tab_names)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
@@ -3625,6 +3630,11 @@ elif selected_tab == "📚 Tutorial":
     st.header("📡 Module 1 — Protected Bands")
     ex("Always start here — know exactly what you're defending before touching any analysis tool.")
 
+    st.info("📌 **This walkthrough describes the 📡 Protected Bands tab.** Open it from the sidebar to use it interactively.")
+    if st.button("➡️ Go to 📡 Protected Bands module", key="tb_lb1"):
+        st.session_state["_nav_to"] = "📡 Protected Bands"
+        st.rerun()
+
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("What to do")
@@ -3654,6 +3664,11 @@ elif selected_tab == "📚 Tutorial":
     st.markdown("---")
     st.header("🔗 Module 2 — Link Budget")
     ex("The link budget tells you how much interference actually reaches the victim receiver — this is the single-scenario worst-case calculation.")
+
+    st.info("📌 **This walkthrough describes the 🔗 Link Budget tab.** Open it in the sidebar to follow along interactively — the waterfall chart, distance sweep, and protection margin metric are all live and interactive there.")
+    if st.button("➡️ Go to Link Budget module", key="tutorial_goto_lb"):
+        st.session_state["_nav_to"] = "🔗 Link Budget"
+        st.rerun()
 
     col1, col2 = st.columns(2)
     with col1:
@@ -3710,6 +3725,11 @@ elif selected_tab == "📚 Tutorial":
     st.header("📊 Module 3 — Noise & I/N Analysis")
     ex("Use this module to verify protection criteria and build the receiver characterization section of your contribution.")
 
+    st.info("📌 **This walkthrough describes the 📊 Noise & I/N tab.** Open it from the sidebar to use it interactively.")
+    if st.button("➡️ Go to 📊 Noise & I/N module", key="tb_lb3"):
+        st.session_state["_nav_to"] = "📊 Noise & I/N"
+        st.rerun()
+
     st.markdown("""
 **When to use this module:**
 - When you need to calculate the noise floor for a specific receiver that isn't in the FAA band database
@@ -3738,6 +3758,11 @@ Noise Floor (dBm) = -174 + 10·log₁₀(Bandwidth_Hz) + Noise_Figure_dB
     st.header("🌐 Module 4 — Propagation")
     ex("Use this to compare models side-by-side and select the most appropriate one before running your formal analysis.")
 
+    st.info("📌 **This walkthrough describes the 🌐 Propagation tab.** Open it from the sidebar to use it interactively.")
+    if st.button("➡️ Go to 🌐 Propagation module", key="tb_lb4"):
+        st.session_state["_nav_to"] = "🌐 Propagation"
+        st.rerun()
+
     st.markdown("""
 **Model selection decision tree:**
 ```
@@ -3764,6 +3789,11 @@ Always run FSPL first as a bounding calculation.
     st.markdown("---")
     st.header("🎲 Module 5 — Monte Carlo")
     ex("Monte Carlo is the ITU-R standard methodology for aggregate interference — it's what distinguishes a rigorous contribution from a back-of-envelope calculation.")
+
+    st.info("📌 **This walkthrough describes the 🎲 Monte Carlo tab.** Open it from the sidebar to use it interactively.")
+    if st.button("➡️ Go to 🎲 Monte Carlo module", key="tb_lb5"):
+        st.session_state["_nav_to"] = "🎲 Monte Carlo"
+        st.rerun()
 
     col1, col2 = st.columns(2)
     with col1:
