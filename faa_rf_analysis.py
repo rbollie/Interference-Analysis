@@ -711,7 +711,9 @@ def _extract_analysis_fields(analysis_text, meta=None):
 
     # ── Doc number ────────────────────────────────────────────────────────────
     doc_num = (m.get("doc_number") or "").strip() or _first([
-        # Explicit "Document No." label
+        # Bullet label: "- **Document Number:** 5D/234-E"
+        r'(?:Document\s+Number|Doc\s+No\.?)[:\s*]+([A-Z0-9][\w/\-\.]{3,25})',
+        # Explicit "Document No." label (non-bullet)
         r'(?:Doc(?:ument)?(?:\s+No\.?|#|:\s*))([A-Z0-9]{1,3}[A-Z]?/\d[\d\w\-]{1,15})',
         # ITU format: 5D/123-E, 5B/456, 4C/789-E  (digit+letter / number)
         r'\b(\d[A-Z]{1,2}/\d[\d\w\-]{1,15})\b',
@@ -719,10 +721,12 @@ def _extract_analysis_fields(analysis_text, meta=None):
         r'\b(R\d{2}-WP[\w]+-[\w\-]+)\b',
     ])
     # Sanity check: must contain slash or hyphen followed by digit
-    if doc_num and doc_num != "—":
+    if doc_num and doc_num not in ("—","Unknown"):
         import re as _dn_re
         if not _dn_re.search(r'[/\-]\d', doc_num):
-            doc_num = "—"
+            doc_num = "Unknown"
+    if not doc_num or doc_num == "—":
+        doc_num = "Unknown"
 
     # ── Working party — scan document text first, meta is fallback only ────────
     # WP codes in the document itself are authoritative
@@ -790,7 +794,12 @@ def _extract_analysis_fields(analysis_text, meta=None):
             for x in ai_hits
         )
     else:
-        agenda_items = m.get("agenda_item") or "—"
+        _meta_ai = m.get("agenda_item", "").strip()
+        if _meta_ai and _meta_ai != "—":
+            agenda_items = _meta_ai
+        else:
+            # Honest: document does not explicitly cite a WRC-27 AI
+            agenda_items = "Unknown — not stated in document"
 
     # ── Review verdict ────────────────────────────────────────────────────────
     verdict = _first([
@@ -814,145 +823,308 @@ def _extract_analysis_fields(analysis_text, meta=None):
         elif _rx.search(r'\bREVISION\b', t, _rx.IGNORECASE):
             doc_status = "REVISION"
 
-    # ── Proposed frequency bands ──────────────────────────────────────────────
-    # Pull only from column 1 of the frequency table (first | cell per row)
-    # Table format: | proposed | bw | FAA band | system | gap | rel | type |
-    prop_col = []
+    # ── Robust frequency parser ───────────────────────────────────────────────
+    # Handles: en-dashes, hyphens, space/comma thousands separators, mixed units
+    # Examples: "1 610–1 626.5 MHz", "1610 MHz–1.6265 GHz", "14.4–15.35 GHz"
+    _FREQ_PAT = (
+        r'(?:[\d][\d\s,\.]*)'        # first number (spaces/commas as thousands sep)
+        r'\s*(?:MHz|GHz)?\s*'        # optional unit after first number (mixed units)
+        r'[–\-]\s*'                  # en-dash or hyphen
+        r'(?:[\d][\d\s,\.]*)'        # second number
+        r'\s*(?:MHz|GHz)'            # required unit (after second or only)
+    )
+
+    def _parse_freq_mhz(num_str, unit_str):
+        """Parse a number string (space/comma thousands sep) to float MHz."""
+        clean = _rx.sub(r'[\s,]', '', num_str.strip())
+        try:
+            val = float(clean)
+        except ValueError:
+            return None
+        return val * 1000.0 if unit_str.upper() == 'GHZ' else val
+
+    def _extract_freq_range(s):
+        """
+        Parse a frequency range string → (low_mhz, high_mhz, original).
+        Returns None if unparseable — no hallucination fallback.
+        """
+        s = s.strip()
+        m = _rx.match(
+            r'^([\d][\d\s,\.]*)\s*(MHz|GHz)?\s*[–\-]\s*([\d][\d\s,\.]*)\s*(MHz|GHz)$',
+            s, _rx.IGNORECASE)
+        if not m:
+            return None
+        n1, u1, n2, u2 = m.group(1), m.group(2) or '', m.group(3), m.group(4)
+        unit_lo = u1 if u1 else u2   # inherit trailing unit if first is absent
+        lo = _parse_freq_mhz(n1, unit_lo)
+        hi = _parse_freq_mhz(n2, u2)
+        if lo is None or hi is None or lo > hi:
+            return None
+        return lo, hi, s
+
+    def _find_freq_ranges(text):
+        """Find all frequency ranges in text, return list of (low_mhz, high_mhz, orig_str)."""
+        raw = _rx.findall(_FREQ_PAT, text, _rx.IGNORECASE)
+        results = []
+        seen = set()
+        for r in raw:
+            parsed = _extract_freq_range(r)
+            if parsed and parsed[:2] not in seen:
+                seen.add(parsed[:2])
+                results.append(parsed)
+        return results
+
+    # ── Proposed and FAA band extraction ─────────────────────────────────────
+    prop_col = []   # (lo_mhz, hi_mhz, orig_str)
     faa_col  = []
 
-    # Pattern A: 7-col table — | proposed | BW | FAA band | ...
+    # Pattern A: 7-col table | proposed | BW | FAA band | ...
     for row in _rx.finditer(
-        r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|'   # col1: proposed
-        r'[^|]+\|'                                                          # col2: BW (any content)
-        r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',      # col3: FAA band
+        r'^\|\s*(' + _FREQ_PAT + r')\s*\|'   # col1: proposed
+        r'[^|]+\|'                             # col2: BW (any)
+        r'\s*(' + _FREQ_PAT + r')\s*\|',      # col3: FAA band
         t, _rx.IGNORECASE | _rx.MULTILINE):
-        prop_col.append(row.group(1).strip())
-        faa_col.append(row.group(2).strip())
+        p = _extract_freq_range(row.group(1).strip())
+        f = _extract_freq_range(row.group(2).strip())
+        if p: prop_col.append(p)
+        if f: faa_col.append(f)
 
-    # Pattern B: 6-col table — | proposed | FAA band | ... (no BW column)
+    # Pattern B: 6-col table | proposed | FAA band | ...
     if not prop_col:
         for row in _rx.finditer(
-            r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|'  # col1: proposed
-            r'\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',    # col2: FAA band (no BW)
+            r'^\|\s*(' + _FREQ_PAT + r')\s*\|'
+            r'\s*(' + _FREQ_PAT + r')\s*\|',
             t, _rx.IGNORECASE | _rx.MULTILINE):
-            prop_col.append(row.group(1).strip())
-            faa_col.append(row.group(2).strip())
+            p = _extract_freq_range(row.group(1).strip())
+            f = _extract_freq_range(row.group(2).strip())
+            if p: prop_col.append(p)
+            if f: faa_col.append(f)
 
-    # Pattern C: extract just proposed band from any table row
-    # (fallback for NOT RELEVANT tables where FAA col is "None applicable" / "N/A")
+    # Pattern C: any table row first cell
     if not prop_col:
         for row in _rx.finditer(
-            r'^\|\s*(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))\s*\|',
+            r'^\|\s*(' + _FREQ_PAT + r')\s*\|',
             t, _rx.IGNORECASE | _rx.MULTILINE):
-            prop_col.append(row.group(1).strip())
+            p = _extract_freq_range(row.group(1).strip())
+            if p: prop_col.append(p)
 
-    # Fallback: Section D "Proposed band:" / "FAA band:" labels
-    prop_label = _all(r'Proposed band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
-    faa_label  = _all(r'FAA band[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
+    # Fallback: Section D labels
+    for raw in _rx.findall(r'Proposed band[:\s]+(' + _FREQ_PAT + r')', t, _rx.IGNORECASE):
+        p = _extract_freq_range(raw.strip())
+        if p and p[:2] not in {x[:2] for x in prop_col}:
+            prop_col.append(p)
+    for raw in _rx.findall(r'FAA band[:\s]+(' + _FREQ_PAT + r')', t, _rx.IGNORECASE):
+        f = _extract_freq_range(raw.strip())
+        if f and f[:2] not in {x[:2] for x in faa_col}:
+            faa_col.append(f)
 
-    all_prop = list(dict.fromkeys(prop_col + prop_label))
-    all_faa  = list(dict.fromkeys(faa_col  + faa_label))
+    # Prose fallback: "proposed X–Y MHz", "band X–Y MHz"
+    if not prop_col:
+        for raw in _rx.findall(r'(?:proposed|band|allocation)[:\s]+(' + _FREQ_PAT + r')', t, _rx.IGNORECASE):
+            p = _extract_freq_range(raw.strip())
+            if p: prop_col.append(p)
+    if not faa_col:
+        for raw in _rx.findall(r'(?:FAA\s+band|protected\s+band)[:\s]+(' + _FREQ_PAT + r')', t, _rx.IGNORECASE):
+            f = _extract_freq_range(raw.strip())
+            if f: faa_col.append(f)
+    # Absolute last resort — any frequency range found anywhere in text
+    if not prop_col:
+        all_ranges = _find_freq_ranges(t)
+        prop_col = all_ranges[:4]   # take up to 4 from full text scan
 
-    # ── Prose fallback: extract bands from Section D and running text ──────────
-    if not all_prop:
-        # "proposed 4.4–4.8 GHz" / "band 925–960 MHz" patterns in prose
-        all_prop = _all(r'(?:proposed|band|allocation)[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')[:4]
-    if not all_faa:
-        # "FAA band/protected band X–Y MHz" in prose
-        all_faa  = _all(r'(?:FAA\s+band|protected\s+band)[:\s]+(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')[:4]
-    # Last resort: any frequency range — deduplicate proposed vs FAA by position
-    if not all_prop and not all_faa:
-        all_ranges = _all(r'(\d[\d,\.]*\s*[–\-]\s*\d[\d,\.]*\s*(?:MHz|GHz))')
-        if all_ranges:
-            all_prop = all_ranges[:3]
+    # ── Normalised MHz columns (for calculations) ─────────────────────────────
+    prop_parsed = prop_col[:5]   # list of (lo_mhz, hi_mhz, orig)
+    faa_parsed  = faa_col[:5]
 
-    proposed_bands = "; ".join(all_prop[:5]) if all_prop else "—"
-    faa_bands      = "; ".join(all_faa[:5])  if all_faa  else "—"
+    # Original strings (preserve exact ITU notation)
+    proposed_bands_orig = "; ".join(p[2] for p in prop_parsed) if prop_parsed else "Unknown"
+    faa_bands_orig      = "; ".join(f[2] for f in faa_parsed)  if faa_parsed  else "Unknown"
 
-    # ── FAA systems ───────────────────────────────────────────────────────────
+    # Normalised MHz strings for computed columns
+    def _fmt_mhz(lo, hi):
+        if lo >= 1000 or hi >= 1000:
+            return f"{lo:.3f}–{hi:.3f} MHz"
+        return f"{lo:.3f}–{hi:.3f} MHz"
+
+    proposed_bands_mhz = "; ".join(_fmt_mhz(p[0], p[1]) for p in prop_parsed) if prop_parsed else "Unknown"
+    faa_bands_mhz      = "; ".join(_fmt_mhz(f[0], f[1]) for f in faa_parsed)  if faa_parsed  else "Unknown"
+
+    # Excel fields: original notation + normalised MHz in parentheses when different
+    def _band_display(parsed_list):
+        if not parsed_list:
+            return "Unknown"
+        parts = []
+        for lo, hi, orig in parsed_list:
+            norm = f"{lo:.3f}–{hi:.3f} MHz"
+            # Only append normalised if it differs materially from original
+            clean_orig = _rx.sub(r'[\s,]', '', orig.upper().replace('GHZ','000MHZ'))
+            parts.append(orig if norm.replace('.000','') in orig else f"{orig} [{lo:.0f}–{hi:.0f} MHz]")
+        return "; ".join(parts)
+
+    proposed_bands = _band_display(prop_parsed)
+    faa_bands      = _band_display(faa_parsed)
+
+    # ── Hallucination guard — mark missing data as Unknown ────────────────────
+    if proposed_bands in ("", "—"): proposed_bands = "Unknown"
+    if faa_bands      in ("", "—"): faa_bands      = "Unknown"
+
+    # ── FAA systems — from text AND from band frequency matching ─────────────
     SYSTEMS = {
-        "Radio Altimeter": r"radio alt(?:imeter)?|RA\b|WAICS|4[,\.]?2.{1,5}4[,\.]?4\s*GHz",
-        "DME / TACAN":     r"\bDME\b|\bTACAN\b|960.{1,10}1215",
-        "GPS L1 / GNSS":   r"GPS L1|GNSS L1|1575|L1\s+SBAS",
-        "GNSS L5":         r"GNSS L5|GPS L5|1164.{1,10}1215",
-        "ADS-B / Mode-S":  r"ADS-?B|Mode-?S\b|1090\s*MHz",
-        "ASR":             r"\bASR\b|airport surv|short.range.radar",
-        "ARSR":            r"\bARSR\b|en.?route.+radar|long.range.radar",
-        "ILS / VOR":       r"\bILS\b|\bVOR\b|localizer|glide slope",
-        "L-band AMS(R)S":  r"AMS\(R\)S|L.band.+sat|1525.{1,10}1559",
-        "MLS":             r"\bMLS\b|microwave landing",
-        "ARNS 5 GHz":      r"ARNS.{1,10}5\s*GHz|5000.{1,10}5150",
-        "En-Route Radar":  r"en.?route.+radar|ARSR|2700.{1,10}2900",
+        "Radio Altimeter": (r"radio alt(?:imeter)?|RA\b|WAICS",           4200,  4400),
+        "DME / TACAN":     (r"\bDME\b|\bTACAN\b",                         960,   1215),
+        "GPS L1 / GNSS":   (r"GPS L1|GNSS L1|1575",                       1559,  1610),
+        "GNSS L5":         (r"GNSS L5|GPS L5",                             1164,  1215),
+        "ADS-B / Mode-S":  (r"ADS-?B|Mode-?S\b|1090\s*MHz",               1087.7,1092.3),
+        "ASR":             (r"\bASR\b|airport surv",                       2700,  2900),
+        "ARSR":            (r"\bARSR\b|en.?route.+radar",                  2700,  2900),
+        "ILS / VOR":       (r"\bILS\b|\bVOR\b|localizer|glide slope",      108,   118),
+        "L-band AMS(R)S":  (r"AMS\(R\)S|L.band.+sat",                     1525,  1559),
+        "MLS":             (r"\bMLS\b|microwave landing",                   5000,  5150),
+        "ARNS 5 GHz":      (r"ARNS.{1,10}5\s*GHz",                         5000,  5150),
+        "En-Route Radar":  (r"en.?route.+radar|ARSR",                      2700,  2900),
     }
-    sys_hits = [s for s, p in SYSTEMS.items() if _rx.search(p, t, _rx.IGNORECASE)]
-    faa_systems = "; ".join(sys_hits) if sys_hits else "—"
+    # Text-based detection
+    sys_hits = [s for s, (pat, _, _) in SYSTEMS.items() if _rx.search(pat, t, _rx.IGNORECASE)]
+    # Frequency-overlap-based detection for proposed bands
+    for sys_name, (pat, sys_lo, sys_hi) in SYSTEMS.items():
+        if sys_name in sys_hits:
+            continue
+        for p_lo, p_hi, _ in prop_parsed:
+            if p_lo <= sys_hi and p_hi >= sys_lo:  # overlap test
+                sys_hits.append(sys_name)
+                break
+    faa_systems = "; ".join(dict.fromkeys(sys_hits)) if sys_hits else (
+        "N/A — not relevant" if _rx.search(r'NOT RELEVANT|no FAA band', t, _rx.IGNORECASE)
+        else "Unknown")
 
-    # ── Overlap / Gap ─────────────────────────────────────────────────────────
-    og_m = _rx.search(
-        r'((?:OVERLAP|GAP)[:\s]*\d[\d,\.]*\s*(?:MHz|GHz)(?:[^\n|]{0,40})?)',
-        t, _rx.IGNORECASE)
-    if og_m:
-        # Normalise label to uppercase and strip trailing punctuation
-        raw_og = og_m.group(1).strip()[:60]
-        overlap_gap = _rx.sub(r'^(overlap|gap)', lambda m2: m2.group(1).upper(), raw_og, flags=_rx.IGNORECASE)
-        overlap_gap = _rx.sub(r'[\)\.\,\s]+$', '', overlap_gap).strip()
-    elif _rx.search(r'immediately adjacent|touching at|0\s*MHz\s*gap|0\s*MHz.*adjacent', t, _rx.IGNORECASE):
-        overlap_gap = "GAP: 0 MHz (adjacent)"
-    else:
-        # Try prose: "overlaps X by N MHz", "N MHz overlap", "N MHz gap"
-        prose_og = _rx.search(r'(\d[\d,\.]*\s*MHz)\s*(overlap|gap)', t, _rx.IGNORECASE)
-        if prose_og:
-            overlap_gap = f"{'OVERLAP' if 'overlap' in prose_og.group(2).lower() else 'GAP'}: {prose_og.group(1)}"
+    # ── Overlap / Gap — computed from parsed frequencies ─────────────────────
+    # Use the ±100 MHz adjacency rule from the image
+    ADJACENT_THRESHOLD_MHZ = 100.0
+    overlap_gap    = "Unknown"
+    relationship   = "Unknown"
+    study_type     = "Unknown"
+    computed_rel   = False
+
+    # Try computation from parsed band pairs
+    if prop_parsed:
+        overlaps = []
+        gaps     = []
+        for p_lo, p_hi, p_orig in prop_parsed:
+            for name_b, b_data in FAA_BANDS.items():
+                b_lo = b_data['f_low_mhz']
+                b_hi = b_data['f_high_mhz']
+                # Intersection
+                inter = min(p_hi, b_hi) - max(p_lo, b_lo)
+                if inter > 0:
+                    overlaps.append((inter, name_b))
+                else:
+                    # Gap to nearest edge
+                    gap = min(abs(p_hi - b_lo), abs(p_lo - b_hi), abs(p_lo - b_lo), abs(p_hi - b_hi))
+                    gaps.append((gap, name_b))
+
+        if overlaps:
+            max_overlap = max(overlaps, key=lambda x: x[0])
+            overlap_gap  = f"OVERLAP: {max_overlap[0]:.1f} MHz"
+            relationship = "IN-BAND"
+            study_type   = "SHARING"
+            computed_rel = True
+        elif gaps:
+            min_gap = min(gaps, key=lambda x: x[0])
+            gap_mhz = min_gap[0]
+            overlap_gap = f"GAP: {gap_mhz:.1f} MHz"
+            if gap_mhz <= ADJACENT_THRESHOLD_MHZ:
+                relationship = "ADJACENT"
+                study_type   = "COMPATIBILITY"
+            else:
+                relationship = "NEARBY"
+                study_type   = "COMPATIBILITY"
+            computed_rel = True
+
+    # Fall back to text extraction if computed values unavailable
+    if not computed_rel:
+        og_m = _rx.search(
+            r'((?:OVERLAP|GAP)[:\s]*\d[\d\s,\.]*\s*(?:MHz|GHz)(?:[^\n|]{0,40})?)',
+            t, _rx.IGNORECASE)
+        if og_m:
+            raw_og = og_m.group(1).strip()[:60]
+            overlap_gap = _rx.sub(r'^(overlap|gap)', lambda m2: m2.group(1).upper(), raw_og, _rx.IGNORECASE)
+            overlap_gap = _rx.sub(r'[\)\.\,\s]+$', '', overlap_gap).strip()
+        elif _rx.search(r'immediately adjacent|touching at|0\s*MHz\s*gap', t, _rx.IGNORECASE):
+            overlap_gap = "GAP: 0 MHz (adjacent)"
         else:
-            overlap_gap = "—"
+            prose_og = _rx.search(r'(\d[\d,\.]*\s*MHz)\s*(overlap|gap)', t, _rx.IGNORECASE)
+            if prose_og:
+                label = 'OVERLAP' if 'overlap' in prose_og.group(2).lower() else 'GAP'
+                overlap_gap = f"{label}: {prose_og.group(1)}"
 
-    # ── Relationship ──────────────────────────────────────────────────────────
-    relationship = _first([
-        r'\|\s*(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\s*\|',
-        r'\b(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\b',
-        r'(in.band|adjacent|nearby)',
-    ]).upper()
+        rel_text = _first([
+            r'\|\s*(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\s*\|',
+            r'\b(IN-BAND|ADJACENT|NEARBY|NOT RELEVANT)\b',
+        ])
+        relationship = rel_text.upper() if rel_text != "—" else relationship
 
-    # ── Study type ────────────────────────────────────────────────────────────
-    study_type = _first([
-        r'\|\s*(SHARING|COMPATIBILITY)\s*\|',           # table cell
-        r'Study Type[:\s|]+\**(SHARING|COMPATIBILITY)', # table or label
-        r'\b(SHARING|COMPATIBILITY)\b.{0,30}study',     # "compatibility study"
-        r'(sharing|compatibility)\s+study',
-        r'study\s+type[:\s]+(sharing|compatibility)',   # "study type: compatibility"
-        r'requires\s+a\s+(SHARING|COMPATIBILITY)\s+study',
-    ]).upper()
+        st_text = _first([
+            r'\|\s*(SHARING|COMPATIBILITY)\s*\|',
+            r'Study Type[:\s|]+\**(SHARING|COMPATIBILITY)',
+            r'\b(SHARING|COMPATIBILITY)\b.{0,30}study',
+        ])
+        study_type = st_text.upper() if st_text != "—" else study_type
 
-    # If still empty but Relationship tells us — IN-BAND → SHARING, ADJACENT → COMPATIBILITY
-    if study_type in ("—", ""):
-        if relationship == "IN-BAND":
-            study_type = "SHARING"
-        elif relationship in ("ADJACENT", "NEARBY"):
-            study_type = "COMPATIBILITY"
+    # Infer cross-fill
+    if study_type == "Unknown":
+        if relationship == "IN-BAND":   study_type = "SHARING"
+        elif relationship in ("ADJACENT","NEARBY"): study_type = "COMPATIBILITY"
+    if relationship == "Unknown":
+        if study_type == "SHARING":     relationship = "IN-BAND"
+        elif study_type == "COMPATIBILITY": relationship = "ADJACENT"
+        elif "OVERLAP" in overlap_gap:  relationship = "IN-BAND"
+        elif "GAP: 0" in overlap_gap:  relationship = "ADJACENT"
 
-    # Infer relationship from study type or overlap when not explicitly stated
-    if relationship in ("—",""):
-        if study_type == "SHARING":
-            relationship = "IN-BAND"
-        elif study_type == "COMPATIBILITY":
-            relationship = "ADJACENT"
-        elif _rx.search(r'OVERLAP:\s*\d', t, _rx.IGNORECASE):
-            relationship = "IN-BAND"
-        elif _rx.search(r'GAP:\s*0\s*MHz', t, _rx.IGNORECASE):
-            relationship = "ADJACENT"
+    # NOT RELEVANT override
+    if _rx.search(r'NOT RELEVANT|no further analysis|no FAA band', t, _rx.IGNORECASE):
+        relationship = "NOT RELEVANT"
+        study_type   = "N/A"
+
+    # ── All frequency mentions ─────────────────────────────────────────────────
+    all_freq_parsed = _find_freq_ranges(t)
+    frequency_mentions = " | ".join(p[2] for p in all_freq_parsed[:20]) if all_freq_parsed else "—"
+    # Also add MHz-normalised version
+    freq_mentions_mhz = " | ".join(_fmt_mhz(p[0],p[1]) for p in all_freq_parsed[:20]) if all_freq_parsed else "—"
+
 
     # ── Proposal summary ─────────────────────────────────────────────────────
     # Try the Document Overview section first
+    # Try structured patterns first
     summ = _first([
         r'##\s*A\).*?\n+[-•]\s*(?:Title[^:]*:)?\s*([^\n]{30,200})',
         r'Document Overview.*?\n+[-•]\s*([^\n]{30,200})',
         r'(?:summary|purpose|proposes?)[:\s]+([^\n]{30,200})',
+        # Title bullet: "- **Title:** Some title" or "- Title: ..."
+        r'[-•]\s*\*{0,2}Title[:\s*]+([^\n]{10,200})',
     ])
     if summ == "—":
-        paras = [p.strip() for p in _rx.split(r'\n{2,}', t)
-                 if len(p.strip()) > 60 and not p.strip().startswith('#')
-                 and not p.strip().startswith('|') and not p.strip().startswith('━')]
-        summ = paras[0][:200] if paras else "—"
+        # Pull from any non-boilerplate line of 30+ chars
+        _lines = [ln.strip() for ln in t.split("\n")
+                  if len(ln.strip()) > 30
+                  and not ln.strip().startswith('#')
+                  and not ln.strip().startswith('|')
+                  and not ln.strip().startswith('━')
+                  and '**REVIEW VERDICT' not in ln
+                  and 'STATUS:' not in ln
+                  and '📋' not in ln
+                  and 'Submitting Admin' not in ln
+                  and 'Working Party' not in ln
+                  and 'Document Number' not in ln
+                  and 'Agenda Item' not in ln
+                  and ln.strip() not in ('---','***')]
+        # Prefer lines that look like a title (start with - **Title or similar)
+        title_lines = [l for l in _lines if _rx.match(r'[-•]\s*\*?\*?Title', l, _rx.IGNORECASE)]
+        if title_lines:
+            summ = _rx.sub(r'^[-•\s*]+Title[:\s*]+', '', title_lines[0]).strip()[:200]
+        elif _lines:
+            summ = _lines[0][:200]
+        else:
+            summ = "Unknown"
     # Strip markdown bold/italic markers from summary
     summary = _rx.sub(r'\*+', '', summ).strip()
     summary = _rx.sub(r'__?(.+?)__?', r'\1', summary)
@@ -1150,22 +1322,25 @@ def _extract_analysis_fields(analysis_text, meta=None):
         "Review Verdict":            verdict,
         # ── Frequency analysis ───────────────────────────────────────────────
         "Proposed Band(s)":          proposed_bands,
+        "Proposed Band(s) MHz":      proposed_bands_mhz,
         "FAA Band(s)":               faa_bands,
+        "FAA Band(s) MHz":           faa_bands_mhz,
         "FAA System(s)":             faa_systems,
         "Overlap / Gap":             overlap_gap,
         "Relationship":              relationship,
         "Study Type":                study_type,
         "All Frequency Mentions":    frequency_mentions,
+        "All Freq. Mentions (MHz)":  freq_mentions_mhz,
         # ── Risk assessment ──────────────────────────────────────────────────
         "Highest Severity":          severity,
         "High Risk Count":           high_risk_count,
         "Medium Risk Count":         medium_risk_count,
         "Low Risk Count":            low_risk_count,
         "Methodology":               methodology,
-        # ── Review routing (matches reference tool schema) ───────────────────
+        # ── Review routing ───────────────────────────────────────────────────
         "Review Track":              review_track,
         "Review Track Justification":review_track_justification,
-        # ── Stance (nuanced 4-way + justification) ───────────────────────────
+        # ── Stance ───────────────────────────────────────────────────────────
         "Stance":                    nuanced_stance,
         "Stance Justification":      stance_justification,
         "US Stance":                 stance,
@@ -1254,12 +1429,15 @@ def _make_summary_xlsx(rows):
         ("Status",               "Doc Status",                 12, "id"),
         ("Verdict",              "Review Verdict",             22, "id"),
         ("Proposed Band(s)",     "Proposed Band(s)",           22, "freq"),
+        ("Proposed (MHz norm.)", "Proposed Band(s) MHz",       22, "freq"),
         ("FAA Band(s)",          "FAA Band(s)",                20, "freq"),
+        ("FAA Band(s) (MHz norm.)","FAA Band(s) MHz",          20, "freq"),
         ("FAA System(s)",        "FAA System(s)",              26, "freq"),
         ("Overlap / Gap",        "Overlap / Gap",              16, "freq"),
         ("Relationship",         "Relationship",               14, "freq"),
         ("Study Type",           "Study Type",                 13, "freq"),
         ("All Freq. Mentions",   "All Frequency Mentions",     35, "freq"),
+        ("All Freq. (MHz norm.)","All Freq. Mentions (MHz)",   35, "freq"),
         ("Severity",             "Highest Severity",           11, "risk"),
         ("High #",               "High Risk Count",             8, "risk"),
         ("Med #",                "Medium Risk Count",           8, "risk"),
