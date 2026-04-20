@@ -1421,56 +1421,120 @@ def _make_summary_xlsx(rows):
     # SHEET 2 — LEGEND
     ws2 = wb.create_sheet("Legend")
     ws2.sheet_view.showGridLines = False
-    ws2.column_dimensions["A"].width = 26
-    ws2.column_dimensions["B"].width = 52
-    ws2.column_dimensions["C"].width = 28
+    ws2.column_dimensions["A"].width = 28
+    ws2.column_dimensions["B"].width = 42
+    ws2.column_dimensions["C"].width = 58
+
     legend_title = ws2.cell(row=1, column=1, value="FIELD LEGEND — FAA RF Interference Analysis Tool")
     legend_title.font = Font(name="Arial", bold=True, color=WHITE, size=11)
     legend_title.fill = fill(FAA_BLUE)
     ws2.merge_cells("A1:C1")
     legend_title.alignment = Alignment(horizontal="center")
-    ws2.row_dimensions[1].height = 20
-    LEGEND = [
-        ("Field","Description","Values / Notes"),
-        ("Doc No.","Document identifier","e.g. 5D/123-E or batch filename"),
-        ("Source / Admin","Submitting country or body","e.g. China, Working Party 5B, ICAO"),
-        ("Agenda Item(s)","WRC-27 agenda items referenced","AI 1.7, AI 1.13, AI 1.15, AI 1.17, AI 1.19"),
-        ("Status","New submission or revision","NEW DOCUMENT / REVISION / UNCLEAR"),
-        ("Review Verdict","AI triage decision","REQUIRES HUMAN REVIEW / LIKELY NOT RELEVANT / FLAG FOR CLARIFICATION"),
-        ("Proposed Band(s)","Exact proposed frequency band(s)","From analysis frequency table column 1"),
-        ("FAA Band(s)","FAA protected bands affected","From analysis frequency table column 3"),
-        ("FAA System(s)","FAA aviation systems at risk","Radio Altimeter, DME, ASR, GPS, ADS-B, etc."),
-        ("Overlap / Gap","Calculated frequency overlap or gap","GAP: 0 MHz / OVERLAP: X MHz"),
-        ("Relationship","Spectral relationship","IN-BAND / ADJACENT / NEARBY / NOT RELEVANT"),
-        ("Study Type","Coexistence study type","SHARING (co-band) / COMPATIBILITY (adjacent)"),
-        ("All Freq. Mentions","All frequency ranges found (pipe-delimited)","Raw scan — for manual cross-check"),
-        ("Severity","Highest FAA impact severity","High / Medium / Low"),
-        ("High # / Med # / Low #","Issue count at each severity level","Integer — 0 means no issues at that level"),
-        ("Methodology","ITU-R methodology compliance","Compliant / Non-compliant / No study"),
-        ("Review Track","Document routing path","FAA-relevant foreign document / Screened out / U.S. contribution"),
-        ("Track Justification","Why this routing was assigned","From Section C analysis text"),
-        ("Stance","4-way stance taxonomy","risky / mixed / protective / neutral_but_check"),
-        ("Stance Justification","Why this stance was assigned","From Section F analysis text"),
-        ("US Stance","Recommended US delegation position","Oppose / Support / Propose amendments / Monitor / Neutral"),
-        ("TC Summary","Track change classification","new_document / revision / clean_update / uncertain"),
-        ("TC Justification","Evidence for track change classification","From document status section"),
-        ("Has TC","Were track changes detected in the file?","Yes / No"),
-        ("TC Count","Total insertions + deletions detected","Integer — 0 if no track changes"),
-        ("AI Justification","Why each agenda item was flagged","Cue type and location in document"),
-        ("Proposal Summary","Brief description of what the document proposes","Up to 200 characters"),
-        ("Recommended Actions","Full Section F recommended actions text","Up to 400 characters"),
-        ("Top Action","Single highest-priority action","Up to 120 characters"),
+    ws2.row_dimensions[1].height = 22
+
+    # Column headers
+    for ci, hdr in enumerate(["Field / Column", "Description", "Values & What They Mean"], 1):
+        ch = ws2.cell(row=2, column=ci, value=hdr)
+        ch.font = Font(name="Arial", bold=True, size=9, color=WHITE)
+        ch.fill = fill(MED_BLUE)
+        ch.border = thin_border()
+        ch.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws2.row_dimensions[2].height = 18
+    # ── Legend sheet: structured sections with section headers ─────────────────
+    LEGEND_SECTIONS = [
+        # (section_label, is_section_header, col1, col2, col3)
+        # Section: Identification
+        (True, "IDENTIFICATION COLUMNS", "", ""),
+        (False, "Doc No.", "Document identifier (e.g. 5D/123-E)", "Auto-extracted from document text or filename"),
+        (False, "Source / Admin", "Submitting country or organisation", "e.g. China, Working Party 5B Chair, ICAO — extracted from document"),
+        (False, "Working Party", "ITU-R Working Party responsible", "WP 5D · WP 5B · WP 4C · WP 7B · WP 7C — extracted from document text first, meta dropdown as fallback"),
+        (False, "Agenda Item(s)", "WRC-27 agenda items referenced", "Filtered to FAA-relevant items only: AI 1.7 (RA/5G) · AI 1.13 (MSS) · AI 1.15 (Lunar) · AI 1.17 (Space wx) · AI 1.19 (EESS/RA band)"),
+        (False, "Status", "New submission or revision of existing document", "NEW DOCUMENT = first-time contribution  /  REVISION = update to earlier document  /  UNCLEAR = ambiguous"),
+        (False, "Review Verdict", "AI triage routing decision", "REQUIRES HUMAN REVIEW = FAA impact found  /  LIKELY NOT RELEVANT = no overlap  /  FLAG FOR CLARIFICATION = partial or ambiguous  /  U.S. CONTRIBUTION – SUMMARY ONLY"),
+
+        # Section: Frequency Analysis
+        (True, "FREQUENCY ANALYSIS COLUMNS", "", ""),
+        (False, "Proposed Band(s)", "Exact frequency band(s) the document proposes", "Extracted from table column 1 (Proposed Band). Up to 5 bands separated by semicolons."),
+        (False, "FAA Band(s)", "FAA protected band(s) affected", "Extracted from table column 3 (FAA Band). Bands that overlap or are adjacent to the proposed band."),
+        (False, "FAA System(s)", "FAA aviation systems at risk", "Radio Altimeter · DME/TACAN · GPS L1/L5 · ADS-B/Mode-S · ASR · ARSR · ILS/VOR · L-band AMS(R)S · MLS · ARNS 5 GHz · En-Route Radar"),
+        (False, "Overlap / Gap", "Calculated spectral relationship between proposed and FAA bands", "OVERLAP: N MHz = bands share N MHz of spectrum (co-channel)  /  GAP: N MHz = bands are separated by N MHz (adjacent or nearby)  /  GAP: 0 MHz (adjacent) = bands touch exactly at one frequency"),
+        (False, "Relationship", "Spectral relationship category — determines study type required", "IN-BAND: proposed band directly overlaps FAA band; co-channel interference; SHARING study required\n\nADJACENT: no overlap but gap is small; OOB emissions and blocking still threaten FAA receiver; COMPATIBILITY study required (SM.1541 mask)\n\nNEARBY: wider gap; lower threat; monitoring appropriate\n\nNOT RELEVANT: bands are far apart; no credible interference pathway"),
+        (False, "Study Type", "Type of coexistence study required by the spectral relationship", "SHARING: co-channel coexistence study (I/N as primary metric)\n\nCOMPATIBILITY: adjacent-band study (OOB emission mask, blocking, receiver desensitization)\n\nNote: ADJACENT always triggers a COMPATIBILITY study even when GAP = 0 MHz"),
+        (False, "All Freq. Mentions", "All frequency ranges found anywhere in the document", "Pipe-delimited raw scan of every frequency range in the analysis text. Useful for manual cross-check of frequency table completeness."),
+
+        # Section: Risk Assessment
+        (True, "RISK ASSESSMENT COLUMNS", "", ""),
+        (False, "Severity (Highest)", "Highest FAA impact severity level found across all issues in Section D", "High (red): immediate threat to aviation safety; cite harmful interference under RR 4.10; requires US opposition or strong conditions\n\nMedium (amber): significant concern; flag for clarification; request revised study\n\nLow (green): minor risk; monitor; note in record\n\n— : not applicable (US contribution or no FAA impact found)"),
+        (False, "High # / Med # / Low #", "Count of individual issues at each severity level in Section D", "Integer count. High # > 0 means at least one safety-critical finding. Use Excel filter 'High # > 0' to isolate the most urgent documents. 0 = no findings at that severity."),
+        (False, "Methodology", "ITU-R methodology compliance assessment from Section E", "Compliant: study correctly applies the required ITU-R Recommendations (e.g. P.452, P.528, M.1642, SM.2028)\n\nNon-compliant: one or more required methodology elements are absent or wrong — cite the specific Recommendation\n\nNo study: no interference analysis provided at all\n\n— : not applicable (US contribution, not-relevant document, or no Section E present)"),
+
+        # Section: Review Routing
+        (True, "REVIEW ROUTING COLUMNS", "", ""),
+        (False, "Review Track", "Document routing path — determines how much human review time to allocate", "FAA-relevant foreign document (red): band overlap or adjacency detected; requires full engineering and policy review\n\nScreened out after FAA relevance review (green): no FAA band affected; file and monitor\n\nU.S. contribution (blue): summary only per review policy; no critique of US positions"),
+        (False, "Track Justification", "Explanation of why this routing was assigned", "Extracted from Section C (Relevance Screen) of the analysis. Cites the specific band overlap or gap that triggered the routing decision."),
+
+        # Section: Stance
+        (True, "STANCE COLUMNS", "", ""),
+        (False, "Stance", "4-way nuanced stance taxonomy — more granular than US Stance", "risky (red): High-severity findings and/or weak methodology; document directionally harmful to FAA; US should oppose\n\nmixed (amber): document has both protective and problematic elements; US should propose amendments or flag for clarification\n\nprotective (green): document supports FAA protection criteria; US can support or remain neutral\n\nneutral_but_check (blue): no direct threat but could set procedural or allocation precedent; monitor"),
+        (False, "Stance Justification", "Why this stance was assigned", "Extracted from Section F (Recommended Actions) of the analysis."),
+        (False, "US Stance", "Recommended US delegation position — ready to use at WP session", "Oppose: document harmful to FAA; recommend US formally oppose\n\nSupport: document protective of FAA interests\n\nPropose amendments: document has merit but needs conditions or corrections\n\nFlag for clarification: methodology or scope unclear; request revision before deciding\n\nMonitor: low relevance; track for future implications\n\nN/A – U.S. contribution: not applicable\n\nNeutral: no FAA stake either way"),
+
+        # Section: Track Changes
+        (True, "TRACK CHANGES COLUMNS", "", ""),
+        (False, "TC Summary", "Track change classification of the document file", "new_document: first submission of this contribution (no prior version)\n\nrevision: update to a previously circulated document (changes tracked)\n\nclean_update: revision submitted without Word track changes enabled\n\nuncertain: cannot determine from document text"),
+        (False, "TC Justification", "Evidence used to classify the track change status", "From document status section of the analysis. Cites specific phrases in the document."),
+        (False, "Has TC", "Were Word track changes (insertions/deletions) detected in the uploaded file?", "Yes: track change markup found in the Word XML — review changed text in Section B\n\nNo: no track change markup found (may still be a revision if submitted as clean update)"),
+        (False, "TC Count", "Total number of tracked insertions + deletions found in the Word file", "Integer. 0 if no track changes found or file was not a Word document. High counts (>50) may indicate significant restructuring."),
+
+        # Section: Narrative
+        (True, "NARRATIVE COLUMNS", "", ""),
+        (False, "AI Justification", "Why each WRC-27 agenda item was flagged for this document", "States whether the reference was explicit (stated in document text/title) or inferred (from frequency overlap with a band that falls under that AI)."),
+        (False, "Proposal Summary", "Brief plain-English description of what the document proposes", "Up to 200 characters. Extracted from Section A (Document Overview) of the analysis."),
+        (False, "Recommended Actions", "Full list of recommended US actions from Section F", "Up to 400 characters. Numbered list with owner and priority for each action."),
+        (False, "Top Action", "Single highest-priority action — the most urgent thing for the US delegation to do", "Up to 120 characters. Action #1 from Section F."),
+
+        # Reference section
+        (True, "WRC-27 AGENDA ITEM REFERENCE", "", ""),
+        (False, "AI 1.7 (WP 5D)", "IMT identification in new frequency bands", "FAA concern: Radio Altimeter (4.2–4.4 GHz), ARNS 5 GHz, MLS. Interferer: 5G NR base stations adjacent to RA band. Key Recs: M.1642, SM.1541, P.528."),
+        (False, "AI 1.13 (WP 4C)", "MSS / DC-MSS-IMT satellite downlinks in new bands", "FAA concern: DME/TACAN (960 MHz), L-band AMS(R)S (1525 MHz), ASR (2700 MHz). Key risk: constellation epfd aggregate vs single-sat pfd. Key Recs: P.619, S.1586, S.1598."),
+        (False, "AI 1.15 (WP 7B)", "Lunar surface communications (SRS)", "FAA concern: allocation precedent in ARNS bands. No ITU-R methodology exists for Earth-Moon geometry. Argue for secondary allocation only."),
+        (False, "AI 1.17 (WP 7C)", "Space weather sensors below 30 MHz", "FAA concern: HF/VHF coordination obligations on FAA comms. Less direct than AI 1.19."),
+        (False, "AI 1.19 (WP 7C)", "EESS passive in 4.2–4.4 GHz (Radio Altimeter band)", "FAA concern: co-primary EESS allocation weakens RA band exclusivity and makes AI 1.7 defense harder. No interference calculation — purely regulatory/allocation."),
     ]
-    for ri, (col1, col2, col3) in enumerate(LEGEND):
-        is_hdr = (ri==0)
-        for ci, val in enumerate([col1,col2,col3], 1):
-            cell = ws2.cell(row=ri+2, column=ci, value=val)
-            cell.font      = Font(name="Arial", bold=is_hdr, size=9,
-                                  color=WHITE if is_hdr else "000000")
-            cell.fill      = fill(MED_BLUE if is_hdr else (LIGHT_GRAY if ri%2==0 else WHITE))
-            cell.border    = thin_border()
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-        ws2.row_dimensions[ri+2].height = 30 if not is_hdr else 18
+
+    # Write legend with section headers styled differently
+    SEC_HDR_COLOR = FAA_BLUE
+    ENTRY_COLORS  = (LIGHT_GRAY, WHITE)
+    _row = 3   # start after title (row 1) + column headers (row 2)
+    _entry_count = 0
+    for item in LEGEND_SECTIONS:
+        is_sec_hdr = item[0]
+        if is_sec_hdr:
+            _, sec_label, _, _ = item
+            try:
+                ws2.merge_cells(f"A{_row}:C{_row}")
+            except Exception:
+                pass
+            sc = ws2.cell(row=_row, column=1, value=sec_label)
+            sc.font      = Font(name="Arial", bold=True, size=9, color=WHITE)
+            sc.fill      = fill(SEC_HDR_COLOR)
+            sc.alignment = Alignment(horizontal="left", vertical="center")
+            sc.border    = thin_border()
+            ws2.row_dimensions[_row].height = 16
+            _entry_count = 0
+        else:
+            _, f_name, f_desc, f_vals = item
+            bg = ENTRY_COLORS[_entry_count % 2]
+            for ci, val in enumerate([f_name, f_desc, f_vals], 1):
+                cell = ws2.cell(row=_row, column=ci, value=val)
+                cell.font      = Font(name="Arial", bold=(ci == 1), size=8.5,
+                                      color="1F4E79" if ci == 1 else "000000")
+                cell.fill      = fill(bg)
+                cell.border    = thin_border()
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            ws2.row_dimensions[_row].height = 45
+            _entry_count += 1
+        _row += 1
 
 
     buf = _xio.BytesIO()
