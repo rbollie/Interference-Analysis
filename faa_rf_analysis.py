@@ -6129,6 +6129,17 @@ Keep the draft to 200–300 words. Use ITU-R meeting language. Cite specific Rec
 
 If this is PATH 1 (US contribution) or PATH 2 (not relevant) — omit this section entirely."""
 
+        # Initialize docx_meta with known values — updated with auto-extracted fields after analysis
+        docx_meta = {
+            "doc_number":      doc_number,
+            "working_party":   working_party,
+            "submitting_admin":submitting_admin,
+            "meeting_date":    meeting_date,
+            "agenda_item":     agenda_item,
+            "doc_type":        doc_type,
+            "analysis_depth":  analysis_depth,
+        }
+
         with st.spinner("Analyzing contribution... this takes 15–30 seconds for deep analysis."):
             try:
                 client = anthropic.Anthropic(api_key=api_key)
@@ -6140,12 +6151,23 @@ If this is PATH 1 (US contribution) or PATH 2 (not relevant) — omit this secti
                 )
                 analysis_text = response.content[0].text
 
+                # Auto-extract metadata from the analysis text and update docx_meta
+                _auto = _extract_analysis_fields(analysis_text, {"working_party": working_party})
+                auto_doc_num  = _auto.get("Document No.","")  or doc_number
+                auto_admin    = _auto.get("Source / Admin","") or submitting_admin
+                auto_ai       = _auto.get("Agenda Item(s)","") or agenda_item
+                docx_meta.update({
+                    "doc_number":       auto_doc_num,
+                    "submitting_admin": auto_admin,
+                    "agenda_item":      auto_ai,
+                })
+
                 # Store for interactive Q&A
                 st.session_state["qa_contrib_text"]    = contrib_input
                 st.session_state["qa_analysis_text"]   = analysis_text
                 st.session_state["qa_doc_meta"]        = docx_meta
                 st.session_state["qa_history"]         = []   # reset on new analysis
-                st.session_state["qa_active_doc"]      = doc_number or "this document"
+                st.session_state["qa_active_doc"]      = auto_doc_num or doc_number or "this document"
 
                 # ── Write to Neo4j (if configured) ────────────────────────────
                 neo4j_driver = _neo4j_driver()
@@ -6206,31 +6228,15 @@ Intermodulation / spurious response
                     import re as _rc
                     return _rc.sub(r'[^A-Za-z0-9_-]', '_', str(s or ""))[:maxlen].strip('_')
 
-                # Extract metadata automatically from the analysis text
-                _auto = _extract_analysis_fields(analysis_text, {"working_party": working_party})
-                auto_doc_num  = _auto.get("Document No.","") or doc_number
-                auto_admin    = _auto.get("Source / Admin","") or submitting_admin
-                auto_ai       = _auto.get("Agenda Item(s)","") or agenda_item
-
                 from datetime import date as _dl
                 safe_name = "_".join(filter(None, [
-                    _clean(auto_doc_num,  20),
-                    _clean(auto_admin,    15),
-                    _clean(working_party, 10),
+                    _clean(docx_meta.get("doc_number"),      20),
+                    _clean(docx_meta.get("submitting_admin"), 15),
+                    _clean(working_party,                     10),
                     str(_dl.today()),
                 ]))
                 if not safe_name.strip("_"):
                     safe_name = f"analysis_{_dl.today()}"
-
-                docx_meta = {
-                    "doc_number":      auto_doc_num,
-                    "working_party":   working_party,
-                    "submitting_admin":auto_admin,
-                    "meeting_date":    meeting_date,
-                    "agenda_item":     auto_ai,
-                    "doc_type":        doc_type,
-                    "analysis_depth":  analysis_depth,
-                }
 
                 # Generate and persist bytes in session state so buttons survive page reruns
                 try:
