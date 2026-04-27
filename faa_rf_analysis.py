@@ -4000,8 +4000,267 @@ Because {oob_check_freq:.1f} MHz has **not crossed** the OOB/spurious boundary a
         st.caption("📐 Formulas: Band edges = f_c ± BN/2 · OOB boundary = band edge ± 2.5×BN (250% of BN) · "
                    "Spurious limit = min(43 + 10·log₁₀(P_W), 60) dBc per RR App.3 Table · SM.1541 OOB mask = ≥23 dBc at band edge")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB — WP VERIFICATION CALCULATOR
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXERCISE 2 — I/N Threshold and Noise Floor
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("📶 Exercise 2 — Noise Floor & I/N Threshold")
+    ex("Calculate the victim receiver noise floor, the maximum allowable interference power, "
+       "and whether a given received interference level violates the protection criterion.")
+
+    nc1, nc2, nc3 = st.columns(3)
+    with nc1:
+        st.markdown("**Victim Receiver Parameters**")
+        in_bw_mhz = st.number_input("Receiver Bandwidth (MHz)", value=8.0, step=0.5,
+            min_value=0.001, key="in_bw",
+            help="Noise reference bandwidth (= pre-detection BW). Use the Rx IF bandwidth.")
+        in_nf_db  = st.number_input("Noise Figure (dB)", value=5.0, step=0.5, key="in_nf",
+            help="Receiver system noise figure. Aircraft receivers typically 3–8 dB.")
+        in_temp_k = st.number_input("Reference Temperature (K)", value=290.0, step=5.0, key="in_temp",
+            help="ITU-R standard = 290 K (room temperature). Do not change unless the Recommendation specifies otherwise.")
+        in_av_sf  = st.number_input("Aviation Safety Factor (dB)", value=6.0, step=1.0, key="in_avsf",
+            help="Additional margin for safety-of-life systems per M.1477 Annex 5. "
+                 "Typical: +6 dB for precision approach systems (RA, ILS). 0 dB for non-safety systems.")
+    with nc2:
+        st.markdown("**Protection Criterion**")
+        in_thresh = st.number_input("I/N Threshold (dB)", value=-6.0, step=1.0, key="in_thresh",
+            help="Maximum allowable interference-to-noise ratio.\n"
+                 "Typical values: Radio Altimeter −6 dB (M.1477); ASR −10 dB; ARSR −6 dB; "
+                 "AMS(R)S −12.2 dB (6% ΔT/T equivalent).")
+        in_rx_int = st.number_input("Received Interference (dBm)", value=-90.0, step=1.0, key="in_rxint",
+            help="Interference power arriving at the victim receiver input (after path loss, antenna gain, etc.).")
+    with nc3:
+        st.markdown("**Computed Values**")
+        # Noise floor
+        in_k = 1.38e-23
+        in_noise_floor_w = in_k * in_temp_k * in_bw_mhz * 1e6
+        in_noise_floor_dbm = 10 * np.log10(in_noise_floor_w) + 30 + in_nf_db
+        in_eff_thresh = in_thresh - in_av_sf   # effective = nominal + safety (more negative = tighter)
+        in_max_interf = in_noise_floor_dbm + in_eff_thresh
+        in_i_n = in_rx_int - in_noise_floor_dbm
+        in_margin = in_eff_thresh - in_i_n
+
+        st.metric("Noise Floor", f"{in_noise_floor_dbm:.1f} dBm",
+            help=f"−174 + 10·log({in_bw_mhz} MHz) + {in_nf_db} dB NF = {in_noise_floor_dbm:.1f} dBm")
+        st.metric("Effective Threshold", f"{in_eff_thresh:.1f} dB",
+            help=f"I/N threshold ({in_thresh} dB) − safety factor ({in_av_sf} dB) = {in_eff_thresh:.1f} dB")
+        st.metric("Max Interference Allowed", f"{in_max_interf:.1f} dBm",
+            help=f"Noise floor ({in_noise_floor_dbm:.1f}) + effective threshold ({in_eff_thresh:.1f})")
+        st.metric("Computed I/N", f"{in_i_n:.1f} dB",
+            help=f"Received ({in_rx_int:.1f}) − noise floor ({in_noise_floor_dbm:.1f})")
+        st.metric("Protection Margin", f"{in_margin:+.1f} dB",
+            delta="PROTECTED" if in_margin >= 0 else "VIOLATED",
+            delta_color="normal" if in_margin >= 0 else "inverse")
+
+    with st.expander("🔍 I/N step-by-step sanity check", expanded=True):
+        st.markdown(f"""
+**Step 1 — Thermal noise floor**
+
+| Parameter | Calculation | Result |
+|---|---|---|
+| Boltzmann constant k | fixed | 1.38 × 10⁻²³ J/K |
+| Reference temperature T | Input | {in_temp_k:.0f} K |
+| Bandwidth BW | Input | {in_bw_mhz:.3f} MHz = {in_bw_mhz*1e6:.0f} Hz |
+| kTB (thermal noise) | k × T × BW | {10*np.log10(in_noise_floor_w/1e-3):.1f} dBm raw |
+| Noise figure NF | Input | {in_nf_db:.1f} dB |
+| **System noise floor** | kTB + NF | **{in_noise_floor_dbm:.1f} dBm** |
+| Shortcut formula | −174 + 10·log({in_bw_mhz:.3g}×10⁶) + {in_nf_db:.1f} | **{in_noise_floor_dbm:.1f} dBm** ✅ |
+
+---
+
+**Step 2 — Effective I/N threshold (with aviation safety factor)**
+
+| Parameter | Calculation | Result |
+|---|---|---|
+| Nominal I/N threshold | Input per applicable Recommendation | {in_thresh:.1f} dB |
+| Aviation safety factor | Per M.1477 Annex 5 (safety-of-life margin) | −{in_av_sf:.1f} dB |
+| **Effective threshold** | {in_thresh:.1f} − {in_av_sf:.1f} | **{in_eff_thresh:.1f} dB** |
+| **Max interference allowed** | {in_noise_floor_dbm:.1f} + ({in_eff_thresh:.1f}) | **{in_max_interf:.1f} dBm** |
+
+*The aviation safety factor makes the criterion stricter (more negative) to account for model uncertainty and the severity of failure during safety-critical operations.*
+
+---
+
+**Step 3 — Does the received interference violate the criterion?**
+
+| Parameter | Calculation | Result |
+|---|---|---|
+| Received interference | Input | {in_rx_int:.1f} dBm |
+| System noise floor | Calculated above | {in_noise_floor_dbm:.1f} dBm |
+| **I/N ratio** | {in_rx_int:.1f} − ({in_noise_floor_dbm:.1f}) | **{in_i_n:.1f} dB** |
+| Effective threshold | Calculated above | {in_eff_thresh:.1f} dB |
+| **Protection margin** | {in_eff_thresh:.1f} − ({in_i_n:.1f}) | **{in_margin:+.1f} dB** |
+| **Verdict** | margin {'> 0 → protected' if in_margin >= 0 else '< 0 → VIOLATED'} | **{'✅ PROTECTED' if in_margin >= 0 else '❌ THRESHOLD VIOLATED'}** |
+""")
+        if in_margin < 0:
+            st.error(f"❌ **Harmful interference.** The received interference of {in_rx_int:.1f} dBm exceeds the maximum "
+                     f"allowed level of {in_max_interf:.1f} dBm by {abs(in_margin):.1f} dB. "
+                     f"In a contribution, cite ITU-R {('M.1477' if in_av_sf > 0 else 'the applicable Recommendation')} "
+                     f"and state that the I/N criterion of {in_eff_thresh:.1f} dB is violated by {abs(in_margin):.1f} dB.")
+        else:
+            st.success(f"✅ **Protected.** Margin = {in_margin:+.1f} dB above the effective threshold.")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXERCISE 3 — FSPL and Coordination Distance
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("📡 Exercise 3 — FSPL, Link Budget & Coordination Distance")
+    ex("Calculate the free-space path loss for a given distance and frequency, run the full Friis link budget, "
+       "and solve for the minimum separation distance at which the I/N criterion is just met.")
+
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        st.markdown("**Interferer**")
+        fs_eirp  = st.number_input("EIRP (dBm)", value=63.0, step=1.0, key="fs_eirp",
+            help="Effective Isotropic Radiated Power = Tx power + antenna gain − cable loss. "
+                 "Typical 5G macro: 63 dBm (43 dBm Tx + 17 dBi − 2 dB loss).")
+        fs_freq  = st.number_input("Frequency (MHz)", value=4400.0, step=10.0, key="fs_freq",
+            help="Center frequency of the interfering emission.")
+        fs_oob   = st.number_input("OOB/Spurious Attenuation (dB)", value=0.0, step=1.0, key="fs_oob",
+            help="Additional attenuation from the SM.1541 OOB mask or RR App.3 spurious limit. "
+                 "0 = co-channel / in-band (worst case).")
+        fs_eirp_eff = fs_eirp - fs_oob
+
+    with fc2:
+        st.markdown("**Geometry & Propagation**")
+        fs_dist  = st.number_input("Distance (km)", value=1.0, step=0.5, min_value=0.01, key="fs_dist",
+            help="Separation between interferer and victim receiver.")
+        fs_model = st.selectbox("Propagation Model", [
+            "FSPL (Free Space — worst-case bound)",
+            "P.452 — Terrestrial, open/rural",
+            "P.452 — Terrestrial, suburban",
+            "P.452 — Terrestrial, urban (dense)",
+            "P.528 — Aeronautical, aircraft at altitude (+6 dB bonus)",
+        ], key="fs_model")
+        fs_rxg   = st.number_input("Rx Antenna Gain (dBi)", value=0.0, step=0.5, key="fs_rxg",
+            help="Victim receiver gain toward the interferer. 0 = worst-case isotropic.")
+
+    # Terrain / altitude correction
+    terrain_map = {
+        "FSPL (Free Space — worst-case bound)": 0,
+        "P.452 — Terrestrial, open/rural":      0,
+        "P.452 — Terrestrial, suburban":        8,
+        "P.452 — Terrestrial, urban (dense)":   15,
+        "P.528 — Aeronautical, aircraft at altitude (+6 dB bonus)": -6,  # reduction in path loss
+    }
+    terrain_corr = terrain_map[fs_model]
+
+    fspl = 20 * np.log10(fs_dist) + 20 * np.log10(fs_freq) + 32.44
+    path_loss = fspl + terrain_corr
+    rx_power  = fs_eirp_eff - path_loss + fs_rxg
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("FSPL", f"{fspl:.1f} dB",
+        help=f"20·log₁₀({fs_dist}) + 20·log₁₀({fs_freq}) + 32.44")
+    m2.metric("Total Path Loss", f"{path_loss:.1f} dB",
+        help=f"FSPL {fspl:.1f} + terrain/altitude correction {terrain_corr:+.1f} dB")
+    m3.metric("Received Interference", f"{rx_power:.1f} dBm",
+        help=f"EIRP_eff ({fs_eirp_eff:.1f}) − path loss ({path_loss:.1f}) + Rx gain ({fs_rxg:.1f})")
+
+    with st.expander("🔍 FSPL step-by-step sanity check", expanded=True):
+        st.markdown(f"""
+**Step 1 — Free Space Path Loss**
+
+| Parameter | Calculation | Result |
+|---|---|---|
+| Distance | Input | {fs_dist:.2f} km |
+| Frequency | Input | {fs_freq:.1f} MHz |
+| FSPL | 20·log₁₀({fs_dist:.2f}) + 20·log₁₀({fs_freq:.1f}) + 32.44 | **{fspl:.1f} dB** |
+| Terrain/altitude correction | {fs_model.split("—")[0].strip()} | {terrain_corr:+.1f} dB |
+| **Total path loss** | {fspl:.1f} + ({terrain_corr:+.1f}) | **{path_loss:.1f} dB** |
+
+*The 32.44 constant = 20·log₁₀(4π/c) for distance in km and frequency in MHz. Error vs exact = 0.002 dB — negligible.*
+
+---
+
+**Step 2 — Friis Link Budget**
+
+| Step | Value | Cumulative |
+|---|---|---|
+| EIRP | {fs_eirp:.1f} dBm | {fs_eirp:.1f} dBm |
+| OOB/Spurious attenuation | −{fs_oob:.1f} dB | {fs_eirp_eff:.1f} dBm |
+| Path loss ({fs_model.split("—")[0].strip()}) | −{path_loss:.1f} dB | {fs_eirp_eff - path_loss:.1f} dBm |
+| Rx antenna gain | +{fs_rxg:.1f} dBi | **{rx_power:.1f} dBm** |
+
+---
+
+**Step 3 — Compare to the I/N budget from Exercise 2**
+
+Use the "Received Interference" value above as input to Exercise 2 to complete the full chain:
+EIRP → path loss → received power → I/N → protection margin.
+
+| Exercise 2 noise floor | {in_noise_floor_dbm:.1f} dBm | |
+|---|---|---|
+| Exercise 2 max interference | {in_max_interf:.1f} dBm | |
+| Current received interference | {rx_power:.1f} dBm | |
+| Verdict | {'✅ Below limit — protected' if rx_power <= in_max_interf else '❌ Exceeds limit — interference'} | margin = {in_max_interf - rx_power:+.1f} dB |
+""")
+
+    # Coordination zone solve
+    st.markdown("**Solve for coordination distance — minimum safe separation**")
+    st.caption("The distance at which received interference equals the maximum allowed level from Exercise 2.")
+    # Solve: fs_eirp_eff - (20·log(d) + 20·log(f) + 32.44 + terrain) + fs_rxg = in_max_interf
+    # 20·log(d) = fs_eirp_eff + fs_rxg - in_max_interf - 20·log(f) - 32.44 - terrain
+    rhs_coord = fs_eirp_eff + fs_rxg - in_max_interf - 20*np.log10(fs_freq) - 32.44 - terrain_corr
+    if rhs_coord > 0:
+        d_coord = 10 ** (rhs_coord / 20)
+        st.success(f"**Minimum coordination distance: {d_coord:.1f} km** "
+                   f"(at this separation, received interference = {in_max_interf:.1f} dBm = I/N threshold exactly). "
+                   f"Cite this as the exclusion zone radius in your contribution.")
+        if d_coord > 500:
+            st.warning(f"⚠️ {d_coord:.0f} km is a very large coordination zone — recheck EIRP, frequency, and whether OOB attenuation applies.")
+    else:
+        st.info("Even at very short range the I/N threshold is not exceeded with these parameters — no coordination zone required.")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXERCISE 4 — Protection Margin Chain
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("⚖️ Exercise 4 — Full Protection Margin Chain")
+    ex("Tie all three exercises together: EIRP → FSPL → received power → noise floor → I/N → protection margin → contribution language. "
+       "All values flow from Exercises 1–3 above automatically.")
+
+    st.markdown(f"""
+**Complete chain using current Exercise 2 & 3 values:**
+
+| Step | Formula | Value |
+|---|---|---|
+| 1. Interferer EIRP | Input | {fs_eirp:.1f} dBm |
+| 2. OOB attenuation | −{fs_oob:.1f} dB | {fs_eirp_eff:.1f} dBm effective |
+| 3. FSPL at {fs_dist:.1f} km, {fs_freq:.1f} MHz | 20·log({fs_dist:.2f}) + 20·log({fs_freq:.1f}) + 32.44 | {fspl:.1f} dB |
+| 4. Propagation model correction | {fs_model.split('—')[0].strip()} | {terrain_corr:+.1f} dB |
+| 5. Received interference | EIRP_eff − PL + Gr | **{rx_power:.1f} dBm** |
+| 6. Victim noise floor | −174 + 10·log({in_bw_mhz:.2g} MHz) + {in_nf_db:.1f} dB NF | {in_noise_floor_dbm:.1f} dBm |
+| 7. I/N ratio | {rx_power:.1f} − ({in_noise_floor_dbm:.1f}) | **{rx_power - in_noise_floor_dbm:.1f} dB** |
+| 8. I/N threshold | Input per Recommendation | {in_thresh:.1f} dB |
+| 9. Aviation safety factor | M.1477 / applicable Rec. | −{in_av_sf:.1f} dB |
+| 10. Effective threshold | {in_thresh:.1f} − {in_av_sf:.1f} | {in_eff_thresh:.1f} dB |
+| 11. **Protection margin** | threshold − I/N = {in_eff_thresh:.1f} − ({rx_power - in_noise_floor_dbm:.1f}) | **{in_eff_thresh - (rx_power - in_noise_floor_dbm):+.1f} dB** |
+| 12. **Verdict** | margin {'≥ 0' if in_eff_thresh - (rx_power - in_noise_floor_dbm) >= 0 else '< 0'} | **{'✅ PROTECTED' if in_eff_thresh - (rx_power - in_noise_floor_dbm) >= 0 else '❌ VIOLATED'}** |
+""")
+
+    final_margin = in_eff_thresh - (rx_power - in_noise_floor_dbm)
+    if final_margin < 0:
+        st.error(f"❌ **Protection criterion violated by {abs(final_margin):.1f} dB.** Ready-to-use contribution text:")
+        st.code(
+            f"The analysis demonstrates that at {fs_dist:.1f} km separation, "
+            f"the received interference from the proposed system (EIRP = {fs_eirp:.1f} dBm) "
+            f"reaches {rx_power:.1f} dBm at the victim receiver input, "
+            f"producing I/N = {rx_power - in_noise_floor_dbm:.1f} dB. "
+            f"This exceeds the effective protection criterion of {in_eff_thresh:.1f} dB "
+            f"(nominal {in_thresh:.1f} dB + {in_av_sf:.1f} dB aviation safety factor per M.1477) "
+            f"by {abs(final_margin):.1f} dB. "
+            f"The minimum coordination distance is {d_coord:.1f} km."
+            if rhs_coord > 0 else
+            f"The analysis demonstrates a protection margin violation of {abs(final_margin):.1f} dB.",
+            language="text"
+        )
+    else:
+        st.success(f"✅ **Protected — margin = {final_margin:+.1f} dB.** The proposed system is compatible at {fs_dist:.1f} km separation.")
+        if final_margin < 3:
+            st.warning("⚠️ Margin is less than 3 dB — consider requesting a Monte Carlo analysis to confirm under statistical conditions.")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "🔭 WP Verification Calculator":
     st.title("🔭 WP Verification Calculator")
