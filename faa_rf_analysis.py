@@ -6768,15 +6768,23 @@ Intermodulation / spurious response
 
                     # ── OpenAI ────────────────────────────────────────────────
                     if st.session_state.get("use_openai", True):
-                        _oai_key = st.secrets.get("openai_api_key", "")
+                        # Try multiple key name patterns in case user named it differently
+                        _oai_key = (
+                            st.secrets.get("openai_api_key") or
+                            st.secrets.get("OPENAI_API_KEY") or
+                            st.secrets.get("openai_key") or
+                            st.secrets.get("OPENAI_KEY") or
+                            (st.secrets.get("openai", {}) or {}).get("api_key", "") or
+                            ""
+                        )
                         if _oai_key:
                             with st.spinner("Running OpenAI GPT-5.4 (thinking) analysis…"):
                                 try:
                                     import openai as _oai
                                     _oai_client = _oai.OpenAI(api_key=_oai_key)
                                     _oai_resp = _oai_client.chat.completions.create(
-                                        model="gpt-5.4",           # latest API reasoning model
-                                        reasoning_effort="high",    # full extended thinking
+                                        model="gpt-5.4",
+                                        reasoning_effort="high",
                                         max_completion_tokens=4000,
                                         messages=[
                                             {"role": "system", "content": _xcheck_system},
@@ -6787,16 +6795,30 @@ Intermodulation / spurious response
                                 except Exception as _oai_e:
                                     _openai_err = str(_oai_e)
                         else:
-                            _openai_err = "No `openai_api_key` found in Streamlit secrets."
+                            _found_keys = [k for k in st.secrets.keys()]
+                            _openai_err = (
+                                f"OpenAI key not found. Keys present in secrets: {_found_keys}. "
+                                f"Add `openai_api_key = \"sk-...\"` as a flat top-level key in Streamlit Secrets."
+                            )
 
                     # ── Gemini ────────────────────────────────────────────────
                     if st.session_state.get("use_gemini", True):
-                        _gem_key = st.secrets.get("gemini_api_key", "")
+                        # Try multiple key name patterns
+                        _gem_key = (
+                            st.secrets.get("gemini_api_key") or
+                            st.secrets.get("GEMINI_API_KEY") or
+                            st.secrets.get("gemini_key") or
+                            st.secrets.get("GEMINI_KEY") or
+                            st.secrets.get("google_api_key") or
+                            st.secrets.get("GOOGLE_API_KEY") or
+                            (st.secrets.get("gemini", {}) or {}).get("api_key", "") or
+                            (st.secrets.get("google", {}) or {}).get("api_key", "") or
+                            ""
+                        )
                         if _gem_key:
                             with st.spinner("Running Gemini 2.5 Pro (thinking) analysis…"):
                                 try:
                                     import google.generativeai as _genai
-                                    from google.generativeai import types as _gtypes
                                     _genai.configure(api_key=_gem_key)
                                     _gem_model = _genai.GenerativeModel("gemini-2.5-pro")
                                     _gem_resp  = _gem_model.generate_content(
@@ -6804,15 +6826,17 @@ Intermodulation / spurious response
                                         generation_config=_genai.GenerationConfig(
                                             max_output_tokens=4000,
                                         ),
-                                        # Enable thinking — Gemini 2.5 Pro has thinking on by default;
-                                        # passing thinking_config with budget=-1 enables dynamic (full) thinking
                                         request_options={"timeout": 120},
                                     )
                                     _gemini_text = _gem_resp.text
                                 except Exception as _gem_e:
                                     _gemini_err = str(_gem_e)
                         else:
-                            _gemini_err = "No `gemini_api_key` found in Streamlit secrets."
+                            _found_keys = [k for k in st.secrets.keys()]
+                            _gemini_err = (
+                                f"Gemini key not found. Keys present in secrets: {_found_keys}. "
+                                f"Add `gemini_api_key = \"AIza...\"` as a flat top-level key in Streamlit Secrets."
+                            )
 
                     # ── Synthesis via Claude ───────────────────────────────────
                     _available = {
