@@ -1354,6 +1354,8 @@ def _extract_analysis_fields(analysis_text, meta=None):
         "Proposal Summary":          summary,
         "Recommended Actions":       recommended_actions,
         "Top Action":                top_action,
+        "Cross-Check Synthesis":     "",   # populated by batch caller when multi-LLM is on
+        "Cross-Check Models":        "",
     }
 
 
@@ -1456,6 +1458,8 @@ def _make_summary_xlsx(rows):
         ("Proposal Summary",     "Proposal Summary",           45, "narrative"),
         ("Recommended Actions",  "Recommended Actions",        50, "narrative"),
         ("Top Action",           "Top Action",                 38, "narrative"),
+        ("Cross-Check Synthesis","Cross-Check Synthesis",      55, "narrative"),
+        ("Cross-Check Models",   "Cross-Check Models",         28, "narrative"),
     ]
     n_cols = len(COLS)
 
@@ -2220,6 +2224,46 @@ def _make_batch_docx(batch_results, triage_rows, working_party, analysis_depth):
             tr4.font.size = Pt(8); tr4.italic = True; tr4.font.color.rgb = GRAY
 
         bdoc.add_paragraph()
+
+        # ── Multi-LLM Synthesis section (if present) ──────────────────────
+        _syn = res.get("synthesis", "")
+        _syn_models = res.get("synthesis_models", [])
+        if _syn:
+            # Synthesis header
+            syn_p = bdoc.add_paragraph()
+            try:
+                shd_syn = _OE('w:shd'); shd_syn.set(_qn('w:fill'), '145A32')
+                shd_syn.set(_qn('w:val'), 'clear')
+                # Apply shading to a table cell — add a 1-col table for the synthesis block
+            except Exception:
+                pass
+            syn_r = syn_p.add_run(f"🔬 MULTI-LLM SYNTHESIS — {', '.join(_syn_models)}")
+            syn_r.bold = True; syn_r.font.size = Pt(11.5)
+            try: syn_r.font.color.rgb = RGBColor(0x14, 0x5A, 0x32)
+            except Exception: pass
+            bdoc.add_paragraph()
+
+            for syn_line in _syn.split("\n"):
+                sl = syn_line.strip()
+                if not sl: continue
+                if sl.startswith("## "):
+                    sp2 = bdoc.add_paragraph()
+                    sr = sp2.add_run(sl[3:])
+                    sr.bold = True; sr.font.size = Pt(10.5)
+                    try: sr.font.color.rgb = RGBColor(0x14, 0x5A, 0x32)
+                    except Exception: pass
+                elif sl.startswith("- ") or sl.startswith("* "):
+                    sp2 = bdoc.add_paragraph(style="List Bullet")
+                    sp2.add_run(sl[2:]).font.size = Pt(9.5)
+                else:
+                    sp2 = bdoc.add_paragraph()
+                    sp2.add_run(sl).font.size = Pt(9.5)
+
+            # Divider before Claude analysis
+            div_p = bdoc.add_paragraph()
+            div_r = div_p.add_run("─" * 50 + "  Claude Primary Analysis  " + "─" * 10)
+            div_r.font.size = Pt(7); div_r.font.color.rgb = GRAY
+            bdoc.add_paragraph()
 
         # Render analysis lines
         for line in res["analysis"].split("\n"):
@@ -5685,7 +5729,12 @@ between two or more administrations</b> without prejudice to other administratio
             return text.strip(), tc_sum
 
         def run_single_analysis(text, tc_summary_text, fname, client_obj, sys_prompt, analysis_qs, depth_inst):
-            """Run one API call for a single document. Returns analysis text."""
+            """
+            Run analysis for one document.
+            If multi-LLM toggle is on, also runs OpenAI and Gemini and returns a synthesis.
+            Returns: dict with keys 'claude', 'openai', 'gemini', 'synthesis', 'primary'
+            'primary' is the text to use for Excel extraction and Word export (synthesis if available, else Claude).
+            """
             um = f"""Analyze this ITU-R contribution. Filename: {fname}
 
 METADATA — EXTRACT FROM DOCUMENT TEXT:
@@ -5721,13 +5770,136 @@ One sentence.
 ## C) Recommended Actions (top 2 only)
 ## D) Draft U.S. Response (PATH 3 only — omit for US contributions or not-relevant documents)
 One paragraph, 100–150 words. Ready-to-use US floor intervention citing specific RR articles and ITU-R Recommendations. State the US position and key technical objection in ITU-R meeting language.'''}"""
-            response = client_obj.messages.create(
-                model="claude-sonnet-4-5",   # Sonnet: 3× faster than Opus, higher rate limits — optimal for batch triage
+
+            # ── Claude analysis (always runs) ──────────────────────────────
+            claude_resp = client_obj.messages.create(
+                model="claude-sonnet-4-5",
                 max_tokens=3500,
                 messages=[{"role": "user", "content": um}],
                 system=sys_prompt,
             )
-            return response.content[0].text
+            claude_text = claude_resp.content[0].text
+
+            result = {
+                "claude":    claude_text,
+                "openai":    None,
+                "gemini":    None,
+                "synthesis": None,
+                "primary":   claude_text,   # default — overwritten if synthesis succeeds
+            }
+
+            # ── Multi-LLM cross-check for batch (if enabled) ───────────────
+            if not st.session_state.get("multi_llm_toggle", False):
+                return result
+
+            _xsys = (
+                "You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings. "
+                "Analyze this ITU-R contribution for FAA aviation spectrum impact. "
+                "Focus on: (1) frequency overlap with aviation bands, "
+                "(2) interference mechanism and severity, "
+                "(3) methodology compliance with ITU-R Recommendations, "
+                "(4) recommended US position. "
+                "Be concise and technically precise."
+            )
+            _xusr = (
+                f"Filename: {fname}\n\n"
+                f"FAA Protected Bands (key):\n{faa_bands_b[:2000]}\n\n"
+                f"CONTRIBUTION TEXT:\n{text[:8000]}\n\n"
+                "Provide: (A) Frequency overlap/gap summary, (B) Top 3 FAA risks with severity, "
+                "(C) Methodology compliance, (D) Recommended US position in 1 sentence."
+            )
+
+            # OpenAI
+            if st.session_state.get("use_openai", True):
+                _oai_key = (
+                    st.secrets.get("openai_api_key") or st.secrets.get("OPENAI_API_KEY") or
+                    st.secrets.get("openai_key") or ""
+                )
+                if _oai_key:
+                    try:
+                        try:
+                            import openai as _oai
+                        except ModuleNotFoundError:
+                            _oai = None
+                        if _oai:
+                            _oc = _oai.OpenAI(api_key=_oai_key)
+                            _or = _oc.chat.completions.create(
+                                model="gpt-5.4",
+                                reasoning_effort="high",
+                                max_completion_tokens=3000,
+                                messages=[
+                                    {"role": "system", "content": _xsys},
+                                    {"role": "user",   "content": _xusr},
+                                ]
+                            )
+                            result["openai"] = _or.choices[0].message.content
+                    except Exception as _e:
+                        result["openai_error"] = str(_e)
+
+            # Gemini
+            if st.session_state.get("use_gemini", True):
+                _gem_key = (
+                    st.secrets.get("gemini_api_key") or st.secrets.get("GEMINI_API_KEY") or
+                    st.secrets.get("google_api_key") or ""
+                )
+                if _gem_key:
+                    try:
+                        try:
+                            import google.generativeai as _genai
+                        except ModuleNotFoundError:
+                            _genai = None
+                        if _genai:
+                            _genai.configure(api_key=_gem_key)
+                            _gm = _genai.GenerativeModel("gemini-2.5-pro")
+                            _gr = _gm.generate_content(
+                                _xsys + "\n\n" + _xusr,
+                                generation_config=_genai.GenerationConfig(max_output_tokens=3000),
+                                request_options={"timeout": 120},
+                            )
+                            result["gemini"] = _gr.text
+                    except Exception as _e:
+                        result["gemini_error"] = str(_e)
+
+            # Synthesis (only if at least 2 models succeeded)
+            _active_batch = {
+                "Claude (Sonnet)":           result["claude"],
+                "OpenAI (GPT-5.4 Thinking)": result["openai"],
+                "Gemini (2.5 Pro Thinking)": result["gemini"],
+            }
+            _active_batch = {k: v for k, v in _active_batch.items() if v}
+
+            if len(_active_batch) >= 2:
+                try:
+                    _synth_prompt = (
+                        f"You have {len(_active_batch)} independent AI analyses of the same ITU-R document ({fname}). "
+                        "Synthesize into a single authoritative FAA/NTIA assessment.\n\n"
+                        "## CONSENSUS VERDICT\nOne paragraph — agreed FAA impact and US position.\n\n"
+                        "## KEY DIVERGENCES\nBullet list — where models differed.\n\n"
+                        "## SYNTHESIZED US POSITION\nOne actionable sentence.\n\n"
+                        "## CONFIDENCE\nHigh / Medium / Low with rationale.\n\n---\n\n" +
+                        "\n\n---\n\n".join(
+                            f"### {m}:\n{t[:3000]}" for m, t in _active_batch.items()
+                        )
+                    )
+                    _synth_resp = client_obj.messages.create(
+                        model="claude-opus-4-5",
+                        max_tokens=2000,
+                        messages=[{"role": "user", "content": _synth_prompt}],
+                        system=(
+                            "You are a senior RF policy analyst at the FAA synthesizing "
+                            "multiple AI analyses of an ITU-R contribution. Be objective and cite technical details."
+                        ),
+                    )
+                    result["synthesis"] = _synth_resp.content[0].text
+                    result["synthesis_models"] = list(_active_batch.keys())
+                    # Use synthesis as primary text (contains all info + consensus)
+                    result["primary"] = result["claude"] + "\n\n---\n## 🔬 MULTI-LLM SYNTHESIS\n" + result["synthesis"]
+                except Exception as _e:
+                    result["synthesis_error"] = str(_e)
+
+            return result
+
+
 
         # Build shared system prompt
         wp_profile_key_b = WP_PROFILE_MAP.get(working_party)
@@ -5763,7 +5935,24 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             analysis_questions_b = analysis_questions if 'analysis_questions' in dir() else ""
             try:
                 result_b = run_single_analysis(text_b, tc_b, fname, client_b, sys_prompt_batch, analysis_questions_b, depth_b)
-                batch_results.append({"file": fname, "text": text_b, "tc": tc_b, "analysis": result_b, "error": False})
+                # run_single_analysis now returns a dict
+                analysis_text_b  = result_b["primary"]   # Claude + synthesis (or Claude alone)
+                synthesis_b      = result_b.get("synthesis", "")
+                synthesis_models = result_b.get("synthesis_models", [])
+                batch_results.append({
+                    "file":      fname,
+                    "text":      text_b,
+                    "tc":        tc_b,
+                    "analysis":  analysis_text_b,
+                    "_analysis": analysis_text_b,
+                    "_error":    False,
+                    "error":     False,
+                    "_synthesis":       synthesis_b,
+                    "_synthesis_models":synthesis_models,
+                    "_claude":   result_b.get("claude", ""),
+                    "_openai":   result_b.get("openai", ""),
+                    "_gemini":   result_b.get("gemini", ""),
+                })
                 # Write to Neo4j
                 _neo4j_b = _neo4j_driver()
                 if _neo4j_b:
@@ -5774,7 +5963,13 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                         _neo4j_b.close()
                     except Exception: pass
             except Exception as e:
-                batch_results.append({"file": fname, "text": text_b, "tc": tc_b, "analysis": f"❌ API error: {e}", "error": True})
+                batch_results.append({
+                    "file": fname, "text": text_b, "tc": tc_b,
+                    "analysis": f"❌ API error: {e}", "_analysis": f"❌ API error: {e}",
+                    "error": True, "_error": True,
+                    "_synthesis": "", "_synthesis_models": [],
+                    "_claude": "", "_openai": "", "_gemini": "",
+                })
 
         progress_bar.progress(1.0)
         chunk_done = len([r for r in batch_results if not r["error"]])
@@ -5847,6 +6042,8 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                     "File": res["file"], "Verdict": "ERROR", "Doc Status": "—",
                     "Proposed Freq": "—", "Agenda Item": "—", "FAA Systems": "—",
                     "_analysis": res["analysis"], "_error": True,
+                    "_synthesis": "", "_synthesis_models": [],
+                    "_claude": "", "_openai": "", "_gemini": "",
                 })
                 continue
 
@@ -5890,6 +6087,11 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 "FAA Systems":  faa_str,
                 "_analysis":    text,
                 "_error":       False,
+                "_synthesis":        res.get("_synthesis", ""),
+                "_synthesis_models": res.get("_synthesis_models", []),
+                "_claude":           res.get("_claude", ""),
+                "_openai":           res.get("_openai", ""),
+                "_gemini":           res.get("_gemini", ""),
             })
 
         # ── Filter controls ────────────────────────────────────────────────────
@@ -5985,8 +6187,33 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             faa_tag = f" [{res['FAA Systems'][:40]}]" if res["FAA Systems"] != "—" else ""
             label   = f"{icon} {res['File']}{ai_tag}{faa_tag}"
             with st.expander(label):
-                st.markdown(res["_analysis"])
+                # Show synthesis banner if available
+                _syn = res.get("_synthesis", "")
+                _syn_models = res.get("_synthesis_models", [])
+                if _syn:
+                    st.markdown(
+                        f"<div style='background:#1a2a1a;border-left:4px solid #00cc66;"
+                        f"padding:8px 12px;border-radius:6px;margin:0 0 10px 0'>"
+                        f"<b style='color:#00cc66;'>🔬 MULTI-LLM SYNTHESIS</b> "
+                        f"<small style='color:#aaa;'>({', '.join(_syn_models)})</small></div>",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(_syn)
+                    st.markdown("---")
+                    # Individual model outputs
+                    if st.session_state.get("show_indiv", False):
+                        for _m_label, _m_key in [
+                            ("Claude (Sonnet)", "_claude"),
+                            ("OpenAI (GPT-5.4)", "_openai"),
+                            ("Gemini (2.5 Pro)", "_gemini"),
+                        ]:
+                            _mt = res.get(_m_key, "")
+                            if _mt:
+                                with st.expander(f"📄 {_m_label} — Full Analysis"):
+                                    st.markdown(_mt)
+                    st.markdown("##### Claude Primary Analysis")
 
+                st.markdown(res["_analysis"])
 
         # ── Downloads: Word + Excel ────────────────────────────────────────────
         st.markdown("---")
@@ -6000,8 +6227,14 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             def _bc2(s, n=20): return _brc2.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
 
             filtered_triage = [{k: r[k] for k in display_cols} for r in filtered]
-            filtered_batch  = [{"file": r["File"], "analysis": r["_analysis"],
-                                 "tc": "", "error": r["_error"]} for r in filtered]
+            filtered_batch  = [{
+                "file":      r["File"],
+                "analysis":  r["_analysis"],
+                "tc":        "",
+                "error":     r["_error"],
+                "synthesis": r.get("_synthesis", ""),
+                "synthesis_models": r.get("_synthesis_models", []),
+            } for r in filtered]
 
             filter_tag = ""
             if ai_filter:  filter_tag += "_" + "_".join(_bc2(a,8) for a in ai_filter)
@@ -6018,15 +6251,21 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 st.error(f"❌ Word error: {_we}")
 
             try:
-                _xlsx_rows = [
-                    _extract_analysis_fields(
+                _xlsx_rows = []
+                for r in filtered:
+                    _row = _extract_analysis_fields(
                         r.get("_analysis",""),
                         {"doc_number": r.get("File",""), "working_party": working_party,
                          "submitting_admin": r.get("Source / Admin",""),
                          "agenda_item": r.get("Agenda Item",""), "analysis_depth": analysis_depth}
                     )
-                    for r in filtered
-                ]
+                    # Inject cross-check synthesis if present
+                    _syn = r.get("_synthesis","")
+                    _syn_models = r.get("_synthesis_models",[])
+                    if _syn:
+                        _row["Cross-Check Synthesis"] = _syn[:400]
+                        _row["Cross-Check Models"]    = ", ".join(_syn_models)
+                    _xlsx_rows.append(_row)
                 st.session_state["batch_xlsx_bytes"]    = _make_summary_xlsx(_xlsx_rows)
                 st.session_state["batch_xlsx_filename"] = f"{base_name}_summary.xlsx"
                 st.session_state["batch_xlsx_label"]    = f"📊 Excel — Summary Table ({n_label}) (.xlsx)"
