@@ -6768,7 +6768,6 @@ Intermodulation / spurious response
 
                     # ── OpenAI ────────────────────────────────────────────────
                     if st.session_state.get("use_openai", True):
-                        # Try multiple key name patterns in case user named it differently
                         _oai_key = (
                             st.secrets.get("openai_api_key") or
                             st.secrets.get("OPENAI_API_KEY") or
@@ -6780,18 +6779,27 @@ Intermodulation / spurious response
                         if _oai_key:
                             with st.spinner("Running OpenAI GPT-5.4 (thinking) analysis…"):
                                 try:
-                                    import openai as _oai
-                                    _oai_client = _oai.OpenAI(api_key=_oai_key)
-                                    _oai_resp = _oai_client.chat.completions.create(
-                                        model="gpt-5.4",
-                                        reasoning_effort="high",
-                                        max_completion_tokens=4000,
-                                        messages=[
-                                            {"role": "system", "content": _xcheck_system},
-                                            {"role": "user",   "content": _xcheck_user},
-                                        ]
-                                    )
-                                    _openai_text = _oai_resp.choices[0].message.content
+                                    try:
+                                        import openai as _oai
+                                    except ModuleNotFoundError:
+                                        _openai_err = (
+                                            "openai package not installed. "
+                                            "Add `openai>=1.0.0` to requirements.txt, "
+                                            "then reboot the app from Streamlit Cloud."
+                                        )
+                                        _oai = None
+                                    if _oai:
+                                        _oai_client = _oai.OpenAI(api_key=_oai_key)
+                                        _oai_resp = _oai_client.chat.completions.create(
+                                            model="gpt-5.4",
+                                            reasoning_effort="high",
+                                            max_completion_tokens=4000,
+                                            messages=[
+                                                {"role": "system", "content": _xcheck_system},
+                                                {"role": "user",   "content": _xcheck_user},
+                                            ]
+                                        )
+                                        _openai_text = _oai_resp.choices[0].message.content
                                 except Exception as _oai_e:
                                     _openai_err = str(_oai_e)
                         else:
@@ -6803,7 +6811,6 @@ Intermodulation / spurious response
 
                     # ── Gemini ────────────────────────────────────────────────
                     if st.session_state.get("use_gemini", True):
-                        # Try multiple key name patterns
                         _gem_key = (
                             st.secrets.get("gemini_api_key") or
                             st.secrets.get("GEMINI_API_KEY") or
@@ -6818,17 +6825,26 @@ Intermodulation / spurious response
                         if _gem_key:
                             with st.spinner("Running Gemini 2.5 Pro (thinking) analysis…"):
                                 try:
-                                    import google.generativeai as _genai
-                                    _genai.configure(api_key=_gem_key)
-                                    _gem_model = _genai.GenerativeModel("gemini-2.5-pro")
-                                    _gem_resp  = _gem_model.generate_content(
-                                        _xcheck_system + "\n\n" + _xcheck_user,
-                                        generation_config=_genai.GenerationConfig(
-                                            max_output_tokens=4000,
-                                        ),
-                                        request_options={"timeout": 120},
-                                    )
-                                    _gemini_text = _gem_resp.text
+                                    try:
+                                        import google.generativeai as _genai
+                                    except ModuleNotFoundError:
+                                        _gemini_err = (
+                                            "google-generativeai package not installed. "
+                                            "Add `google-generativeai>=0.7.0` to requirements.txt, "
+                                            "then reboot the app from Streamlit Cloud."
+                                        )
+                                        _genai = None
+                                    if _genai:
+                                        _genai.configure(api_key=_gem_key)
+                                        _gem_model = _genai.GenerativeModel("gemini-2.5-pro")
+                                        _gem_resp  = _gem_model.generate_content(
+                                            _xcheck_system + "\n\n" + _xcheck_user,
+                                            generation_config=_genai.GenerationConfig(
+                                                max_output_tokens=4000,
+                                            ),
+                                            request_options={"timeout": 120},
+                                        )
+                                        _gemini_text = _gem_resp.text
                                 except Exception as _gem_e:
                                     _gemini_err = str(_gem_e)
                         else:
@@ -10001,6 +10017,197 @@ elif selected_tab == "📖 Glossary":
         ("VHF", "Very High Frequency",
          "The radio frequency range from 30 to 300 MHz, with wavelengths of 1 to 10 meters. Aeronautical VHF communications (118–136 MHz) and VOR/ILS navigation (108–117.975 MHz) operate in this band. VHF propagation is primarily line-of-sight.",
          "🔤 Acronyms — Systems & Organizations"),
+
+        # ── MISSING TERMS — Added ─────────────────────────────────────────────
+
+        ("AM(R)S", "Aeronautical Mobile (Route) Service",
+         "An ITU Radio Regulations service allocation for voice and data communications between aircraft and ground stations along designated air routes. The (R) designation — route — distinguishes it from off-route operations. AM(R)S covers the VHF aeronautical communications band (118–136 MHz) used for ATC voice, ACARS, and data link. It is a primary allocation with safety-of-life status. Do not confuse with AMS(R)S (satellite variant). The key distinction: AM(R)S = terrestrial; AMS(R)S = satellite.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("AMS(R)S", "Aeronautical Mobile-Satellite (Route) Service",
+         "An ITU Radio Regulations service allocation for communications between aircraft and ground stations via satellite along designated air routes. AMS(R)S occupies L-band frequencies including 1525–1559 MHz (space-to-Earth, downlink) and 1626.5–1660.5 MHz (Earth-to-space, uplink). Used for ACARS data link, safety voice communications, and SATCOM over oceanic routes where VHF ground stations cannot provide coverage. AMS(R)S is a safety-of-life allocation — harmful interference is prohibited under RR No. 4.10. WRC-27 AI 1.13 proposes MSS downlinks at 1475–1518 MHz, immediately adjacent to the AMS(R)S downlink band, creating a direct OOB threat.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("RLS", "Radiolocation Service",
+         "An ITU Radio Regulations allocation category for radiodetermination services used for purposes other than navigation — primarily surface movement radar, vessel traffic service (VTS) radar, and weather sensing. RLS operates across a wide range of bands. WRC-27 AI 1.8 proposes RLS allocations in the 231.5–700 GHz range. Not to be confused with ARNS (Aeronautical Radionavigation Service) or radionavigation services generally. RLS systems are studied in ITU-R Working Party 5B (WP 5B). In FAA context the concern is primarily co-channel or adjacent-band interference when RLS operations are geographically proximate to aeronautical services.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("RNS", "Radionavigation Service",
+         "An ITU Radio Regulations service category covering all radio systems used for navigation — determining position, velocity, or direction of travel. Includes both terrestrial (ARNS, MLS, VOR/ILS, DME) and satellite-based (RNSS, GNSS) systems. RNS is the parent category under which ARNS and RNSS fall. Safety-of-life RNS allocations receive the strongest regulatory protection under RR No. 4.10.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("MSS", "Mobile Satellite Service",
+         "An ITU Radio Regulations service allocation for communications between mobile earth stations and space stations, or between mobile earth stations via space stations. MSS includes both voice and data services for maritime (MMSS), aeronautical (AMS(R)S), and land mobile users. WRC-27 AI 1.13 proposes expanding MSS downlink allocations in the 925–960 MHz, 1475–1518 MHz, and 2620–2690 MHz bands — all adjacent to FAA protected aviation frequencies.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("MMSS", "Maritime Mobile-Satellite Service",
+         "An ITU Radio Regulations service allocation for communications between ships and ground stations via satellite. MMSS operates in L-band and is the maritime equivalent of AMS(R)S. Governed by ITU-R Working Party 5B (WP 5B).",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("ACARS", "Aircraft Communications Addressing and Reporting System",
+         "A digital datalink system that transmits short messages between aircraft and ground stations via VHF radio (118–136 MHz) or satellite (AMS(R)S L-band). Used for digital clearances, weather uplinks, ATIS, and airline operational communications. ACARS VHF occupies the AM(R)S band; ACARS SATCOM uses the AMS(R)S band.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("LDACS", "L-band Digital Aeronautical Communications System",
+         "A next-generation digital aeronautical communications system being standardized by ICAO as the replacement for VHF voice for en-route ATC communications. LDACS operates in the L-band within existing DME channel gaps (960–1164 MHz). Being studied in ITU-R for spectrum compatibility with adjacent GNSS and DME allocations.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("UAT", "Universal Access Transceiver",
+         "A US-specific ADS-B data link operating at 978 MHz (vs. the international 1090 MHz standard). UAT provides ADS-B Out and ADS-B In (traffic and weather uplink) for general aviation aircraft below 18,000 feet. The 978 MHz band sits within the DME/TACAN allocation (960–1215 MHz). UAT is studied for compatibility with adjacent MSS proposals under WRC-27 AI 1.13.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("GAGAN", "GPS Aided Geo Augmented Navigation",
+         "India's Satellite-Based Augmentation System (SBAS) for GPS, operated by the Airports Authority of India (AAI) and ISRO. Transmits GPS correction signals on L1 (1575.42 MHz) for aviation use over the Indian subcontinent. Part of the global SBAS interoperability framework under ICAO.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("EGNOS", "European Geostationary Navigation Overlay Service",
+         "The European Satellite-Based Augmentation System (SBAS) for GPS and Galileo, operated by the European Union Agency for the Space Programme (EUSPA). Transmits augmentation signals on L1 (1575.42 MHz) from three geostationary satellites to improve accuracy and provide integrity information for aviation.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("WAAS", "Wide Area Augmentation System",
+         "The United States Satellite-Based Augmentation System (SBAS) for GPS, operated by the FAA. Provides GPS correction data and integrity information on L1 (1575.42 MHz) from geostationary satellites, enabling LPV (Localizer Performance with Vertical guidance) approaches to thousands of airports without ILS. WAAS signals fall within the GPS L1 band and share protection requirements with GPS L1.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("SRS", "Space Research Service",
+         "An ITU Radio Regulations service allocation for communications to, from, or between spacecraft used for scientific exploration and research. WRC-27 AI 1.15 proposes new SRS allocations to support lunar surface communications. SRS is typically secondary to aeronautical services where both share the same band.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("EESS", "Earth Exploration Satellite Service",
+         "An ITU Radio Regulations service allocation for Earth sensing from space — passive (receiving natural emissions from the Earth) and active (transmitting and receiving radar pulses). EESS (passive) sensors do not transmit but have frequency protection requirements to prevent terrestrial transmissions from interfering with the natural signal they are measuring. WRC-27 AI 1.19 proposes co-primary EESS (passive) allocation in the 4.2–4.4 GHz Radio Altimeter band.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        ("METSAT", "Meteorological Satellite Service",
+         "An ITU Radio Regulations service allocation for satellites used for meteorological data downlinks. METSAT shares some bands with EESS and uses adjacent frequencies to fixed and aeronautical services. Managed partly within ITU-R Working Party 7C.",
+         "🔤 Acronyms — Systems & Organizations"),
+
+        # ── RR Footnotes ─────────────────────────────────────────────────────
+
+        ("RR No. 5.443C", "Radio Regulations Footnote No. 5.443C — AMS(R)S Protection at 1525–1559 MHz",
+         "A footnote in the ITU Radio Regulations Table of Frequency Allocations that provides specific protection for Aeronautical Mobile-Satellite (Route) Service (AMS(R)S) in the 1525–1559 MHz band. It requires that satellite systems operating in this band do not cause harmful interference to AMS(R)S safety communications. This footnote is the primary regulatory instrument for protecting L-band satellite aeronautical communications (used on transoceanic routes). In WRC-27 AI 1.13 negotiations, administrations defending AMS(R)S against adjacent MSS proposals should cite RR No. 5.443C alongside RR No. 4.10.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.444", "Radio Regulations Footnote No. 5.444 — ARNS Protection at 960–1215 MHz",
+         "A footnote in the ITU Radio Regulations Table of Frequency Allocations that designates the 960–1215 MHz band as exclusively used by aeronautical radionavigation (ARNS) on a worldwide basis. This footnote underpins the protection of DME (960–1215 MHz), TACAN, Mode S/SSR (1030–1090 MHz), ADS-B (1090 MHz), and the lower GNSS bands. Any proposal to introduce non-ARNS systems in this band must address 5.444 directly. It is cited in virtually every WRC contribution defending the 960–1215 MHz band.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.444A", "Radio Regulations Footnote No. 5.444A — GNSS Protection at 1164–1215 MHz",
+         "A footnote providing additional protection for RNSS (Radionavigation Satellite Service) systems including GPS L5/L2, Galileo E5/E6, and GLONASS in the 1164–1215 MHz sub-band. Works in conjunction with RR No. 5.444 to protect this safety-critical GNSS spectrum from new allocations and interferences.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.328", "Radio Regulations Footnote No. 5.328 — VHF Aeronautical Bands",
+         "A footnote that protects the VHF aeronautical band (108–137 MHz) for exclusive use by aeronautical services (AM(R)S, ARNS, fixed aviation). This band contains VOR (108–117.975 MHz), ILS Localizer (108–111.975 MHz), and aeronautical VHF communications (118–136 MHz). Any proposal for new uses in or adjacent to these frequencies must address RR No. 5.328.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.197", "Radio Regulations Footnote No. 5.197 — Glide Slope Protection at 328.6–335.4 MHz",
+         "A footnote protecting the ILS Glide Slope band (328.6–335.4 MHz) for exclusive aeronautical radionavigation use. The Glide Slope provides vertical guidance for precision instrument landings. Co-channel or adjacent interference from other services in this band is prohibited under 5.197 in conjunction with RR No. 4.10.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.357A", "Radio Regulations Footnote No. 5.357A — MLS at 5030–5091 MHz",
+         "A footnote designating the 5030–5091 MHz band for exclusive use by the Microwave Landing System (MLS), protecting it from other allocations. MLS is the successor to ILS for precision approach guidance, offering curved and segmented approach paths not possible with ILS.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.367", "Radio Regulations Footnote No. 5.367 — Radio Altimeter at 4200–4400 MHz",
+         "A footnote protecting the Radio Altimeter band (4200–4400 MHz) for exclusive aeronautical radionavigation use worldwide. This footnote, combined with RR No. 4.10, is the primary regulatory instrument for defending the Radio Altimeter against the WRC-27 AI 1.7 IMT threat at 4400–4800 MHz. When making a floor intervention on AI 1.7, cite RR No. 5.367 explicitly to establish that the RA band is exclusively protected.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("RR No. 5.259", "Radio Regulations Footnote No. 5.259 — Aeronautical Radionavigation at 74–75.5 MHz",
+         "A footnote protecting aeronautical radionavigation in the 74–75.5 MHz marker beacon band. ILS marker beacons (outer, middle, and inner) transmit at 75 MHz and provide fixed-distance positional information during ILS approaches.",
+         "🌐 ITU-R & Regulatory"),
+
+        # ── Additional ITU-R Recommendations ─────────────────────────────────
+
+        ("M.1639", "ITU-R Recommendation M.1639 — Radio Altimeter Protection Criteria",
+         "Protection criteria for radio altimeters in the 4200–4400 MHz band. Defines the radio frequency interference environment that radio altimeters must be able to tolerate, based on RTCA DO-155 and EUROCAE ED-30 MOPS. Key parameter: RA receivers must maintain performance when I/N ≤ −6 dB (plus 6 dB safety factor = −12 dB effective threshold). This Recommendation is specifically about in-band protection; use M.1477 for adjacent-band analysis.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1905", "ITU-R Recommendation M.1905 — RNSS Safety Margin",
+         "ITU-R Recommendation M.1905 — Recommends that a safety margin be applied for protection of the safety aspects and applications of RNSS when performing interference analyses. Note 1 specifies an aeronautical safety margin of 6 dB. Applies to ALL RNSS systems, making it the broadest authority for the 6 dB doctrine.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1849", "ITU-R Recommendation M.1849 — Radar Coexistence Methodology",
+         "ITU-R Recommendation M.1849 — 'Technical and operational aspects and protection criteria for radiodetermination systems in the 2 700–2 900 MHz band.' The primary methodology document for WP 5B radar coexistence studies. Governs co-channel and adjacent-band analysis between surveillance radars (ASR, ARSR) and maritime/meteorological radar systems in the 2.7–2.9 GHz band. Specifies protection criteria (I/N ≤ −6 dB for ARSR, ≤ −10 dB for ASR) and requires both ground-level and airborne victim scenarios.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("M.1318", "ITU-R Recommendation M.1318 — GNSS System Characteristics",
+         "ITU-R Recommendation M.1318 — 'Characteristics of global navigation satellite systems (GNSS).' Provides the technical characteristics of GPS, GLONASS, Galileo, and other GNSS systems relevant to interference assessment. Referenced in compatibility studies involving the GNSS L-band.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("S.1586", "ITU-R Recommendation S.1586 — epfd Calculation Methodology",
+         "ITU-R Recommendation S.1586 — 'Calculation of unwanted emission levels produced by a non-GSO satellite system at the input to a GSO satellite receiver in the fixed-satellite service.' Provides the epfd calculation methodology. Extended to other victim services (including ARNS) by analogy in WRC-27 AI 1.13 studies assessing MSS constellation aggregate interference to DME and AMS(R)S.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("S.1598", "ITU-R Recommendation S.1598 — ΔT/T for AMS(R)S",
+         "ITU-R Recommendation S.1598 — 'Availability of the aeronautical mobile-satellite (R) service in the bands 1545–1555 MHz and 1646.5–1656.5 MHz.' Defines the ΔT/T (noise temperature increase) criterion of 6% (single entry) and 20% (aggregate) for AMS(R)S satellite receivers. ΔT/T is equivalent to I/N ≤ −12.2 dB. This is the applicable protection criterion for satellite aeronautical communications in the L-band. Cite S.1598 when challenging AI 1.13 contributions that threaten the 1475–1518 MHz AMS(R)S adjacent band.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("P.619", "ITU-R Recommendation P.619 — Earth-Space Propagation",
+         "ITU-R Recommendation P.619 — 'Propagation data required for the evaluation of interference between stations in space and those on the surface of the Earth.' The standard propagation model for satellite-to-ground interference scenarios (MSS downlinks, GNSS, EESS). Required for all WP 4C studies involving satellite systems. Using P.452 (terrestrial) instead of P.619 for a satellite path is a methodological error that can underestimate interference by 10–30 dB — this is the most common error to challenge in WP 4C contributions.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("ΔT/T", "Delta T over T — Noise Temperature Increase",
+         "A metric used in ITU-R to express the fractional increase in a satellite receiver's system noise temperature due to interference. ΔT/T = 100 × 10^(I/N_dB / 10) percent. A ΔT/T of 6% corresponds to I/N = −12.2 dB. Used as the protection criterion for AMS(R)S and RNSS satellite receivers per ITU-R S.1598 and M.1905. The relationship to I/N: I/N = 10 · log10(ΔT/T ÷ 100). In WP 4C studies, administrations defending AMS(R)S must ensure both single-entry (≤6%) and aggregate (≤20%) ΔT/T criteria are met.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("PAPR", "Peak-to-Average Power Ratio",
+         "The ratio of the peak instantaneous power to the average (mean) power of a transmitted signal, expressed in dB. OFDM-based signals (LTE, 5G NR) have high PAPR — typically 8–12 dB. This is critically important for OOB interference analysis because: (1) ITU-R SM.1541 specifies OOB emission limits in terms of MEAN power, but (2) aeronautical receiver protection criteria (e.g., Radio Altimeter per DO-155) are based on peak power response. A proponent may claim SM.1541 compliance using mean OOB power while the actual peak OOB power exceeds the RA protection threshold by up to 12 dB. This gap is a valid technical challenge for any 5G/6G OOB study near the Radio Altimeter band.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Guard Band", "Guard Band",
+         "A frequency separation intentionally left unused between two frequency allocations or channels to reduce adjacent-channel interference. Guard bands reduce OOB coupling by ensuring that the victim band falls further into the OOB domain where the emission mask provides more attenuation. In WRC-27 AI 1.7 negotiations, the FAA position is that no guard band currently exists between IMT at 4400 MHz and the Radio Altimeter at 4200–4400 MHz — the GAP is 0 MHz — making SM.1541 OOB mask compliance essential.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Coordination Zone", "Coordination Zone",
+         "The geographic area around a radio station within which new stations of another service must coordinate with the existing station before commencing operation. The radius is calculated from the link budget: the minimum distance at which received interference from the new station equals the victim's I/N threshold. In ITU-R contributions, proposing a specific coordination zone radius (in km) is stronger than simply citing the I/N violation — it gives regulators a quantitative, actionable requirement. Derived by inverting the FSPL equation: d_coord = 10^((EIRP_eff + Gr − N − I/N_threshold − 20·log(f) − 32.44 − terrain) / 20) km.",
+         "🌐 ITU-R & Regulatory"),
+
+        ("Aggregate Interference", "Aggregate Interference",
+         "The total interference received at a victim station from all sources of a given type simultaneously. For satellite constellations (WP 4C), aggregate interference is the sum of interference from all satellites simultaneously visible to the victim. The aggregate can be 10–15 dB higher than single-entry interference for a 10–30 satellite constellation. The aggregate epfd metric and Monte Carlo methodology per SM.2028 are used to assess aggregate interference. A common error in contributions is presenting only single-entry (worst single transmitter) interference and omitting the aggregate — this systematically underestimates the threat.",
+         "🌐 ITU-R & Regulatory"),
+
+        # ── Aeronautical Systems — additional ────────────────────────────────
+
+        ("MLS", "Microwave Landing System",
+         "A precision instrument approach system providing both lateral (azimuth) and vertical (elevation) guidance using microwave signals in the 5030–5091.5 MHz band. MLS was developed as the successor to ILS and offers curved approach paths, multiple reference data transmissions, and better performance in terrain-constrained environments. MLS operates in the ARNS allocation at 5 GHz, protected under RR No. 5.357A.",
+         "✈️ Aeronautical Systems"),
+
+        ("WAICS", "Wide Area ILS Calibration System",
+         "An FAA ground-based system operating in the 4200–4400 MHz Radio Altimeter band used to calibrate ILS glide slope signals. WAICS is co-located with ILS and uses RA frequencies for precision altitude reference. Often cited in WRC-27 AI 1.7 and AI 1.19 contexts alongside Radio Altimeter to emphasize the breadth of systems affected by 4.2–4.4 GHz interference.",
+         "✈️ Aeronautical Systems"),
+
+        ("FMCW Radar", "Frequency-Modulated Continuous-Wave Radar",
+         "A radar technique used in Radio Altimeters and some ground-based sensors where a continuous signal is transmitted with a linearly changing frequency (chirp). The altimeter mixes the transmitted and received signals to produce a beat frequency proportional to range. FMCW receivers have a very wide instantaneous receive bandwidth (matching the transmit chirp) — this makes them particularly vulnerable to out-of-band interference because the receiver cannot narrow its bandwidth to exclude adjacent signals. Key for WRC-27 AI 1.7: the RA's FMCW receiver BW spans 200 MHz, making it sensitive to signals throughout and adjacent to 4200–4400 MHz.",
+         "✈️ Aeronautical Systems"),
+
+        ("LPV", "Localizer Performance with Vertical Guidance",
+         "A GPS/SBAS-based precision instrument approach procedure that provides both lateral and vertical guidance similar to an ILS CAT I approach, but without requiring ground-based ILS equipment. LPV uses WAAS augmented GPS and requires decision heights as low as 200 feet and visibility as low as ½ mile. The approach depends on GPS L1 signal integrity — interference to GPS L1 or WAAS signals directly affects LPV availability.",
+         "✈️ Aeronautical Systems"),
+
+        ("Mode S", "Mode S Secondary Surveillance Radar",
+         "An enhanced Secondary Surveillance Radar (SSR) protocol that provides selective interrogation of individual aircraft transponders, eliminating garbling from overlapping replies. Mode S provides aircraft identification (ICAO 24-bit address), altitude (Mode C), and is the foundation for ADS-B on 1090 MHz. Mode S interrogations occur at 1030 MHz; replies at 1090 MHz. Protected under RR No. 5.444.",
+         "✈️ Aeronautical Systems"),
+
+        ("RNP", "Required Navigation Performance",
+         "A performance-based navigation standard that specifies the accuracy, integrity, and continuity of navigation performance required for aircraft operations in specific airspace or procedures. RNP relies on GNSS (GPS, SBAS) and depends on frequency protection of the GPS L1 and L5 bands. GPS interference that degrades accuracy or triggers an integrity alarm causes a mandatory missed approach.",
+         "✈️ Aeronautical Systems"),
+
+        # ── Analysis Methods — additional ────────────────────────────────────
+
+        ("Minimum Coupling Loss (MCL)", "Minimum Coupling Loss Analysis",
+         "A simple worst-case interference assessment method that assumes the interferer and victim are at the minimum possible separation distance with antennas aligned for maximum coupling. MCL = EIRP (dBm) + Gr (dBi) − required I_max (dBm). If MCL > actual path loss, interference occurs. MCL is used for initial screening before running more complex Monte Carlo or deterministic analyses. ITU-R SM.2028 describes when MCL is sufficient versus when full Monte Carlo is required.",
+         "💻 Analysis Methods"),
+
+        ("Deterministic Analysis", "Deterministic Interference Analysis",
+         "An interference analysis that uses specific, fixed values for all parameters (geometry, power, antenna pattern) rather than probability distributions. Deterministic analysis produces a single interference value for a defined scenario — typically worst-case — and compares it to the protection threshold. Deterministic analysis is simpler than Monte Carlo but may over- or under-estimate real-world interference depending on the assumed scenario.",
+         "💻 Analysis Methods"),
+
+        ("Worst-Case Analysis", "Worst-Case Interference Scenario",
+         "An interference analysis constructed to maximize the predicted interference level by choosing the most adverse combination of parameters: minimum distance, maximum EIRP, highest antenna gain in the victim's direction, best propagation conditions (FSPL with no attenuation). If a system passes the worst-case test, it will pass in all realistic scenarios. If it fails, more realistic (and less conservative) analysis is warranted before concluding harmful interference exists.",
+         "💻 Analysis Methods"),
+
+        ("Protection Ratio", "Protection Ratio (PR)",
+         "The minimum required C/I (carrier-to-interference ratio) at a receiver for acceptable performance, expressed in dB. Protection ratio = desired signal power − maximum tolerable interference power. Related to I/N: when the desired signal level is not relevant, I/N threshold is the applicable criterion; when the desired signal level matters, PR = S/I_threshold. Used primarily in frequency planning and broadcasting compatibility studies.",
+         "💻 Analysis Methods"),
+
 
         ("VOR", "VHF Omnidirectional Range",
          "A Very High Frequency (VHF) radio navigation beacon operating at 108–117.975 MHz that transmits bearing information in all directions simultaneously. Aircraft use VOR to determine their magnetic bearing (called a radial) from the station. VOR stations form the backbone of the US and international airway system. Co-located with DME at VORTAC stations.",
