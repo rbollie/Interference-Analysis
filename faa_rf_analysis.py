@@ -4260,9 +4260,154 @@ EIRP → path loss → received power → I/N → protection margin.
         if final_margin < 3:
             st.warning("⚠️ Margin is less than 3 dB — consider requesting a Monte Carlo analysis to confirm under statistical conditions.")
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXERCISE 5 — SM.1541 23 dB OOB Roll-off Violation Check
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("📉 Exercise 5 — SM.1541 OOB Roll-off: Is the 23 dB Mask Met?")
+    ex("ITU-R SM.1541 requires that at the band edge, out-of-band emissions are attenuated by ≥23 dB "
+       "relative to mean carrier power. This exercise checks whether a proponent's stated OOB emission "
+       "level actually satisfies that requirement, and computes the shortfall if it doesn't.")
 
-# ─────────────────────────────────────────────────────────────────────────────
-elif selected_tab == "🔭 WP Verification Calculator":
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        st.markdown("**Transmitter Parameters**")
+        sm_carrier_dbw  = st.number_input("Mean Carrier Power (dBW)", value=39.0, step=0.5, key="sm_carrier",
+            help="Mean (average) output power of the transmitter in dBW. "
+                 "Note: SM.1541 uses MEAN power, not peak. For a pulsed system: mean = peak + 10·log(duty cycle).")
+        sm_bw_mhz       = st.number_input("Occupied Bandwidth BN (MHz)", value=8.0, step=0.5, key="sm_bw",
+            help="99% power bandwidth of the transmitted signal (BN per RR No. 1.153).")
+        sm_stated_oob   = st.number_input("Proponent's Stated OOB Level at Band Edge (dBW)", value=20.0, step=0.5,
+            key="sm_stated",
+            help="The OOB emission power (dBW) the proponent claims at their band edge. "
+                 "This is the number to challenge if it is too high.")
+
+        # Derived values
+        sm_band_edge_label = "band edge"
+        sm_required_att    = 23.0                           # dBc required at band edge per SM.1541
+        sm_max_oob_dbw     = sm_carrier_dbw - sm_required_att  # absolute OOB limit at band edge
+        sm_shortfall       = sm_stated_oob - sm_max_oob_dbw    # positive = violation
+        sm_actual_att      = sm_carrier_dbw - sm_stated_oob     # actual attenuation
+
+        # 250% BN boundary
+        sm_oob_width       = sm_bw_mhz * 2.5               # MHz
+
+    with rc2:
+        st.markdown("**SM.1541 Results**")
+        st.metric("Carrier Power", f"{sm_carrier_dbw:.1f} dBW = {sm_carrier_dbw+30:.1f} dBm")
+        st.metric("Required OOB Attenuation at Band Edge", "23 dB (SM.1541 Table 1)")
+        st.metric("Maximum Allowed OOB at Band Edge",
+            f"{sm_max_oob_dbw:.1f} dBW = {sm_max_oob_dbw+30:.1f} dBm",
+            help=f"Carrier ({sm_carrier_dbw:.1f} dBW) − 23 dB = {sm_max_oob_dbw:.1f} dBW")
+        st.metric("Proponent's Stated OOB Level", f"{sm_stated_oob:.1f} dBW = {sm_stated_oob+30:.1f} dBm")
+        st.metric("Actual Attenuation Achieved",
+            f"{sm_actual_att:.1f} dBc",
+            delta=f"{'COMPLIANT' if sm_actual_att >= sm_required_att else 'VIOLATION'}",
+            delta_color="normal" if sm_actual_att >= sm_required_att else "inverse")
+
+    if sm_shortfall > 0:
+        st.error(f"❌ **SM.1541 OOB mask VIOLATED.** The stated OOB level of {sm_stated_oob:.1f} dBW exceeds "
+                 f"the SM.1541 limit of {sm_max_oob_dbw:.1f} dBW by **{sm_shortfall:.1f} dB**. "
+                 f"The proponent has only achieved {sm_actual_att:.1f} dBc attenuation — "
+                 f"{sm_required_att - sm_actual_att:.1f} dB short of the required 23 dBc.")
+    else:
+        st.success(f"✅ **SM.1541 OOB mask met.** Actual attenuation = {sm_actual_att:.1f} dBc ≥ 23 dBc required. "
+                   f"Margin = {-sm_shortfall:.1f} dB.")
+
+    with st.expander("🔍 SM.1541 23 dB roll-off step-by-step sanity check", expanded=True):
+        st.markdown(f"""
+**Step 1 — What SM.1541 requires at the band edge**
+
+SM.1541 Table 1 defines the OOB emission mask. At the **band edge** (the boundary of the occupied bandwidth BN),
+the emission must be attenuated by at least **23 dB** below the mean carrier power.
+This is the first and most critical constraint — the mask then continues to roll off further into the OOB zone.
+
+| Parameter | Value |
+|---|---|
+| Mean carrier power | {sm_carrier_dbw:.1f} dBW |
+| Required attenuation at band edge | 23 dBc (SM.1541 Table 1) |
+| **Maximum allowed OOB at band edge** | {sm_carrier_dbw:.1f} − 23 = **{sm_max_oob_dbw:.1f} dBW** |
+
+---
+
+**Step 2 — OOB domain extent (250% BN rule)**
+
+The OOB domain extends **250% of BN** beyond each band edge. Beyond that boundary, the spurious emission
+limits of RR Appendix 3 apply instead.
+
+| Parameter | Calculation | Result |
+|---|---|---|
+| Occupied bandwidth BN | Input | {sm_bw_mhz:.1f} MHz |
+| OOB zone width each side | 250% × {sm_bw_mhz:.1f} | **{sm_oob_width:.1f} MHz** |
+| OOB boundary (low side) | band edge − {sm_oob_width:.1f} | lower edge − {sm_oob_width:.1f} MHz |
+| OOB boundary (high side) | band edge + {sm_oob_width:.1f} | upper edge + {sm_oob_width:.1f} MHz |
+
+---
+
+**Step 3 — Evaluate the proponent's stated OOB level**
+
+| Parameter | Calculation | Result |
+|---|---|---|
+| Proponent's stated OOB | Input | {sm_stated_oob:.1f} dBW |
+| Actual attenuation | {sm_carrier_dbw:.1f} − ({sm_stated_oob:.1f}) | **{sm_actual_att:.1f} dBc** |
+| SM.1541 requirement | At band edge | **23 dBc** |
+| Margin | {sm_actual_att:.1f} − 23 | **{sm_actual_att - 23:+.1f} dBc** |
+| **Verdict** | {'attenuation ≥ 23 dBc' if sm_actual_att >= 23 else 'attenuation < 23 dBc'} | **{'✅ COMPLIANT' if sm_actual_att >= 23 else '❌ NON-COMPLIANT'}** |
+""")
+
+        if sm_shortfall > 0:
+            st.markdown(f"""
+---
+
+**Step 4 — What this means in practice**
+
+If the proponent's OOB emission at the band edge is {sm_stated_oob:.1f} dBW and the SM.1541 limit is
+{sm_max_oob_dbw:.1f} dBW, then the emission is **{sm_shortfall:.1f} dB too high** right at the edge.
+
+Any FAA band that falls within the OOB zone (within {sm_oob_width:.1f} MHz of the band edge) will receive
+interference that is {sm_shortfall:.1f} dB higher than what the SM.1541 mask permits.
+This directly inflates the I/N ratio at the victim receiver — the protection margin calculated in Exercise 4
+should be reduced by a further **{sm_shortfall:.1f} dB** to account for the non-compliant OOB level.
+
+| Exercise 4 protection margin | {final_margin:+.1f} dB |
+|---|---|
+| OOB mask shortfall (this exercise) | −{sm_shortfall:.1f} dB |
+| **Adjusted protection margin** | **{final_margin - sm_shortfall:+.1f} dB** |
+| **Revised verdict** | **{'✅ PROTECTED (adjusted)' if final_margin - sm_shortfall >= 0 else '❌ VIOLATED (adjusted)'}** |
+""")
+            st.code(
+                f"The delegation of the United States notes that the out-of-band emission level stated in the "
+                f"contribution ({sm_stated_oob:.1f} dBW at the band edge) does not comply with the SM.1541 mask. "
+                f"ITU-R SM.1541 Table 1 requires a minimum attenuation of 23 dBc at the band edge, "
+                f"corresponding to a maximum OOB level of {sm_max_oob_dbw:.1f} dBW for a carrier of "
+                f"{sm_carrier_dbw:.1f} dBW. The stated level achieves only {sm_actual_att:.1f} dBc, "
+                f"which is {sm_shortfall:.1f} dB below the required 23 dBc. "
+                f"The United States requests that the proponent revise the emission mask to demonstrate "
+                f"SM.1541 compliance before the Working Party proceeds to CPM text.",
+                language="text"
+            )
+        else:
+            st.markdown(f"""
+---
+
+**Step 4 — Mean vs Peak power caveat**
+
+The stated OOB level of {sm_stated_oob:.1f} dBW complies with the 23 dBc mask ({sm_actual_att:.1f} dBc ≥ 23 dBc).
+
+However, SM.1541 specifies limits for **mean (average) power**. For systems with high peak-to-average power ratio (PAPR)
+— such as 5G NR with OFDM — the **peak** OOB emission can be 8–12 dB above the mean.
+
+**FAA challenge:** Even when the mean OOB complies, request confirmation that the analysis accounts for
+peak emissions and that the victim receiver (e.g. Radio Altimeter, FMCW radar) is characterised
+by its response to mean or peak interference. Radio Altimeters respond to **peak** signal levels,
+so a mean-power-based OOB demonstration may understate the actual threat.
+""")
+
+        st.caption("📐 SM.1541 reference: ITU-R SM.1541, Table 1 — Unwanted emission limits in the out-of-band domain. "
+                   "Band edge = 0.5 × BN from channel centre. OOB domain = band edge to band edge ± 2.5×BN. "
+                   "23 dBc limit applies at the band edge; mask continues to roll off further into OOB zone.")
+
+
     st.title("🔭 WP Verification Calculator")
     st.caption("Working-party-specific interference analysis — path loss, noise floor, I/N, epfd, ΔT/T, and protection margin in one place")
     ex("Select your Working Party to load the applicable methodology and protection criteria. All formulas follow the ITU-R Recommendations required for that WP.")
