@@ -5574,6 +5574,22 @@ between two or more administrations</b> without prejudice to other administratio
         "Deep dive (comprehensive brief + draft response contribution outline)",
     ])
 
+    # ── Multi-LLM cross-check toggle ─────────────────────────────────────────
+    with st.expander("🔬 Multi-LLM Cross-Check (Claude + OpenAI + Gemini)", expanded=False):
+        st.markdown("Run the same analysis through three independent AI models and get a synthesized consensus verdict. "
+                    "Requires OpenAI and Gemini API keys in Streamlit secrets (`openai_api_key`, `gemini_api_key`).")
+        multi_llm_enabled = st.toggle("Enable multi-LLM cross-check", value=False, key="multi_llm_toggle")
+        if multi_llm_enabled:
+            mlm_col1, mlm_col2 = st.columns(2)
+            with mlm_col1:
+                use_openai  = st.checkbox("Include OpenAI GPT-5.4 (thinking, high)", value=True, key="use_openai")
+                use_gemini  = st.checkbox("Include Gemini 2.5 Pro (thinking)", value=True, key="use_gemini")
+            with mlm_col2:
+                show_individual = st.checkbox("Show individual model outputs", value=False, key="show_indiv",
+                    help="Show each model's full analysis in separate expandable sections below the synthesis.")
+            st.caption("⚡ Cross-check adds ~45–90 seconds. Both OpenAI and Gemini run in extended thinking mode. "
+                       "All three models receive identical prompts and the same FAA band database.")
+
     # ── Analyze buttons ───────────────────────────────────────────────────────
     btn_col1, btn_col2 = st.columns([1, 1])
     with btn_col1:
@@ -6719,6 +6735,170 @@ Intermodulation / spurious response
                 st.markdown("---")
                 st.subheader("Policy Guidance")
                 st.markdown(analysis_text)
+
+                # ── Multi-LLM Cross-Check Engine ──────────────────────────────
+                if st.session_state.get("multi_llm_toggle", False):
+                    st.markdown("---")
+                    st.subheader("🔬 Multi-LLM Cross-Check Analysis")
+                    st.caption("The same document and prompt were sent to all three models independently. "
+                               "The synthesis below identifies consensus findings and any divergences.")
+
+                    _openai_text  = None
+                    _gemini_text  = None
+                    _openai_err   = None
+                    _gemini_err   = None
+
+                    # ── Shared prompt for all models ──────────────────────────
+                    _xcheck_system = (
+                        "You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings. "
+                        "Analyze the following ITU-R contribution for FAA aviation spectrum impact. "
+                        "Focus on: (1) frequency overlap with aviation bands, "
+                        "(2) interference mechanism and severity, "
+                        "(3) methodology compliance with ITU-R Recommendations, "
+                        "(4) recommended US position. "
+                        "Be concise and technically precise. Use ITU-R regulatory language."
+                    )
+                    _xcheck_user = (
+                        f"Working Party: {working_party}\n\n"
+                        f"FAA Protected Bands (key):\n{faa_bands_summary[:3000]}\n\n"
+                        f"CONTRIBUTION TEXT:\n{contrib_input[:8000]}\n\n"
+                        "Provide: (A) Frequency overlap/gap summary, (B) Top 3 FAA risks with severity, "
+                        "(C) Methodology compliance assessment, (D) Recommended US position in 1 sentence."
+                    )
+
+                    # ── OpenAI ────────────────────────────────────────────────
+                    if st.session_state.get("use_openai", True):
+                        _oai_key = st.secrets.get("openai_api_key", "")
+                        if _oai_key:
+                            with st.spinner("Running OpenAI GPT-5.4 (thinking) analysis…"):
+                                try:
+                                    import openai as _oai
+                                    _oai_client = _oai.OpenAI(api_key=_oai_key)
+                                    _oai_resp = _oai_client.chat.completions.create(
+                                        model="gpt-5.4",           # latest API reasoning model
+                                        reasoning_effort="high",    # full extended thinking
+                                        max_completion_tokens=4000,
+                                        messages=[
+                                            {"role": "system", "content": _xcheck_system},
+                                            {"role": "user",   "content": _xcheck_user},
+                                        ]
+                                    )
+                                    _openai_text = _oai_resp.choices[0].message.content
+                                except Exception as _oai_e:
+                                    _openai_err = str(_oai_e)
+                        else:
+                            _openai_err = "No `openai_api_key` found in Streamlit secrets."
+
+                    # ── Gemini ────────────────────────────────────────────────
+                    if st.session_state.get("use_gemini", True):
+                        _gem_key = st.secrets.get("gemini_api_key", "")
+                        if _gem_key:
+                            with st.spinner("Running Gemini 2.5 Pro (thinking) analysis…"):
+                                try:
+                                    import google.generativeai as _genai
+                                    from google.generativeai import types as _gtypes
+                                    _genai.configure(api_key=_gem_key)
+                                    _gem_model = _genai.GenerativeModel("gemini-2.5-pro")
+                                    _gem_resp  = _gem_model.generate_content(
+                                        _xcheck_system + "\n\n" + _xcheck_user,
+                                        generation_config=_genai.GenerationConfig(
+                                            max_output_tokens=4000,
+                                        ),
+                                        # Enable thinking — Gemini 2.5 Pro has thinking on by default;
+                                        # passing thinking_config with budget=-1 enables dynamic (full) thinking
+                                        request_options={"timeout": 120},
+                                    )
+                                    _gemini_text = _gem_resp.text
+                                except Exception as _gem_e:
+                                    _gemini_err = str(_gem_e)
+                        else:
+                            _gemini_err = "No `gemini_api_key` found in Streamlit secrets."
+
+                    # ── Synthesis via Claude ───────────────────────────────────
+                    _available = {
+                        "Claude (Opus 4.6)":        analysis_text,
+                        "OpenAI (GPT-5.4 Thinking)": _openai_text,
+                        "Gemini (2.5 Pro Thinking)": _gemini_text,
+                    }
+                    _active = {k: v for k, v in _available.items() if v}
+                    _errors = {
+                        "OpenAI":  _openai_err,
+                        "Gemini":  _gemini_err,
+                    }
+
+                    if len(_active) >= 2:
+                        with st.spinner("Synthesizing cross-check consensus…"):
+                            try:
+                                _synth_prompt = (
+                                    f"You have received {len(_active)} independent analyses of the same ITU-R contribution "
+                                    f"from {working_party}, produced by different AI models. "
+                                    "Synthesize them into a single authoritative assessment for FAA/NTIA use.\n\n"
+                                    "For each model's analysis below, identify:\n"
+                                    "- Points of CONSENSUS (all models agree)\n"
+                                    "- Points of DIVERGENCE (models differ — state which model says what and why it matters)\n"
+                                    "- Any unique finding from one model that the others missed\n\n"
+                                    "Then produce:\n"
+                                    "## CONSENSUS VERDICT\n"
+                                    "One paragraph — the agreed assessment of FAA impact and US position.\n\n"
+                                    "## KEY DIVERGENCES\n"
+                                    "Bullet list — where models differed and which view is better supported.\n\n"
+                                    "## SYNTHESIZED RECOMMENDED US POSITION\n"
+                                    "One actionable sentence the US delegation can use.\n\n"
+                                    "## CONFIDENCE ASSESSMENT\n"
+                                    "High / Medium / Low with brief rationale — does cross-model agreement increase confidence?\n\n"
+                                    "---\n\n" +
+                                    "\n\n---\n\n".join(
+                                        f"### {model} Analysis:\n{text[:4000]}"
+                                        for model, text in _active.items()
+                                    )
+                                )
+                                _synth_client = anthropic.Anthropic(api_key=api_key)
+                                _synth_resp   = _synth_client.messages.create(
+                                    model="claude-opus-4-5",
+                                    max_tokens=3000,
+                                    messages=[{"role": "user", "content": _synth_prompt}],
+                                    system=(
+                                        "You are a senior RF policy analyst at the FAA. Your job is to synthesize "
+                                        "multiple AI analyses of an ITU-R contribution into a single authoritative "
+                                        "assessment. Be objective, cite technical details, and highlight disagreements "
+                                        "clearly. Your synthesis will be used by the US delegation at the WP meeting."
+                                    )
+                                )
+                                _synthesis = _synth_resp.content[0].text
+
+                                # Display synthesis prominently
+                                st.markdown(
+                                    "<div style='background:#1a2a1a;border-left:4px solid #00cc66;"
+                                    "padding:12px 16px;border-radius:6px;margin:8px 0'>"
+                                    "<b style='color:#00cc66;font-size:1.05em'>🔬 SYNTHESIZED CROSS-CHECK CONSENSUS</b>"
+                                    f"<br><small style='color:#aaa'>Based on {len(_active)} models: "
+                                    f"{', '.join(_active.keys())}</small></div>",
+                                    unsafe_allow_html=True
+                                )
+                                st.markdown(_synthesis)
+
+                                # Store synthesis for download
+                                st.session_state["crosscheck_synthesis"] = _synthesis
+                                st.session_state["crosscheck_models"]    = list(_active.keys())
+                                st.session_state["crosscheck_individual"] = _active
+
+                            except Exception as _se:
+                                st.error(f"❌ Synthesis failed: {_se}")
+
+                    elif len(_active) == 1:
+                        st.info("Only one model analysis available — cross-check synthesis requires at least two. "
+                                "Check API keys in Streamlit secrets.")
+
+                    # ── Individual model outputs ───────────────────────────────
+                    if st.session_state.get("show_indiv", False) and st.session_state.get("crosscheck_individual"):
+                        for model_name, model_text in st.session_state["crosscheck_individual"].items():
+                            with st.expander(f"📄 {model_name} — Full Analysis", expanded=False):
+                                st.markdown(model_text)
+
+                    # ── Error reporting ────────────────────────────────────────
+                    for model_name, err in _errors.items():
+                        if err:
+                            st.warning(f"⚠️ {model_name} unavailable: {err}")
 
                 # ── Word Document Download ────────────────────────────────────
                 st.markdown("---")
