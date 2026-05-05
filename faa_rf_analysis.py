@@ -200,6 +200,23 @@ FAA_BANDS = {
         "notes": "Critical for CAT III landings, TAWS, GPWS, helicopter ops.",
         "rtca_doc": "DO-155 / ETSO-C87",
     },
+    "WAIC (Wireless Avionics Intra-Comms)": {
+        "f_low_mhz": 4200.0, "f_high_mhz": 4400.0,
+        "system": "WAIC — Wireless Avionics Intra-Communications", "allocation": "ARNS (secondary, WRC-15)",
+        "service_category": "ARNS secondary — short-range intra-aircraft network",
+        "in_threshold_db": -6, "aviation_safety_factor_db": 6, "effective_threshold_db": -12,
+        "noise_floor_dbm": -92, "safety_of_life": True, "rr_1_59": True,
+        "protection_basis": "I/N ≤ −6 dB + 6 dB aviation safety factor per ITU-R M.2085; WRC-15 Resolution 424",
+        "spr_source": "External interferer entering aircraft fuselage; OOB from adjacent IMT band at 4.4–4.8 GHz",
+        "spr_path": "Aircraft fuselage attenuation (~20 dB) partially mitigates ground-based interferers; airborne scenario worst-case",
+        "spr_victim": "Intra-aircraft short-range wireless network; OFDM-based; replaces copper wire harnesses",
+        "notes": "Co-band with Radio Altimeter (same 4200–4400 MHz). WRC-15 gave secondary ARNS allocation under Resolution 424. "
+                 "Any AI 1.7 threat to RA is simultaneously a WAIC threat. Distinct protection argument: "
+                 "WAIC is inside the aircraft — fuselage provides partial shielding but OOB power can still penetrate. "
+                 "Cite M.2085 separately from DO-155 in contributions. WP 5D and WP 5B both have jurisdiction.",
+        "rtca_doc": "EUROCAE ED-237 / RTCA DO-370",
+        "key_recs": ["ITU-R M.2085", "WRC-15 Resolution 424", "RR No. 5.367"],
+    },
     "ARNS 5 GHz": {
         "f_low_mhz": 5000.0, "f_high_mhz": 5150.0,
         "system": "ARNS / Future Aeronautical Systems", "allocation": "ARNS",
@@ -260,7 +277,7 @@ FAA_BANDS = {
 # WRC-27 AGENDA ITEMS DATABASE
 # ─────────────────────────────────────────────────────────────────────────────
 WRC27_AGENDA_ITEMS = {
-    "AI 1.7":  {"ref":"AI 1.7","title":"IMT in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz","service":"IMT","working_party":"WP 5D","threat_level":"HIGH","faa_systems_at_risk":["Radio Altimeter/WAICS — 4.2–4.4 GHz","FAA fixed links — 7.125–8.4 GHz","FAA fixed links — 14.8–15.35 GHz"],"faa_bands_mhz":[(4200,4400),(7125,8400),(14800,15350)],"mechanism":"OOB emissions/blocking from IMT base stations into RA band","key_concern":"4.4–4.8 GHz IMT is 0 MHz from Radio Altimeter band","citations":["RR No. 4.10","ITU-R SM.1540","ITU-R SM.1541","RR Appendix 3","RTCA DO-155"],"us_position":"Oppose IMT identification without OOB compliance per SM.1541 and coordination zones","notes":"RA is safety-of-life, 6 dB aviation safety factor applies."},
+    "AI 1.7":  {"ref":"AI 1.7","title":"IMT in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz","service":"IMT","working_party":"WP 5D","threat_level":"HIGH","faa_systems_at_risk":["Radio Altimeter/WAICS — 4.2–4.4 GHz","WAIC (Wireless Avionics Intra-Communications) — 4.2–4.4 GHz","FAA fixed links — 7.125–8.4 GHz","FAA fixed links — 14.8–15.35 GHz"],"faa_bands_mhz":[(4200,4400),(7125,8400),(14800,15350)],"mechanism":"OOB emissions/blocking from IMT base stations into RA and WAIC band","key_concern":"4.4–4.8 GHz IMT is 0 MHz from Radio Altimeter and WAIC band — both use 4200–4400 MHz","citations":["RR No. 4.10","ITU-R SM.1540","ITU-R SM.1541","ITU-R M.2085","RR Appendix 3","RTCA DO-155","EUROCAE ED-237","WRC-15 Resolution 424"],"us_position":"Oppose IMT identification without OOB compliance per SM.1541, coordination zones for RA and WAIC per M.2085","notes":"RA is safety-of-life, 6 dB aviation safety factor applies. WAIC has secondary ARNS allocation in same band (WRC-15). Both must be protected."},
     "AI 1.13": {"ref":"AI 1.13","title":"MSS 694–2700 MHz for DC-MSS-IMT space-to-Earth connectivity","service":"MSS+IMT","working_party":"WP 4C","threat_level":"HIGH","faa_systems_at_risk":["ARNS/AM(R)S/AMS(R)S — 960–1215 MHz","MSS SatCom DL — 1525–1559 MHz","ASR — 2700–2900 MHz"],"faa_bands_mhz":[(960,1215),(1525,1559),(2700,2900)],"candidate_bands_mhz":[(925,960),(1475,1518),(2620,2690)],"mechanism":"OOB/spurious from satellite downlinks; aggregate interference","key_concern":"Candidate bands immediately adjacent to DME, AMS(R)S, and ASR","citations":["RR No. 4.10","RR No. 5.444","ITU-R SM.2028","ITU-R M.1642","ITU-R SM.1540"],"us_position":"Require aggregate analysis per SM.2028 for all three candidate bands","notes":"960–1215 MHz contains DME — critical navigation."},
     "AI 1.15": {"ref":"AI 1.15","title":"SRS (space-to-space) for lunar surface communications","service":"SRS","working_party":"WP 7B","threat_level":"MEDIUM","faa_systems_at_risk":["ASR — 2700–2900 MHz","3600–4200 MHz","ARNS 5 GHz — 5350–5470 MHz","Fixed — 7190–7235 MHz","Fixed — 8450–8500 MHz"],"faa_bands_mhz":[(2700,2900),(3600,4200),(5350,5470),(7190,7235),(8450,8500)],"mechanism":"Novel use case — no established Earth-Moon methodology","key_concern":"No established ITU-R methodology for lunar SRS vs terrestrial ARNS","citations":["RR No. 4.10","ITU-R SM.2028","ITU-R P.528","RR Appendix 3"],"us_position":"Require methodology before allocation","notes":"Methodology gap is the primary FAA policy argument."},
     "AI 1.17": {"ref":"AI 1.17","title":"EESS passive space weather sensors","service":"EESS","working_party":"WP 7C","threat_level":"LOW-MEDIUM","faa_systems_at_risk":["HF comms — 2.1–29.89 MHz","ILS-related — 74.8–75.2 MHz"],"faa_bands_mhz":[(2100,29890),(74800,75200)],"mechanism":"Passive — allocation policy concern","key_concern":"Coordination obligations on FAA HF comms","citations":["RR No. 4.10","ICAO Annex 10"],"us_position":"Monitor; ensure no coordination burden on FAA","notes":"Low direct threat; procedural concern."},
@@ -971,6 +988,7 @@ def _extract_analysis_fields(analysis_text, meta=None):
     # ── FAA systems — from text AND from band frequency matching ─────────────
     SYSTEMS = {
         "Radio Altimeter": (r"radio alt(?:imeter)?|RA\b|WAICS",           4200,  4400),
+        "WAIC":            (r"\bWAIC\b|wireless avionics|intra.commun",    4200,  4400),
         "DME / TACAN":     (r"\bDME\b|\bTACAN\b",                         960,   1215),
         "GPS L1 / GNSS":   (r"GPS L1|GNSS L1|1575",                       1559,  1610),
         "GNSS L5":         (r"GNSS L5|GPS L5",                             1164,  1215),
@@ -2756,7 +2774,7 @@ if selected_tab == "📡 Protected Bands":
     # WP groupings based on which WP studies interference into each band
     WP_GROUPS = {
         "WP 5D (IMT/Mobile) — AI 1.7": [
-            "Radio Altimeter", "ARNS 5 GHz", "MLS (Microwave Landing System)",
+            "Radio Altimeter", "WAIC (Wireless Avionics Intra-Comms)", "ARNS 5 GHz", "MLS (Microwave Landing System)",
         ],
         "WP 4C (MSS / DC-MSS-IMT) — AI 1.13": [
             "DME / TACAN", "ADS-B / Mode-S (1090 MHz)", "GNSS L5 / ARNS",
@@ -2766,7 +2784,8 @@ if selected_tab == "📡 Protected Bands":
             "En-Route Radar", "Airborne Weather Radar",
         ],
         "WP 7C (EESS / Science) — AI 1.19": [
-            "Radio Altimeter",   # shared concern with 5D
+            "Radio Altimeter",
+            "WAIC (Wireless Avionics Intra-Comms)",
         ],
         "All WPs — Foundational Navigation Bands": [
             "VOR / ILS Localizer", "ILS Glide Slope",
@@ -5222,34 +5241,18 @@ Once configured, the analyzer will work every time you visit the app.
             """)
         st.stop()
 
-    # ── Working Party selector (drives the analysis profile — only manual input needed) ─
-    working_party = st.selectbox(
-        "Working Party",
-        [
-            "WP 5D (IMT/Mobile)",
-            "WP 5B (Maritime/Radiodetermination)",
-            "WP 4C (MSS / DC-MSS-IMT)",
-            "WP 7B (Space Radiocommunication / Lunar SRS)",
-            "WP 7C (EESS / Space Weather Sensors)",
-        ],
-        help="Select the WP this document comes from — this loads the correct ITU-R methodology profile for that Working Party."
-    )
+    # ── Working Party — auto-detected from document, with manual override ──────
+    # Detection runs after contrib_input is resolved (see below).
+    # Default until detection runs:
+    _WP_OPTIONS = [
+        "WP 5D (IMT/Mobile)",
+        "WP 5B (Maritime/Radiodetermination)",
+        "WP 4C (MSS / DC-MSS-IMT)",
+        "WP 7B (Space Radiocommunication / Lunar SRS)",
+        "WP 7C (EESS / Space Weather Sensors)",
+    ]
 
-    # Show WP-specific FAA context callout
-    if working_party in wp_context:
-        ai_ref, ai_desc = wp_context[working_party]
-        st.markdown(
-            f"<div style='background:#1a2a3a;border-left:4px solid #ff8844;"
-            f"padding:8px 12px;border-radius:4px;margin:4px 0'>"
-            f"<b style='color:#ff8844'>⚠️ WRC-27 Watch — {ai_ref}:</b> "
-            f"<span style='color:#ffddaa'>{ai_desc}</span></div>",
-            unsafe_allow_html=True
-        )
-
-    # All other metadata (doc number, admin, meeting date, agenda item, doc type)
-    # is extracted automatically from the document text during analysis.
-    # These variables are set to empty strings so downstream code that references
-    # them still works — the AI will identify and populate them from the document.
+    # All other metadata is extracted automatically from document text.
     doc_number       = ""
     submitting_admin = ""
     meeting_date     = ""
@@ -5257,7 +5260,7 @@ Once configured, the analyzer will work every time you visit the app.
     doc_type         = "Auto-detected"
 
     st.subheader("Contribution Input")
-    ex("Upload a PDF or Word document, paste text, or use Batch Upload. Document number, submitting administration, agenda item, and all other metadata are extracted automatically.")
+    ex("Upload a PDF or Word document, paste text, or use Batch Upload. Working Party, document number, submitting administration, agenda item, and all other metadata are extracted automatically.")
 
     # ── Input method tabs ─────────────────────────────────────────────────────
     input_tab_paste, input_tab_file, input_tab_batch = st.tabs([
@@ -5530,6 +5533,96 @@ Once configured, the analyzer will work every time you visit the app.
             st.caption(f"✅ Ready — {len(contrib_input.split()):,} words from {'uploaded file' if contrib_from_file.strip() else 'pasted text'}")
         else:
             st.caption("⬆️ Upload a file, paste text, or use Batch Upload above")
+
+    # ── Working Party auto-detection ──────────────────────────────────────────
+    import re as _wp_re
+
+    def _detect_wp_from_text(text, filename=""):
+        """
+        Scan text (and optionally filename) for Working Party code.
+        Returns (wp_option_string, confidence, evidence) or (None, None, None).
+        """
+        _WP_MAP = {
+            "WP 5D": "WP 5D (IMT/Mobile)",
+            "WP 5B": "WP 5B (Maritime/Radiodetermination)",
+            "WP 4C": "WP 4C (MSS / DC-MSS-IMT)",
+            "WP 7B": "WP 7B (Space Radiocommunication / Lunar SRS)",
+            "WP 7C": "WP 7C (EESS / Space Weather Sensors)",
+        }
+        search_text = (text[:3000] + " " + filename).upper()
+        for code, full_label in _WP_MAP.items():
+            # Match "WP 5D", "WP5D", "WP-5D" and compound like "WP 5B/WP 5C"
+            pattern = rf'\bWP[\s\-_]?{code[3:]}\b'
+            m = _wp_re.search(pattern, search_text)
+            if m:
+                # Get surrounding context for evidence
+                start = max(0, m.start() - 40)
+                end   = min(len(search_text), m.end() + 40)
+                snippet = search_text[start:end].strip()
+                confidence = "High" if _wp_re.search(pattern, text[:500].upper()) else "Medium"
+                return full_label, confidence, snippet
+        return None, None, None
+
+    # Detect from available text (single doc or first batch file preview)
+    _detect_source = contrib_input[:5000] if contrib_input else ""
+    _detect_fname  = ""
+    if uploaded_file is not None and hasattr(uploaded_file, 'name'):
+        _detect_fname = uploaded_file.name
+
+    _detected_wp, _wp_confidence, _wp_evidence = _detect_wp_from_text(_detect_source, _detect_fname)
+
+    # Determine default index for selectbox
+    _wp_default_idx = 0
+    if _detected_wp and _detected_wp in _WP_OPTIONS:
+        _wp_default_idx = _WP_OPTIONS.index(_detected_wp)
+    elif "wp_override" in st.session_state:
+        _prev = st.session_state.get("wp_override")
+        if _prev in _WP_OPTIONS:
+            _wp_default_idx = _WP_OPTIONS.index(_prev)
+
+    # Show detection banner
+    if _detected_wp and contrib_input:
+        _conf_color = "#00cc66" if _wp_confidence == "High" else "#ff9900"
+        st.markdown(
+            f"<div style='background:#0d2a1a;border-left:4px solid {_conf_color};"
+            f"padding:8px 12px;border-radius:4px;margin:6px 0 2px 0;'>"
+            f"<b style='color:{_conf_color}'>🔍 Working Party auto-detected: {_detected_wp}</b> "
+            f"<span style='color:#aaa;font-size:0.82em;'>({_wp_confidence} confidence) — "
+            f"cue: <i>{_wp_evidence[:80]}</i></span></div>",
+            unsafe_allow_html=True
+        )
+    elif contrib_input and not _detected_wp:
+        st.markdown(
+            "<div style='background:#2a1a0a;border-left:4px solid #ff6600;"
+            "padding:8px 12px;border-radius:4px;margin:6px 0 2px 0;'>"
+            "<b style='color:#ff9900'>⚠️ Working Party not detected in document text</b> "
+            "<span style='color:#aaa;font-size:0.82em;'>— please select manually below</span>"
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+    # WP selector — pre-selected if auto-detected, always overridable
+    working_party = st.selectbox(
+        "Working Party" + (" ✅ (auto-detected — override if needed)" if _detected_wp else " ⚠️ (select manually)"),
+        _WP_OPTIONS,
+        index=_wp_default_idx,
+        key="wp_selector",
+        help="Auto-detected from document text when possible. "
+             "Override if the detection is wrong — this drives the ITU-R methodology profile."
+    )
+    # Store override in session state so it persists across reruns
+    st.session_state["wp_override"] = working_party
+
+    # Show WP-specific FAA context callout
+    if working_party in wp_context:
+        ai_ref, ai_desc = wp_context[working_party]
+        st.markdown(
+            f"<div style='background:#1a2a3a;border-left:4px solid #ff8844;"
+            f"padding:8px 12px;border-radius:4px;margin:4px 0'>"
+            f"<b style='color:#ff8844'>⚠️ WRC-27 Watch — {ai_ref}:</b> "
+            f"<span style='color:#ffddaa'>{ai_desc}</span></div>",
+            unsafe_allow_html=True
+        )
 
     # ── Interference Classification Reference Card ────────────────────────────
     with st.expander("📋 ITU-R Interference Classification Reference — Applied in Every Analysis"):
@@ -5929,12 +6022,34 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
 
             text_b, tc_b = extract_text_from_file(f)
             if not text_b:
-                batch_results.append({"file": fname, "text": "", "tc": tc_b, "analysis": f"⚠️ Could not extract text from {fname}", "error": True})
+                batch_results.append({
+                    "file": fname, "text": "", "tc": tc_b,
+                    "analysis": f"⚠️ Could not extract text from {fname}",
+                    "error": True, "_analysis": f"⚠️ Could not extract text from {fname}",
+                    "_error": True, "_synthesis": "", "_synthesis_models": [],
+                    "_claude": "", "_openai": "", "_gemini": "",
+                })
                 continue
+
+            # ── Per-document WP auto-detection ────────────────────────────────
+            _doc_wp, _doc_wp_conf, _doc_wp_ev = _detect_wp_from_text(text_b[:4000], fname)
+            effective_wp_b = _doc_wp if _doc_wp else working_party
+            if _doc_wp and _doc_wp != working_party:
+                # Rebuild system prompt using the detected WP's methodology profile
+                _wp_pk_doc = WP_PROFILE_MAP.get(effective_wp_b)
+                _wp_pr_doc = WP_ANALYSIS_PROFILES.get(_wp_pk_doc) if _wp_pk_doc else None
+                _wp_fw_doc = (f"Working Party: {effective_wp_b} — {_wp_pr_doc['primary_threat']}"
+                              if _wp_pr_doc else f"Working Party: {effective_wp_b}.")
+                _sys_doc = (f"You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings.\n"
+                            f"{_wp_fw_doc}\nFAA PROTECTED BANDS:\n{faa_bands_b}\n"
+                            "ACCURACY RULE: Never fabricate citations or frequency values. If uncertain, say 'Cannot confirm.'")
+                status_text.text(f"🔍 {idx+1}/{len(batch_files)}: {fname} → auto-detected {effective_wp_b}")
+            else:
+                _sys_doc = sys_prompt_batch
 
             analysis_questions_b = analysis_questions if 'analysis_questions' in dir() else ""
             try:
-                result_b = run_single_analysis(text_b, tc_b, fname, client_b, sys_prompt_batch, analysis_questions_b, depth_b)
+                result_b = run_single_analysis(text_b, tc_b, fname, client_b, _sys_doc, analysis_questions_b, depth_b)
                 # run_single_analysis now returns a dict
                 analysis_text_b  = result_b["primary"]   # Claude + synthesis (or Claude alone)
                 synthesis_b      = result_b.get("synthesis", "")
@@ -6013,6 +6128,7 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         # ── Known FAA entity aliases for matching ──────────────────────────────
         FAA_ENTITY_PATTERNS = {
             "Radio Altimeter (RA)":     r"radio alt(?:imeter)?|RA\b|WAICS|4[,.]?2.+4[,.]?4",
+            "WAIC":                     r"\bWAIC\b|wireless avionics|intra.commun",
             "DME / TACAN":              r"DME|TACAN|distance measur|960.+1215|1215.+960",
             "GPS / GNSS L1":            r"GPS L1|GNSS L1|1559.+1610|1575",
             "GNSS L5 / ARNS":           r"GNSS L5|GPS L5|L5\b|1164.+1215",
@@ -10306,6 +10422,13 @@ elif selected_tab == "📖 Glossary":
         ("WAAS", "Wide Area Augmentation System",
          "The United States Satellite-Based Augmentation System (SBAS) for GPS, operated by the FAA. Provides GPS correction data and integrity information on L1 (1575.42 MHz) from geostationary satellites, enabling LPV (Localizer Performance with Vertical guidance) approaches to thousands of airports without ILS. WAAS signals fall within the GPS L1 band and share protection requirements with GPS L1.",
          "🔤 Acronyms — Systems & Organizations"),
+
+        ("WAIC", "Wireless Avionics Intra-Communications",
+         "A short-range wireless network system operating inside an aircraft that connects avionics sensors, control units, and flight data components — replacing heavy copper wire harnesses. WAIC operates in the 4200–4400 MHz band (the same band as the Radio Altimeter) under a secondary ARNS allocation granted by WRC-15 (Resolution 424). "
+         "Protection criterion: I/N ≤ −6 dB + 6 dB aviation safety factor = effective −12 dB, per ITU-R M.2085. "
+         "Key policy points: (1) WAIC and Radio Altimeter share the same 4200–4400 MHz band — any WRC-27 AI 1.7 IMT threat to RA is simultaneously a WAIC threat; (2) WAIC has a distinct protection argument because the aircraft fuselage provides ~20 dB of shielding against external interferers, but OOB power from adjacent 4.4–4.8 GHz IMT base stations can still penetrate at short range; (3) In FAA contributions on AI 1.7, cite M.2085 separately from DO-155 — they are different documents covering different systems in the same band; (4) WP 5B studied WAIC technical characteristics; WP 5D owns AI 1.7. Both must address WAIC. "
+         "Relevant standards: ITU-R M.2085, WRC-15 Resolution 424, EUROCAE ED-237, RTCA DO-370.",
+         "✈️ Aeronautical Systems"),
 
         ("SRS", "Space Research Service",
          "An ITU Radio Regulations service allocation for communications to, from, or between spacecraft used for scientific exploration and research. WRC-27 AI 1.15 proposes new SRS allocations to support lunar surface communications. SRS is typically secondary to aeronautical services where both share the same band.",
