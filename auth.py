@@ -373,6 +373,37 @@ div.stFormSubmitButton button:hover {
 }
 .scan-line:nth-child(2) { animation-delay: -4s; opacity: 0.5; }
 
+/* ── Flying planes ──────────────────────────────────────────────── */
+.plane {
+    position: fixed; z-index: 4; pointer-events: none;
+    opacity: 0; will-change: transform, left, right;
+}
+.plane1 { top: 62%; animation: fly1 22s linear 1.5s infinite; }
+.plane2 { top: 18%; animation: fly2 32s linear 9s infinite; }
+.plane3 { top: 40%; animation: fly3 42s linear 20s infinite; }
+
+@keyframes fly1 {
+    0%   { left:-200px; opacity:0;    transform:scale(0.8); }
+    4%   { opacity:0.7; }
+    88%  { opacity:0.55; }
+    96%  { opacity:0; }
+    100% { left:115vw; opacity:0; transform:scale(0.8); }
+}
+@keyframes fly2 {
+    0%   { left:-140px; opacity:0;    transform:scale(0.45); }
+    5%   { opacity:0.4; }
+    90%  { opacity:0.3; }
+    97%  { opacity:0; }
+    100% { left:115vw; opacity:0; transform:scale(0.45); }
+}
+@keyframes fly3 {
+    0%   { left:115vw; opacity:0;    transform:scale(0.28) scaleX(-1); }
+    5%   { opacity:0.25; }
+    90%  { opacity:0.18; }
+    97%  { opacity:0; }
+    100% { left:-200px; opacity:0; transform:scale(0.28) scaleX(-1); }
+}
+
 @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
 </style>
 
@@ -380,6 +411,83 @@ div.stFormSubmitButton button:hover {
 <div class="faa-bg"></div>
 <div class="faa-grid"></div>
 <div class="orb1"></div>
+<div class="orb2"></div>
+<div class="orb3"></div>
+<div class="faa-sweep"></div>
+<div class="scan-line"></div>
+<div class="scan-line"></div>
+
+<!-- Flying planes — inline SVG aircraft silhouettes -->
+<div class="plane plane1">
+  <svg width="160" height="44" viewBox="0 0 160 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Contrail -->
+    <defs>
+      <linearGradient id="trail1" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="rgba(200,200,200,0)"/>
+        <stop offset="100%" stop-color="rgba(200,200,200,0.22)"/>
+      </linearGradient>
+    </defs>
+    <rect x="0" y="17" width="110" height="1.2" fill="url(#trail1)"/>
+    <rect x="0" y="26" width="90" height="0.8" fill="url(#trail1)" opacity="0.5"/>
+    <!-- Fuselage -->
+    <path d="M112 21 L148 21 Q158 21 158 22.5 Q158 24 148 24 L112 24 Z" fill="#c0c0c0"/>
+    <!-- Nose -->
+    <path d="M148 21 Q160 22.5 148 24 Z" fill="#d8d8d8"/>
+    <!-- Tail fin -->
+    <path d="M114 21 L118 12 L122 21 Z" fill="#b0b0b0"/>
+    <!-- Horizontal stabiliser -->
+    <path d="M112 22.5 L106 18 L114 22.5 L106 27 Z" fill="#b8b8b8" opacity="0.8"/>
+    <!-- Wings -->
+    <path d="M132 22.5 L126 10 L144 22.5 L126 35 Z" fill="#bfbfbf"/>
+    <!-- Engine pods -->
+    <ellipse cx="131" cy="12.5" rx="4" ry="2" fill="#aaa"/>
+    <ellipse cx="131" cy="32.5" rx="4" ry="2" fill="#aaa"/>
+    <!-- Window strip -->
+    <rect x="136" y="21.5" width="8" height="1.5" rx="0.7" fill="rgba(240,240,255,0.5)"/>
+    <rect x="128" y="21.5" width="5" height="1.5" rx="0.7" fill="rgba(240,240,255,0.4)"/>
+  </svg>
+</div>
+
+<div class="plane plane2">
+  <svg width="100" height="28" viewBox="0 0 100 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="trail2" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="rgba(200,200,200,0)"/>
+        <stop offset="100%" stop-color="rgba(200,200,200,0.18)"/>
+      </linearGradient>
+    </defs>
+    <rect x="0" y="11" width="68" height="0.9" fill="url(#trail2)"/>
+    <rect x="0" y="16" width="55" height="0.6" fill="url(#trail2)" opacity="0.4"/>
+    <!-- Fuselage -->
+    <path d="M70 13 L92 13 Q99 13 99 14.5 Q99 16 92 16 L70 16 Z" fill="#c8c8c8"/>
+    <path d="M92 13 Q100 14.5 92 16 Z" fill="#ddd"/>
+    <!-- Tail -->
+    <path d="M71 13 L74 7 L77 13 Z" fill="#b0b0b0"/>
+    <path d="M70 14.5 L66 11.5 L71 14.5 L66 17.5 Z" fill="#b8b8b8" opacity="0.8"/>
+    <!-- Wings -->
+    <path d="M83 14.5 L78 6 L90 14.5 L78 23 Z" fill="#c0c0c0"/>
+    <ellipse cx="81" cy="7.5" rx="3" ry="1.5" fill="#aaa"/>
+    <ellipse cx="81" cy="21.5" rx="3" ry="1.5" fill="#aaa"/>
+  </svg>
+</div>
+
+<div class="plane plane3">
+  <svg width="70" height="20" viewBox="0 0 70 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="trail3" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="rgba(200,200,200,0)"/>
+        <stop offset="100%" stop-color="rgba(200,200,200,0.14)"/>
+      </linearGradient>
+    </defs>
+    <rect x="0" y="8" width="46" height="0.7" fill="url(#trail3)"/>
+    <!-- Fuselage -->
+    <path d="M48 9 L64 9 Q70 9 70 10.5 Q70 12 64 12 L48 12 Z" fill="#bfbfbf"/>
+    <path d="M64 9 Q70 10.5 64 12 Z" fill="#d0d0d0"/>
+    <path d="M49 9 L51 4.5 L54 9 Z" fill="#aaa"/>
+    <path d="M48 10.5 L44 8 L49 10.5 L44 13 Z" fill="#b4b4b4" opacity="0.8"/>
+    <path d="M59 10.5 L54 4 L64 10.5 L54 17 Z" fill="#b8b8b8"/>
+  </svg>
+</div>
 <div class="orb2"></div>
 <div class="orb3"></div>
 <div class="faa-sweep"></div>
