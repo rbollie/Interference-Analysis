@@ -82,9 +82,20 @@ def show_login_page():
 footer { visibility: hidden; }
 .block-container { padding: 0 !important; max-width: 100% !important; }
 
+/* Ensure Streamlit widgets are always above all decorative layers */
+[data-testid="stVerticalBlock"],
+[data-testid="column"],
+div[data-testid="stForm"],
+div.stTextInput,
+div.stCheckbox,
+div.stFormSubmitButton,
+div.stButton,
+.stExpander { position: relative; z-index: 100 !important; }
+
 /* ── Animated metallic background ──────────────────────────────── */
 .faa-bg {
     position: fixed; inset: 0; z-index: 0;
+    pointer-events: none;
     background:
         radial-gradient(ellipse at 20% 50%, rgba(180,180,180,0.08) 0%, transparent 60%),
         radial-gradient(ellipse at 80% 20%, rgba(220,220,220,0.06) 0%, transparent 55%),
@@ -99,6 +110,7 @@ footer { visibility: hidden; }
 /* Animated particle grid */
 .faa-grid {
     position: fixed; inset: 0; z-index: 1;
+    pointer-events: none;
     background-image:
         linear-gradient(rgba(180,180,180,0.04) 1px, transparent 1px),
         linear-gradient(90deg, rgba(180,180,180,0.04) 1px, transparent 1px);
