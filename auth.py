@@ -68,214 +68,406 @@ def logout():
 # ─── Login page ──────────────────────────────────────────────────────────────
 
 def show_login_page():
-    """Render the branded FAA login page matching the design spec."""
+    """Render the animated metallic silver & black FAA login page."""
 
-    # ── Full-page dark background ─────────────────────────────────────────────
     st.markdown("""
 <style>
+/* ── Base reset ─────────────────────────────────────────────────── */
 [data-testid="stAppViewContainer"] {
-    background: linear-gradient(135deg, #020d1f 0%, #041530 40%, #071e3d 100%);
+    background: #000 !important;
     min-height: 100vh;
+    overflow: hidden;
 }
-[data-testid="stHeader"] { background: transparent !important; }
-[data-testid="stToolbar"] { display: none; }
+[data-testid="stHeader"], [data-testid="stToolbar"] { display: none !important; }
 footer { visibility: hidden; }
-div[data-testid="column"] { padding: 0 !important; }
 .block-container { padding: 0 !important; max-width: 100% !important; }
 
-/* Left side text */
-.faa-brand   { display:flex; align-items:center; gap:12px; margin-bottom:36px; }
-.faa-title   { font-size:3.4em; font-weight:900; color:#fff; line-height:1.05; margin:0 0 10px 0; }
-.faa-sub     { font-size:1.15em; font-weight:600; color:#3b9eff; margin:0 0 14px 0; }
-.faa-desc    { color:#a8bdd0; font-size:0.93em; line-height:1.6; max-width:420px; }
-.freq-label  { color:#3b9eff; font-size:0.78em; font-family:monospace; position:relative; }
-.feature-row { display:flex; gap:24px; margin-top:44px; }
-.feature-box { background:rgba(59,158,255,0.08); border:1px solid rgba(59,158,255,0.2);
-               border-radius:10px; padding:18px 16px; flex:1; }
-.feature-box svg { margin-bottom:10px; }
-.feature-box h4  { color:#fff; font-size:0.95em; margin:0 0 6px 0; }
-.feature-box p   { color:#7fa8c8; font-size:0.78em; margin:0; line-height:1.5; }
+/* ── Animated metallic background ──────────────────────────────── */
+.faa-bg {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(180,180,180,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 20%, rgba(220,220,220,0.06) 0%, transparent 55%),
+        linear-gradient(160deg, #0a0a0a 0%, #141414 30%, #0d0d0d 60%, #111 100%);
+    animation: bgShimmer 8s ease-in-out infinite alternate;
+}
+@keyframes bgShimmer {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
+}
 
-/* Login card */
+/* Animated particle grid */
+.faa-grid {
+    position: fixed; inset: 0; z-index: 1;
+    background-image:
+        linear-gradient(rgba(180,180,180,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(180,180,180,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    animation: gridMove 20s linear infinite;
+}
+@keyframes gridMove {
+    0%   { background-position: 0 0, 0 0; }
+    100% { background-position: 60px 60px, 60px 60px; }
+}
+
+/* Sweeping metallic light bar */
+.faa-sweep {
+    position: fixed;
+    top: 0; left: -200%;
+    width: 60%; height: 100%;
+    background: linear-gradient(
+        105deg,
+        transparent 0%,
+        rgba(200,200,200,0.015) 40%,
+        rgba(220,220,220,0.05) 50%,
+        rgba(200,200,200,0.015) 60%,
+        transparent 100%
+    );
+    animation: sweep 6s ease-in-out infinite;
+    z-index: 2; pointer-events: none;
+}
+@keyframes sweep {
+    0%   { left: -200%; }
+    100% { left: 200%; }
+}
+
+/* Floating orbs */
+.orb1, .orb2, .orb3 {
+    position: fixed; border-radius: 50%;
+    filter: blur(80px); opacity: 0.12;
+    z-index: 1; pointer-events: none;
+}
+.orb1 {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, #b0b0b0, #555);
+    top: -100px; left: -100px;
+    animation: float1 12s ease-in-out infinite alternate;
+}
+.orb2 {
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, #d0d0d0, #444);
+    bottom: -80px; right: -80px;
+    animation: float2 15s ease-in-out infinite alternate;
+}
+.orb3 {
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, #999, #333);
+    top: 40%; left: 50%;
+    animation: float3 10s ease-in-out infinite alternate;
+}
+@keyframes float1 { from { transform: translate(0,0) scale(1); } to { transform: translate(80px,60px) scale(1.1); } }
+@keyframes float2 { from { transform: translate(0,0) scale(1); } to { transform: translate(-60px,-40px) scale(1.2); } }
+@keyframes float3 { from { transform: translate(-50%,-50%) scale(1); } to { transform: translate(-50%,-50%) scale(0.8); } }
+
+/* ── Layout ─────────────────────────────────────────────────────── */
+.page-wrap {
+    position: relative; z-index: 10;
+    display: flex; align-items: center;
+    min-height: 100vh; padding: 0 5%;
+    gap: 0;
+}
+.hero-side {
+    flex: 1.1; padding: 60px 40px 40px 40px;
+    animation: fadeSlideLeft 1s ease-out;
+}
+.card-side {
+    flex: 0.9; display: flex; justify-content: center;
+    align-items: center; padding: 40px 20px;
+    animation: fadeSlideRight 1s ease-out;
+}
+@keyframes fadeSlideLeft  { from { opacity:0; transform:translateX(-40px); } to { opacity:1; transform:translateX(0); } }
+@keyframes fadeSlideRight { from { opacity:0; transform:translateX(40px);  } to { opacity:1; transform:translateX(0); } }
+
+/* ── Hero typography ─────────────────────────────────────────────── */
+.hero-logo {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 42px;
+    animation: fadeIn 1.2s ease-out 0.2s both;
+}
+.logo-icon {
+    width: 52px; height: 52px; border-radius: 12px;
+    background: linear-gradient(135deg, #2a2a2a, #444);
+    border: 1px solid rgba(200,200,200,0.25);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.logo-text-faa { color: #e8e8e8; font-weight: 900; font-size: 1.1em; letter-spacing: 0.04em; }
+.logo-text-sub  { color: #888; font-size: 0.65em; line-height: 1.3; margin-top: 1px; }
+
+.hero-title {
+    font-size: 3.2em; font-weight: 900; line-height: 1.05;
+    margin: 0 0 12px 0;
+    background: linear-gradient(135deg, #f0f0f0 0%, #b8b8b8 40%, #e0e0e0 70%, #c8c8c8 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    animation: fadeIn 1s ease-out 0.3s both;
+}
+.hero-sub {
+    font-size: 1.05em; font-weight: 500; color: #999;
+    letter-spacing: 0.06em; margin: 0 0 14px 0;
+    animation: fadeIn 1s ease-out 0.45s both;
+    text-transform: uppercase;
+}
+.hero-desc {
+    color: #666; font-size: 0.9em; line-height: 1.7;
+    max-width: 400px; margin: 0 0 40px 0;
+    animation: fadeIn 1s ease-out 0.55s both;
+}
+
+/* Metallic divider */
+.metal-divider {
+    width: 60px; height: 2px; margin: 18px 0 24px 0;
+    background: linear-gradient(90deg, transparent, #aaa, transparent);
+    animation: fadeIn 1s ease-out 0.5s both;
+}
+
+/* Feature cards */
+.features-row {
+    display: flex; gap: 16px; margin-top: 8px;
+    animation: fadeIn 1s ease-out 0.7s both;
+}
+.feat-card {
+    background: linear-gradient(145deg, rgba(30,30,30,0.9), rgba(18,18,18,0.95));
+    border: 1px solid rgba(200,200,200,0.1);
+    border-radius: 10px; padding: 16px 14px; flex: 1;
+    transition: transform 0.2s, border-color 0.2s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.feat-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(200,200,200,0.25);
+}
+.feat-card h4 { color: #ccc; font-size: 0.9em; margin: 8px 0 5px 0; }
+.feat-card p  { color: #666; font-size: 0.75em; margin: 0; line-height: 1.5; }
+
+/* ── Login card ──────────────────────────────────────────────────── */
 .login-card {
-    background: rgba(12, 28, 55, 0.85);
-    border: 1px solid rgba(59,158,255,0.25);
-    border-radius: 16px;
-    padding: 40px 38px;
-    backdrop-filter: blur(18px);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.55);
-    max-width: 420px;
-    margin: 0 auto;
+    background: linear-gradient(160deg, rgba(22,22,22,0.97), rgba(12,12,12,0.99));
+    border: 1px solid rgba(200,200,200,0.15);
+    border-radius: 18px; padding: 42px 38px;
+    width: 100%; max-width: 420px;
+    box-shadow:
+        0 30px 80px rgba(0,0,0,0.7),
+        0 0 0 1px rgba(255,255,255,0.04) inset,
+        0 1px 0 rgba(255,255,255,0.1) inset;
+    backdrop-filter: blur(20px);
+    position: relative; overflow: hidden;
 }
+/* Metallic top edge shimmer */
+.login-card::before {
+    content: '';
+    position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(220,220,220,0.4), transparent);
+}
+/* Subtle animated inner glow */
+.login-card::after {
+    content: '';
+    position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle at 50% 0%, rgba(180,180,180,0.04), transparent 60%);
+    animation: cardGlow 4s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+@keyframes cardGlow {
+    from { opacity: 0.5; }
+    to   { opacity: 1; }
+}
+
 .secure-badge {
-    display:flex; align-items:center; justify-content:center;
-    gap:8px; margin-bottom:22px;
-    color:#3b9eff; font-size:0.75em; font-weight:700; letter-spacing:0.12em;
+    display: flex; align-items: center; justify-content: center;
+    gap: 7px; margin-bottom: 24px;
+    color: #888; font-size: 0.72em; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
 }
-.secure-badge svg { opacity:0.85; }
-.card-title   { color:#fff; font-size:1.6em; font-weight:800; text-align:center; margin:0 0 4px 0; }
-.card-sub     { color:#7fa8c8; font-size:0.85em; text-align:center; margin:0 0 28px 0; }
-.field-label  { color:#a8bdd0; font-size:0.8em; font-weight:600; margin:0 0 7px 0; letter-spacing:0.04em; }
-.divider-or   { display:flex; align-items:center; gap:12px; margin:16px 0;
-                color:#3a5070; font-size:0.8em; }
+.secure-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #888;
+    animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.5; transform: scale(0.7); }
+}
+
+.card-title { color: #e0e0e0; font-size: 1.55em; font-weight: 800; text-align: center; margin: 0 0 4px 0; }
+.card-sub   { color: #555; font-size: 0.83em; text-align: center; margin: 0 0 28px 0; }
+
+.field-label {
+    color: #888; font-size: 0.78em; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    margin: 0 0 7px 0;
+}
+
+.divider-or {
+    display: flex; align-items: center; gap: 12px;
+    margin: 16px 0; color: #333; font-size: 0.8em;
+}
 .divider-or::before, .divider-or::after {
-    content:''; flex:1; height:1px; background:rgba(59,158,255,0.15); }
-.access-btn   { background:rgba(20,45,80,0.7); border:1px solid rgba(59,158,255,0.2);
-                border-radius:8px; padding:14px 18px; cursor:pointer; display:flex;
-                align-items:center; gap:12px; color:#a8bdd0; font-size:0.85em; width:100%; }
-.contact-link { color:#3b9eff; font-size:0.82em; text-align:center; margin-top:14px;
-                display:flex; align-items:center; justify-content:center; gap:6px; }
+    content: ''; flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(200,200,200,0.12), transparent);
+}
 
-/* Streamlit form overrides for dark theme */
-div[data-testid="stForm"] { background: transparent !important; border:none !important; padding:0 !important; }
-div.stTextInput > div > div { background: rgba(6,22,45,0.8) !important; border: 1px solid rgba(59,158,255,0.3) !important; border-radius:8px !important; }
-div.stTextInput input { color:#fff !important; }
-div.stTextInput input::placeholder { color:#3a5070 !important; }
-div.stCheckbox label { color:#a8bdd0 !important; font-size:0.85em !important; }
+/* Streamlit widget overrides */
+div[data-testid="stForm"] { background: transparent !important; border: none !important; padding: 0 !important; }
+div.stTextInput > div > div {
+    background: rgba(10,10,10,0.9) !important;
+    border: 1px solid rgba(200,200,200,0.15) !important;
+    border-radius: 9px !important;
+    transition: border-color 0.2s;
+}
+div.stTextInput > div > div:focus-within {
+    border-color: rgba(200,200,200,0.45) !important;
+    box-shadow: 0 0 0 3px rgba(180,180,180,0.08) !important;
+}
+div.stTextInput input { color: #ddd !important; }
+div.stTextInput input::placeholder { color: #444 !important; }
+div.stCheckbox label { color: #666 !important; font-size: 0.85em !important; }
 div.stFormSubmitButton button[type=submit] {
-    background: linear-gradient(90deg,#1a6fd4,#1e90ff) !important;
-    color: white !important; font-weight:700 !important; font-size:1em !important;
-    border-radius:9px !important; border:none !important; padding:14px !important;
-    letter-spacing:0.02em !important; box-shadow:0 4px 20px rgba(30,144,255,0.35) !important;
+    background: linear-gradient(135deg, #3a3a3a 0%, #555 40%, #3a3a3a 100%) !important;
+    color: #e8e8e8 !important;
+    font-weight: 700 !important; font-size: 1em !important;
+    border-radius: 10px !important; border: 1px solid rgba(220,220,220,0.2) !important;
+    padding: 14px !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12) !important;
+    transition: all 0.2s !important;
+    letter-spacing: 0.03em !important;
 }
-div.stFormSubmitButton button:hover { opacity:0.9 !important; }
+div.stFormSubmitButton button:hover {
+    background: linear-gradient(135deg, #484848 0%, #666 40%, #484848 100%) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.15) !important;
+}
 
-/* Footer */
+.access-btn {
+    background: linear-gradient(135deg, rgba(20,20,20,0.9), rgba(10,10,10,0.95));
+    border: 1px solid rgba(200,200,200,0.1);
+    border-radius: 9px; padding: 14px 18px; cursor: pointer;
+    display: flex; align-items: center; gap: 12px;
+    color: #666; font-size: 0.84em; width: 100%;
+    transition: border-color 0.2s, transform 0.2s;
+}
+.access-btn:hover { border-color: rgba(200,200,200,0.25); transform: translateY(-1px); }
+
+/* ── Footer ──────────────────────────────────────────────────────── */
 .page-footer {
-    display:flex; align-items:center; justify-content:space-between;
-    border-top:1px solid rgba(59,158,255,0.12);
-    padding:14px 48px; margin-top:32px;
-    color:#3a5070; font-size:0.72em;
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 48px;
+    background: rgba(5,5,5,0.85);
+    border-top: 1px solid rgba(200,200,200,0.06);
+    backdrop-filter: blur(12px);
+    color: #333; font-size: 0.7em;
 }
-.page-footer .secure-tagline { display:flex; align-items:center; gap:8px; }
 
-/* Orbital rings / decorative */
-.orbital-wrap { position:relative; height:260px; margin:32px 0 0 0; overflow:visible; }
-.orbital-svg  { position:absolute; left:-60px; top:-30px; opacity:0.5; }
+/* Animated scanning lines (radar sweep effect) */
+.scan-line {
+    position: fixed; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(180,180,180,0.15) 50%, transparent 100%);
+    pointer-events: none; z-index: 3;
+    animation: scanDown 8s linear infinite;
+}
+@keyframes scanDown {
+    0%   { top: -2%; opacity: 0; }
+    5%   { opacity: 1; }
+    95%  { opacity: 1; }
+    100% { top: 102%; opacity: 0; }
+}
+.scan-line:nth-child(2) { animation-delay: -4s; opacity: 0.5; }
+
+@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
 </style>
+
+<!-- Animated background layers -->
+<div class="faa-bg"></div>
+<div class="faa-grid"></div>
+<div class="orb1"></div>
+<div class="orb2"></div>
+<div class="orb3"></div>
+<div class="faa-sweep"></div>
+<div class="scan-line"></div>
+<div class="scan-line"></div>
 """, unsafe_allow_html=True)
 
-    # ── Page layout: left hero + right login ──────────────────────────────────
-    hero_col, gap_col, card_col = st.columns([1.15, 0.08, 0.9])
+    # ── Left hero panel ────────────────────────────────────────────────────────
+    hero_col, card_col = st.columns([1.15, 0.95])
 
     with hero_col:
         st.markdown("""
-<div style="padding: 48px 12px 24px 48px;">
+<div class="hero-side">
 
-  <!-- FAA Logo + Name -->
-  <div class="faa-brand">
-    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-      <circle cx="24" cy="24" r="22" fill="#0a2044" stroke="#3b9eff" stroke-width="2"/>
-      <path d="M12 28L24 12L36 28H28L24 36L20 28H12Z" fill="#3b9eff" opacity="0.9"/>
-      <circle cx="24" cy="24" r="4" fill="#1e90ff"/>
-    </svg>
+  <div class="hero-logo">
+    <div class="logo-icon">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <path d="M14 2L5 7v7c0 6.5 4 12 9 13.5C19 25.5 23 20 23 14V7L14 2z"
+              fill="none" stroke="rgba(200,200,200,0.6)" stroke-width="1.5"/>
+        <path d="M10 14l3 3 6-6" stroke="#aaa" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
     <div>
-      <div style="color:#fff;font-weight:800;font-size:1em;line-height:1.1;">FAA</div>
-      <div style="color:#7fa8c8;font-size:0.65em;line-height:1.2;">Federal Aviation<br>Administration</div>
+      <div class="logo-text-faa">FAA</div>
+      <div class="logo-text-sub">Federal Aviation<br>Administration</div>
     </div>
   </div>
 
-  <!-- Hero headline -->
-  <h1 class="faa-title">FAA RF<br>Interference Tool</h1>
-  <p class="faa-sub">ITU-R Working Party Policy Support</p>
-  <p class="faa-desc">Analyze and assess RF interference risks to support global<br>aviation spectrum protection and policy decisions.</p>
+  <h1 class="hero-title">FAA RF<br>Interference Tool</h1>
+  <p class="hero-sub">ITU-R Working Party Policy Support</p>
+  <div class="metal-divider"></div>
+  <p class="hero-desc">Analyze and assess RF interference risks to support global aviation spectrum protection and policy decisions.</p>
 
-  <!-- Orbital decoration with frequency annotations -->
-  <div class="orbital-wrap">
-    <svg class="orbital-svg" width="480" height="280" viewBox="0 0 480 280" fill="none">
-      <!-- Earth arc -->
-      <ellipse cx="200" cy="360" rx="320" ry="220" stroke="#1a3a6a" stroke-width="1.5" fill="none" opacity="0.6"/>
-      <!-- Orbit rings -->
-      <ellipse cx="200" cy="140" rx="260" ry="90" stroke="#1e90ff" stroke-width="0.8" fill="none" opacity="0.3" transform="rotate(-15 200 140)"/>
-      <ellipse cx="200" cy="140" rx="200" ry="65" stroke="#3b9eff" stroke-width="0.6" fill="none" opacity="0.25" transform="rotate(-8 200 140)"/>
-      <!-- Satellite dot -->
-      <circle cx="410" cy="68" r="4" fill="#3b9eff" opacity="0.85"/>
-      <circle cx="410" cy="68" r="8" fill="#3b9eff" opacity="0.2"/>
-      <!-- Aircraft silhouette (simple) -->
-      <path d="M170 155 L200 148 L230 155 L222 160 L200 157 L178 160Z" fill="#7fc8ff" opacity="0.7"/>
-      <path d="M192 148 L200 130 L208 148Z" fill="#7fc8ff" opacity="0.5"/>
-      <!-- Grid lines (spectrum) -->
-      <line x1="40" y1="200" x2="380" y2="200" stroke="#1a3a6a" stroke-width="0.5" opacity="0.6"/>
-      <line x1="40" y1="220" x2="380" y2="220" stroke="#1a3a6a" stroke-width="0.5" opacity="0.4"/>
-      <!-- Freq labels -->
-      <text x="42" y="195" fill="#3b9eff" font-size="9" font-family="monospace" opacity="0.8">118.0 MHz</text>
-      <text x="300" y="168" fill="#3b9eff" font-size="9" font-family="monospace" opacity="0.8">–PROTECTED</text>
-      <text x="314" y="178" fill="#3b9eff" font-size="9" font-family="monospace" opacity="0.8">BANDS</text>
-      <text x="260" y="230" fill="#3b9eff" font-size="9" font-family="monospace" opacity="0.8">5,091–5,091.5 MHz</text>
-      <!-- Glow lines -->
-      <line x1="200" y1="157" x2="200" y2="210" stroke="#1e90ff" stroke-width="0.5" opacity="0.4" stroke-dasharray="3 3"/>
-      <circle cx="200" cy="210" r="20" fill="#1e90ff" opacity="0.06"/>
-    </svg>
-  </div>
-
-  <!-- Feature cards row -->
-  <div class="feature-row">
-    <div class="feature-box">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect x="2" y="14" width="3" height="6" rx="1" fill="#3b9eff"/>
-        <rect x="7" y="10" width="3" height="10" rx="1" fill="#3b9eff" opacity="0.8"/>
-        <rect x="12" y="6" width="3" height="14" rx="1" fill="#3b9eff" opacity="0.6"/>
-        <rect x="17" y="8" width="3" height="12" rx="1" fill="#3b9eff" opacity="0.8"/>
+  <div class="features-row">
+    <div class="feat-card">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <rect x="1" y="13" width="3" height="7" rx="1" fill="#777"/>
+        <rect x="6" y="9" width="3" height="11" rx="1" fill="#777" opacity="0.8"/>
+        <rect x="11" y="5" width="3" height="15" rx="1" fill="#aaa" opacity="0.9"/>
+        <rect x="16" y="7" width="3" height="13" rx="1" fill="#777" opacity="0.8"/>
       </svg>
       <h4>Signal Analysis</h4>
       <p>Detect and analyze RF emissions with precision and clarity.</p>
     </div>
-    <div class="feature-box">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <path d="M12 2L4 6v6c0 5.5 3.5 10.7 8 12 4.5-1.3 8-6.5 8-12V6L12 2z" stroke="#3b9eff" stroke-width="1.5" fill="none"/>
-        <path d="M9 12l2 2 4-4" stroke="#3b9eff" stroke-width="1.5" stroke-linecap="round"/>
+    <div class="feat-card">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M11 1L3 5.5v5C3 15.5 6.5 19.5 11 21c4.5-1.5 8-5.5 8-10.5v-5L11 1z"
+              stroke="#aaa" stroke-width="1.3" fill="none"/>
+        <path d="M8 11l2 2 4-4" stroke="#aaa" stroke-width="1.3" stroke-linecap="round"/>
       </svg>
       <h4>Protected Band Assessment</h4>
-      <p>Evaluate potential interference to aviation services and protected bands.</p>
+      <p>Evaluate interference to aviation services and protected bands.</p>
     </div>
-    <div class="feature-box">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="3" width="18" height="18" rx="2" stroke="#3b9eff" stroke-width="1.5" fill="none"/>
-        <path d="M7 17l3-5 3 3 3-6" stroke="#3b9eff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <div class="feat-card">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <rect x="2" y="2" width="18" height="18" rx="2" stroke="#aaa" stroke-width="1.3" fill="none"/>
+        <path d="M6 16l3-5 3 3 3-6" stroke="#aaa" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <h4>Policy Support</h4>
-      <p>Generate insights and reports to inform ITU-R working party policy decisions.</p>
+      <p>Generate insights to inform ITU-R working party decisions.</p>
     </div>
   </div>
 
 </div>
 """, unsafe_allow_html=True)
 
+    # ── Right card panel ───────────────────────────────────────────────────────
     with card_col:
         st.markdown("""
-<div style="padding: 48px 48px 24px 12px;">
+<div class="card-side">
 <div class="login-card">
-
   <div class="secure-badge">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M8 1L3 3.5v4C3 10.5 5.2 13.2 8 14c2.8-.8 5-3.5 5-6.5v-4L8 1z"
-            stroke="#3b9eff" stroke-width="1.3" fill="rgba(59,158,255,0.1)"/>
-      <path d="M6 8l1.5 1.5L10 6.5" stroke="#3b9eff" stroke-width="1.2" stroke-linecap="round"/>
-    </svg>
+    <div class="secure-dot"></div>
     SECURE ACCESS
+    <div class="secure-dot"></div>
   </div>
-
   <h2 class="card-title">Welcome back</h2>
   <p class="card-sub">Sign in to continue to the tool</p>
-
-</div>
-</div>
+</div></div>
 """, unsafe_allow_html=True)
 
-        # ── Form (must be Streamlit widgets — can't be pure HTML) ────────────
         users = load_users()
 
         if not users:
-            # First-run setup
-            st.markdown("""
-<div style="padding:0 48px; max-width:420px; margin:0 auto;">
-<div style="background:rgba(255,200,50,0.08);border:1px solid rgba(255,200,50,0.25);
-     border-radius:10px;padding:16px 18px;color:#f0c050;font-size:0.85em;">
-<b>⚠️ First-time setup</b><br>No users configured yet — add credentials in Streamlit Secrets.
-</div></div>""", unsafe_allow_html=True)
-            with st.expander("🔑 Setup instructions & hash generator"):
+            st.markdown('<div style="padding:0 20px">', unsafe_allow_html=True)
+            st.warning("⚠️ No users configured. Add credentials to Streamlit Secrets.")
+            with st.expander("Setup instructions"):
                 st.markdown("""
-**Add to Streamlit Cloud → Settings → Secrets:**
 ```toml
 ANTHROPIC_API_KEY = "sk-ant-..."
 [users.admin]
@@ -286,10 +478,11 @@ name = "Administrator"
                 pw_gen = st.text_input("Password to hash:", type="password", key="hashgen")
                 if st.button("Generate Hash") and pw_gen:
                     st.code(hash_password(pw_gen), language=None)
+            st.markdown('</div>', unsafe_allow_html=True)
             return False
 
         with st.container():
-            st.markdown('<div style="padding:0 48px; max-width:420px; margin:-20px auto 0 auto;">', unsafe_allow_html=True)
+            st.markdown('<div style="padding:0 28px; max-width:420px; margin:-24px auto 0 auto;">', unsafe_allow_html=True)
 
             with st.form("login_form", clear_on_submit=False):
                 st.markdown('<p class="field-label">Username</p>', unsafe_allow_html=True)
@@ -301,15 +494,14 @@ name = "Administrator"
                 password = st.text_input("", placeholder="Enter your password",
                     type="password", label_visibility="collapsed")
 
-                rem_col, fp_col = st.columns([1, 1])
-                with rem_col:
+                rc1, rc2 = st.columns([1, 1])
+                with rc1:
                     st.checkbox("Remember me", value=True)
-                with fp_col:
-                    st.markdown(
-                        '<div style="text-align:right;padding-top:4px;">'
-                        '<span style="color:#3b9eff;font-size:0.82em;cursor:pointer;">'
-                        'Forgot password?</span></div>', unsafe_allow_html=True)
+                with rc2:
+                    st.markdown('<div style="text-align:right;padding-top:6px;"><span style="color:#666;font-size:0.8em;">Forgot password?</span></div>',
+                        unsafe_allow_html=True)
 
+                st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
                 submitted = st.form_submit_button("Sign In  →",
                     use_container_width=True, type="primary")
 
@@ -323,62 +515,44 @@ name = "Administrator"
                     time.sleep(0.5)
                     st.error("Invalid username or password.")
                 else:
-                    st.session_state["auth_ok"] = True
-                    st.session_state["auth_username"] = username
-                    st.session_state["auth_user"] = {
+                    st.session_state["auth_ok"]       = True
+                    st.session_state["auth_username"]  = username
+                    st.session_state["auth_user"]      = {
                         "username": username,
-                        "name": users[username]["name"],
-                        "role": users[username]["role"],
+                        "name":     users[username]["name"],
+                        "role":     users[username]["role"],
                     }
                     st.rerun()
 
-            st.markdown('<div class="divider-or">or</div>', unsafe_allow_html=True)
-
             st.markdown("""
+<div class="divider-or">or</div>
 <div class="access-btn">
-  <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-    <circle cx="11" cy="7" r="4" stroke="#7fa8c8" stroke-width="1.4"/>
-    <path d="M3 19c0-4 3.6-7 8-7s8 3 8 7" stroke="#7fa8c8" stroke-width="1.4" stroke-linecap="round"/>
-    <circle cx="17" cy="5" r="3" fill="#0a2044" stroke="#3b9eff" stroke-width="1.2"/>
-    <path d="M16 5h2M17 4v2" stroke="#3b9eff" stroke-width="1" stroke-linecap="round"/>
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <circle cx="10" cy="6.5" r="3.5" stroke="#666" stroke-width="1.3"/>
+    <path d="M3 17.5c0-3.5 3.1-6.5 7-6.5s7 3 7 6.5" stroke="#666" stroke-width="1.3" stroke-linecap="round"/>
+    <circle cx="15.5" cy="4.5" r="2.5" fill="#111" stroke="#aaa" stroke-width="1.1"/>
+    <path d="M14.5 4.5h2M15.5 3.5v2" stroke="#aaa" stroke-width="0.9" stroke-linecap="round"/>
   </svg>
   <div>
-    <div style="color:#c8daea;font-weight:600;font-size:0.88em;">Need access?</div>
-    <div style="color:#5a7a99;font-size:0.77em;">Request an account</div>
+    <div style="color:#bbb;font-weight:600;font-size:0.87em;">Need access?</div>
+    <div style="color:#555;font-size:0.76em;">Request an account</div>
   </div>
 </div>
-
-<div class="contact-link" style="margin-top:14px;">
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-    <rect x="1" y="3" width="12" height="9" rx="1.5" stroke="#3b9eff" stroke-width="1.2"/>
-    <path d="M1 4.5l6 4 6-4" stroke="#3b9eff" stroke-width="1.2" stroke-linecap="round"/>
-  </svg>
-  <span style="color:#3b9eff;">Contact administrator</span>
-</div>
+<div style="text-align:center;margin-top:14px;color:#444;font-size:0.8em;">Contact administrator ✉</div>
 """, unsafe_allow_html=True)
 
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Footer ────────────────────────────────────────────────────────────────
+    # ── Footer ─────────────────────────────────────────────────────────────────
     st.markdown("""
 <div class="page-footer">
-  <div class="secure-tagline">
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M7 1L2 3.5v3.5C2 9.8 4.2 12.2 7 13c2.8-.8 5-3.2 5-6V3.5L7 1z"
-            stroke="#3b9eff" stroke-width="1.2" fill="none"/>
-    </svg>
-    <span style="color:#4a7a9b;">Secure &nbsp;•&nbsp; Compliant &nbsp;•&nbsp; Reliable</span>
-  </div>
-  <span style="color:#2a4a6a;">Supporting safe and efficient access to the radio spectrum for global aviation.</span>
-  <span style="color:#2a4a6a;">© 2024 Federal Aviation Administration</span>
+  <span>🔒&nbsp; Secure &nbsp;•&nbsp; Compliant &nbsp;•&nbsp; Reliable</span>
+  <span>Supporting safe and efficient access to the radio spectrum for global aviation.</span>
+  <span>© 2024 Federal Aviation Administration</span>
 </div>
 """, unsafe_allow_html=True)
 
     return False
-
-
-# ─── Admin panel ─────────────────────────────────────────────────────────────
-
 def show_admin_panel():
     """Full admin panel for user management."""
     st.title("⚙️ Admin Panel — User Management")
