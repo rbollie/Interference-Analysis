@@ -278,10 +278,13 @@ FAA_BANDS = {
 # ─────────────────────────────────────────────────────────────────────────────
 WRC27_AGENDA_ITEMS = {
     "AI 1.7":  {"ref":"AI 1.7","title":"IMT in 4.4–4.8 GHz, 7.125–8.4 GHz, 14.8–15.35 GHz","service":"IMT","working_party":"WP 5D","threat_level":"HIGH","faa_systems_at_risk":["Radio Altimeter/WAICS — 4.2–4.4 GHz","WAIC (Wireless Avionics Intra-Communications) — 4.2–4.4 GHz","FAA fixed links — 7.125–8.4 GHz","FAA fixed links — 14.8–15.35 GHz"],"faa_bands_mhz":[(4200,4400),(7125,8400),(14800,15350)],"mechanism":"OOB emissions/blocking from IMT base stations into RA and WAIC band","key_concern":"4.4–4.8 GHz IMT is 0 MHz from Radio Altimeter and WAIC band — both use 4200–4400 MHz","citations":["RR No. 4.10","ITU-R SM.1540","ITU-R SM.1541","ITU-R M.2085","RR Appendix 3","RTCA DO-155","EUROCAE ED-237","WRC-15 Resolution 424"],"us_position":"Oppose IMT identification without OOB compliance per SM.1541, coordination zones for RA and WAIC per M.2085","notes":"RA is safety-of-life, 6 dB aviation safety factor applies. WAIC has secondary ARNS allocation in same band (WRC-15). Both must be protected."},
+    "AI 1.8":  {"ref":"AI 1.8","title":"Possible new allocations for Radiolocation Service (RLS) in 231.5–700 GHz","service":"RLS","working_party":"WP 5B","threat_level":"LOW","faa_systems_at_risk":[],"faa_bands_mhz":[],"mechanism":"Allocation only — far above all FAA operational bands","key_concern":"Monitor for allocation precedent and future technology evolution; low direct FAA impact","citations":["RR No. 4.10","ITU-R SA.509"],"us_position":"Monitor; support only if no coordination burden on adjacent services","notes":"WP 5B lead. Frequencies 231.5–700 GHz are well above all current FAA systems. CPM text study."},
     "AI 1.13": {"ref":"AI 1.13","title":"MSS 694–2700 MHz for DC-MSS-IMT space-to-Earth connectivity","service":"MSS+IMT","working_party":"WP 4C","threat_level":"HIGH","faa_systems_at_risk":["ARNS/AM(R)S/AMS(R)S — 960–1215 MHz","MSS SatCom DL — 1525–1559 MHz","ASR — 2700–2900 MHz"],"faa_bands_mhz":[(960,1215),(1525,1559),(2700,2900)],"candidate_bands_mhz":[(925,960),(1475,1518),(2620,2690)],"mechanism":"OOB/spurious from satellite downlinks; aggregate interference","key_concern":"Candidate bands immediately adjacent to DME, AMS(R)S, and ASR","citations":["RR No. 4.10","RR No. 5.444","ITU-R SM.2028","ITU-R M.1642","ITU-R SM.1540"],"us_position":"Require aggregate analysis per SM.2028 for all three candidate bands","notes":"960–1215 MHz contains DME — critical navigation."},
     "AI 1.15": {"ref":"AI 1.15","title":"SRS (space-to-space) for lunar surface communications","service":"SRS","working_party":"WP 7B","threat_level":"MEDIUM","faa_systems_at_risk":["ASR — 2700–2900 MHz","3600–4200 MHz","ARNS 5 GHz — 5350–5470 MHz","Fixed — 7190–7235 MHz","Fixed — 8450–8500 MHz"],"faa_bands_mhz":[(2700,2900),(3600,4200),(5350,5470),(7190,7235),(8450,8500)],"mechanism":"Novel use case — no established Earth-Moon methodology","key_concern":"No established ITU-R methodology for lunar SRS vs terrestrial ARNS","citations":["RR No. 4.10","ITU-R SM.2028","ITU-R P.528","RR Appendix 3"],"us_position":"Require methodology before allocation","notes":"Methodology gap is the primary FAA policy argument."},
     "AI 1.17": {"ref":"AI 1.17","title":"EESS passive space weather sensors","service":"EESS","working_party":"WP 7C","threat_level":"LOW-MEDIUM","faa_systems_at_risk":["HF comms — 2.1–29.89 MHz","ILS-related — 74.8–75.2 MHz"],"faa_bands_mhz":[(2100,29890),(74800,75200)],"mechanism":"Passive — allocation policy concern","key_concern":"Coordination obligations on FAA HF comms","citations":["RR No. 4.10","ICAO Annex 10"],"us_position":"Monitor; ensure no coordination burden on FAA","notes":"Low direct threat; procedural concern."},
+    "AI 1.18": {"ref":"AI 1.18","title":"Review of Appendix 17 — Maritime Mobile Service (156–174 MHz) and VDES","service":"MMS","working_party":"WP 5B","threat_level":"LOW-MEDIUM","faa_systems_at_risk":["VHF Aeronautical Comms — 118–137 MHz (adjacent)","VOR/ILS — 108–117.975 MHz (adjacent)"],"faa_bands_mhz":[(108,118),(118,137)],"mechanism":"Adjacent-band interference — maritime VHF 156–174 MHz is 19 MHz above aeronautical VHF 118–137 MHz; VDES high-power transmissions could produce OOB into aviation VHF","key_concern":"VDES (successor to AIS) transmitter power levels and OOB emissions near VHF aeronautical band edge at 137 MHz","citations":["RR No. 4.10","RR No. 5.328","ITU-R SM.1541","ITU-R M.1842"],"us_position":"Ensure Appendix 17 technical parameters include OOB limits protecting 118–137 MHz aeronautical band; gap is only 19 MHz","notes":"WP 5B lead. VDES operates at 156–174 MHz — upper edge 174 MHz is far from aviation. Lower channel edge 156.025 MHz is 19 MHz above aviation upper edge at 137 MHz. Primary concern is high-power VDES coastal stations."},
     "AI 1.19": {"ref":"AI 1.19","title":"EESS (passive) in 4.2–4.4 GHz and 8.4–8.5 GHz","service":"EESS","working_party":"WP 7C","threat_level":"MEDIUM","faa_systems_at_risk":["Radio Altimeter — 4.2–4.4 GHz","Fixed — 8.4–8.5 GHz"],"faa_bands_mhz":[(4200,4400),(8400,8500)],"mechanism":"Allocation precedent — weakens exclusive ARNS status","key_concern":"EESS co-primary in RA band weakens AI 1.7 defense","citations":["RR No. 4.10","RR No. 1.59","RTCA DO-155","ITU-R M.1477"],"us_position":"Oppose co-primary; demand secondary status only","notes":"Strategic link to AI 1.7 — this is the allocation table fight."},
+    "AI 1.20": {"ref":"AI 1.20","title":"Technical characteristics and spectrum for UAS (drone) C2 links below 15.7 GHz","service":"UAS/Mobile","working_party":"WP 5B","lead_co_wps":["WP 5B","WP 5A"],"threat_level":"MEDIUM","faa_systems_at_risk":["VHF Aeronautical Comms — 118–137 MHz","L-band ATC — 960–1215 MHz (DME/TACAN)","C-band ARNS — 5030–5150 MHz","Airborne Weather Radar — 9000–9500 MHz","Ku-band Fixed/FAA — 13.25–15.35 GHz"],"faa_bands_mhz":[(118,137),(960,1215),(5030,5150),(9000,9500),(13250,15350)],"mechanism":"UAS command and control (C2) links — direct allocation in or adjacent to aeronautical bands; aggregate interference from large UAS fleets; potential for deliberate or inadvertent co-channel operation","key_concern":"C2 link allocations near or within aeronautical bands; UAS operating near airports could create aggregate interference to ATC comms, ILS, and GNSS. FAA has active interest in ensuring UAS C2 does not degrade aviation safety infrastructure","citations":["RR No. 4.10","RR No. 5.328","RR No. 5.444","ITU-R M.2168","ITU-R M.2171","ICAO Circular 328"],"us_position":"Oppose any UAS C2 allocation in or adjacent to ARNS or AM(R)S bands without compatibility study showing no harmful interference to aviation safety systems; require aggregate interference assessment for dense UAS deployments","notes":"WP 5B and WP 5A co-lead. FAA co-ordinates closely with ICAO on UAS spectrum. Medium threat because candidate bands are TBD — FAA must monitor candidate band selection and intervene early. Drone C2 at 5 GHz could threaten ARNS 5030–5150 MHz."},
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +292,7 @@ WRC27_AGENDA_ITEMS = {
 # ─────────────────────────────────────────────────────────────────────────────
 WP_ANALYSIS_PROFILES = {
     "WP 5D (IMT/Mobile)": {"label":"WP 5D — IMT/Mobile (5G/6G)","interferer_type":"Terrestrial IMT base station or UE","victim_type":"Airborne or ground-based aeronautical receiver","primary_threat":"IMT identification in bands adjacent to or overlapping aeronautical allocations","propagation_models":["FSPL (worst-case)","ITU-R P.452 (terrestrial)","ITU-R P.528 (airborne victim)"],"interference_metrics":["I/N (dB) — primary metric","pfd (dBW/m²) for field strength limits"],"key_recommendations":["ITU-R M.1642","ITU-R SM.2028","ITU-R P.452","ITU-R P.528","ITU-R M.1477","ITU-R SM.1540","ITU-R SM.1541"],"protection_criteria":"I/N thresholds from FAA system protection table; +6 dB aviation safety factor for precision approach","aggregate_method":"Monte Carlo per SM.2028","specific_checks":["Propagation model P.452/P.528?","EIRP worst-case?","OOB mask per SM.1541?","Coordination zone adequate?","Aviation safety factor applied?","Aggregate interference per SM.2028?"],"common_proponent_tactics":["Using median EIRP instead of maximum","Using P.452 urban clutter for airborne victim","Claiming OOB compliance without providing mask","Single base station instead of aggregate"],"wrc27_items":["AI 1.7"],"policy_levers":["SM.1541 OOB mask compliance","Coordination zones","RR No. 4.10","RR Resolution 750"]},
-    "WP 5B (Maritime/Radiodetermination)": {"label":"WP 5B — Maritime/Radiodetermination","interferer_type":"Ship-borne, coastal, or radiodetermination transmitter","victim_type":"Airborne or ground aeronautical receiver","primary_threat":"Radiolocation/maritime allocations near DME, ATC radar, or ARNS bands","propagation_models":["FSPL","ITU-R P.452","ITU-R P.528 for airborne victim"],"interference_metrics":["I/N (dB)","pfd (dBW/m²)"],"key_recommendations":["ITU-R M.1849","ITU-R P.528","ITU-R SM.2028"],"protection_criteria":"ARSR I/N = −6 dB; ASR I/N = −10 dB","aggregate_method":"Monte Carlo per SM.2028","specific_checks":["Maritime allocation adjacent to ATC radar bands?","Ship/coastal station EIRP and emission mask?","Airborne geometry modeled?"],"common_proponent_tactics":["Sea-surface propagation only — ignores airborne victim","Average power instead of peak for pulsed systems"],"wrc27_items":[],"policy_levers":["I/N thresholds for ASR/ARSR","Coordination distances from airports","RR No. 4.10"]},
+    "WP 5B (Maritime/Radiodetermination)": {"label":"WP 5B — Maritime/Radiodetermination","interferer_type":"Maritime/coastal radar, VDES transmitter, UAS C2 link","victim_type":"Airborne or ground-based aeronautical radar/comms receiver","primary_threat":"Co-channel radar interference at 2.7–2.9 GHz; OOB from VDES near aeronautical VHF; UAS C2 links near aviation bands","propagation_models":["ITU-R P.452 (ground-to-ground)","ITU-R P.528 (ship-to-airborne victim — required)","FSPL for UAS geometry"],"interference_metrics":["I/N (dB)","pfd (dBW/m²) for peak pulse power"],"key_recommendations":["ITU-R M.1849","ITU-R M.2168","ITU-R M.2171","ITU-R M.1842","ITU-R SM.1541"],"protection_criteria":"ASR: I/N ≤ −10 dB; ARSR: I/N ≤ −6 dB; VHF Aeronautical: I/N ≤ −6 dB","aggregate_method":"Monte Carlo per SM.2028 for aggregate radar/UAS scenarios","specific_checks":["Peak vs average power used?","Airborne victim analyzed (P.528)?","Coordination zone realistic (not just urban)?","UAS candidate bands checked against ARNS/AM(R)S?","VDES OOB at 137 MHz boundary checked?"],"common_proponent_tactics":["Average instead of peak pulse power","Urban clutter for airborne victim","Ground-only victim for ship radar","UAS C2 near aviation bands without compatibility study"],"wrc27_items":["AI 1.8","AI 1.18","AI 1.20"],"policy_levers":["M.1849 radar coexistence","RR No. 5.328 VHF protection","RR No. 5.444 ARNS protection","UAS aggregate interference argument","RR No. 4.10"]},
     "WP 4C (MSS / DC-MSS-IMT)": {"label":"WP 4C — MSS/DC-MSS-IMT","interferer_type":"Satellite downlink (space-to-Earth) — LEO/MEO/GEO constellation","victim_type":"Ground-based or airborne aeronautical receiver","primary_threat":"MSS satellite downlinks in candidate bands adjacent to DME, AMS(R)S, ASR","propagation_models":["ITU-R P.619 (Earth-space) — CORRECT model for satellite downlinks","NOT P.452 — P.452 is for terrestrial links only","ITU-R P.676 for atmospheric absorption on slant path"],"interference_metrics":["epfd (dBW/m²/MHz) — PRIMARY metric for satellite downlinks","ΔT/T (%) — noise temperature rise for RNSS and AMS(R)S","I/N (dB) — for ASR"],"key_recommendations":["ITU-R P.619","ITU-R SM.2028","ITU-R S.1586","ITU-R M.1477","RR No. 5.444"],"protection_criteria":"DME: epfd ≤ −121.5 dBW/m²/MHz; AMS(R)S: ΔT/T ≤ 6% single-entry; ASR: I/N ≤ −10 dB","aggregate_method":"epfd Monte Carlo per S.1586/SM.2028 — all visible satellites contribute simultaneously","specific_checks":["P.619 used (not P.452)?","epfd calculated for full constellation?","All three candidate bands analyzed separately?","Airborne victim analyzed?","ΔT/T single-entry compliance?"],"common_proponent_tactics":["Single-satellite pfd instead of constellation epfd","P.452 instead of P.619","Ground-only victim","Average EIRP instead of nadir worst-case"],"wrc27_items":["AI 1.13"],"policy_levers":["epfd limits","ΔT/T limits for AMS(R)S","ASR I/N = −10 dB","RR No. 5.444","RR No. 4.10","ITU-R S.1586"]},
     "WP 7B (Space Radiocommunication / Lunar SRS)": {"label":"WP 7B — Space Research/Lunar","interferer_type":"SRS transmitter — Earth-based uplink or lunar surface transmitter","victim_type":"Terrestrial aeronautical receivers","primary_threat":"Novel use case — no established ITU-R methodology for lunar SRS vs ARNS","propagation_models":["Novel geometry — no established ITU-R model for lunar-to-Earth interference","P.452/FSPL for Earth-side SRS uplinks"],"interference_metrics":["pfd (dBW/m²) at Earth surface","I/N (dB) if interference reaches terrestrial receiver"],"key_recommendations":["ITU-R SA.509","NOTE: No ITU-R Recommendation for lunar surface SRS vs terrestrial ARNS"],"protection_criteria":"ASR I/N = −10 dB; ARNS 5350–5470 MHz I/N = −6 dB","aggregate_method":"Not yet established — FAA should argue methodology must be developed BEFORE allocation","specific_checks":["Does contribution propose a coordination methodology?","Is pfd from lunar transmitters calculated?","Are Earth-side SRS uplinks analyzed for co-frequency impact?"],"common_proponent_tactics":["Claiming lunar SRS is low power without quantitative analysis","Proposing allocation before methodology is established"],"wrc27_items":["AI 1.15"],"policy_levers":["Methodology gap argument — oppose allocation before methodology","Precautionary principle","RR No. 4.10"]},
     "WP 7C (EESS / Space Weather Sensors)": {"label":"WP 7C — EESS/Science (Passive)","interferer_type":"PASSIVE — receive-only sensors, NO transmission","victim_type":"FAA concern is ALLOCATION PRECEDENT not interference","primary_threat":"NOT interference — ALLOCATION POLICY. Co-primary in RA band weakens ARNS exclusivity for AI 1.7","propagation_models":["NOT APPLICABLE — passive sensors do not interfere with FAA systems"],"interference_metrics":["NOT APPLICABLE for direct interference","Assess allocation policy implications only"],"key_recommendations":["ITU Radio Regulations — Table of Frequency Allocations","RR Resolution 750"],"protection_criteria":"N/A — assess regulatory allocation table consequences","aggregate_method":"N/A — passive sensors do not transmit","specific_checks":["Does EESS passive allocation propose co-primary status in 4.2–4.4 GHz?","Does it weaken FAA ARNS exclusivity for AI 1.7?","Does it create coordination obligations on FAA transmitters?","Is this a stepping stone to future active allocation?"],"common_proponent_tactics":["Arguing passive = harmless = should be allowed","Using passive as foot-in-door for future active allocation"],"wrc27_items":["AI 1.17","AI 1.19"],"policy_levers":["Allocation table exclusivity","Strategic linkage to AI 1.7","Demand secondary status not co-primary"]},
@@ -788,7 +791,7 @@ def _extract_analysis_fields(analysis_text, meta=None):
 
     # ── Agenda items ─ scan broadly, then filter to FAA-relevant WRC-27 AIs ────
     # FAA-relevant WRC-27 AIs: 1.7 (RA/5G), 1.13 (MSS), 1.15 (lunar), 1.17, 1.19 (EESS)
-    FAA_RELEVANT_AIS = {"1.7","1.13","1.15","1.17","1.19"}
+    FAA_RELEVANT_AIS = {"1.7","1.8","1.13","1.15","1.17","1.18","1.19","1.20"}
 
     # Collect all AI references from text
     _raw_ai = _all(r'(?:AI|Agenda Item|WRC-27 AI)[:\s]*(1\.\d+)')
@@ -1695,11 +1698,14 @@ def _make_summary_xlsx(rows):
 
         # Reference section
         (True, "WRC-27 AGENDA ITEM REFERENCE", "", ""),
-        (False, "AI 1.7 (WP 5D)", "IMT identification in new frequency bands", "FAA concern: Radio Altimeter (4.2–4.4 GHz), ARNS 5 GHz, MLS. Interferer: 5G NR base stations adjacent to RA band. Key Recs: M.1642, SM.1541, P.528."),
+        (False, "AI 1.7 (WP 5D)", "IMT identification in new frequency bands", "FAA concern: Radio Altimeter + WAIC (4.2–4.4 GHz), ARNS 5 GHz, MLS. Interferer: 5G NR base stations adjacent to RA/WAIC band. Key Recs: M.1642, SM.1541, M.2085, P.528."),
+        (False, "AI 1.8 (WP 5B)", "Possible new RLS allocations in 231.5–700 GHz", "FAA concern: Low — monitor only. Far above aviation bands. WP 5B leads. CPM text study."),
         (False, "AI 1.13 (WP 4C)", "MSS / DC-MSS-IMT satellite downlinks in new bands", "FAA concern: DME/TACAN (960 MHz), L-band AMS(R)S (1525 MHz), ASR (2700 MHz). Key risk: constellation epfd aggregate vs single-sat pfd. Key Recs: P.619, S.1586, S.1598."),
         (False, "AI 1.15 (WP 7B)", "Lunar surface communications (SRS)", "FAA concern: allocation precedent in ARNS bands. No ITU-R methodology exists for Earth-Moon geometry. Argue for secondary allocation only."),
         (False, "AI 1.17 (WP 7C)", "Space weather sensors below 30 MHz", "FAA concern: HF/VHF coordination obligations on FAA comms. Less direct than AI 1.19."),
+        (False, "AI 1.18 (WP 5B)", "Review of Appendix 17 — Maritime Mobile Service & VDES", "FAA concern: VDES (VHF maritime 156–174 MHz) OOB emissions at 137 MHz band edge adjacent to aeronautical VHF (118–137 MHz). Gap = 19 MHz. Cite RR No. 5.328."),
         (False, "AI 1.19 (WP 7C)", "EESS passive in 4.2–4.4 GHz (Radio Altimeter band)", "FAA concern: co-primary EESS allocation weakens RA band exclusivity and makes AI 1.7 defense harder. No interference calculation — purely regulatory/allocation."),
+        (False, "AI 1.20 (WP 5B/5A)", "UAS (drone) C2 links below 15.7 GHz", "FAA concern: Medium — UAS C2 candidate bands TBD; monitor for proximity to ARNS, AM(R)S, DME. Aggregate interference from dense UAS fleets near airports. Cite M.2168, ICAO Circular 328."),
     ]
 
     # Write legend with section headers styled differently
@@ -5208,7 +5214,7 @@ elif selected_tab == "🤖 Contribution Analyzer":
     # Working party context callout
     wp_context = {
         "WP 5D (IMT/Mobile)":                           ("AI 1.7",       "IMT near Radio Altimeter 4.4–4.8 GHz and FAA fixed links"),
-        "WP 5B (Maritime/Radiodetermination)":           ("Various",      "Maritime/radiolocation services near aeronautical bands"),
+        "WP 5B (Maritime/Radiodetermination)":           ("AI 1.8 / 1.18 / 1.20", "RLS 231.5–700 GHz · Maritime VHF (VDES) adjacent to aeronautical VHF · UAS C2 links near aviation bands"),
         "WP 4C (MSS / DC-MSS-IMT)":                     ("AI 1.13",      "MSS candidate bands adjacent to DME (960 MHz), AMS(R)S (1525 MHz), ASR (2700 MHz)"),
         "WP 7B (Space Radiocommunication / Lunar SRS)":  ("AI 1.15",      "Lunar SRS near ASR, radar, and ARNS 5 GHz bands"),
         "WP 7C (EESS / Space Weather Sensors)":          ("AI 1.17/1.19", "EESS passive in RA band and space weather sensors near HF/VHF"),
@@ -6145,10 +6151,13 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         # ── Known Agenda Item patterns ─────────────────────────────────────────
         AI_PATTERNS = {
             "AI 1.7":  r"AI\s*1\.7|agenda item\s*1\.7|1\.7\b.*IMT|IMT.*4[,.]?4|4[,.]?8.*GHz",
+            "AI 1.8":  r"AI\s*1\.8\b|agenda item\s*1\.8\b|1\.8\b.*RLS|radiolocation.*231|231.*700.*GHz",
             "AI 1.13": r"AI\s*1\.13|agenda item\s*1\.13|1\.13\b|MSS.+694|DC.MSS|925.+960|1475.+1518|2620.+2690",
             "AI 1.15": r"AI\s*1\.15|agenda item\s*1\.15|1\.15\b|lunar|SRS.*space.+space",
             "AI 1.17": r"AI\s*1\.17|agenda item\s*1\.17|1\.17\b|space weather|EESS.*passive.*27|27.*28.*GHz",
+            "AI 1.18": r"AI\s*1\.18|agenda item\s*1\.18|1\.18\b|appendix\s*17|VDES|maritime.+VHF|156.+174",
             "AI 1.19": r"AI\s*1\.19|agenda item\s*1\.19|1\.19\b|EESS.*4[,.]?2|4[,.]?2.*EESS|passive.*4[,.]?4",
+            "AI 1.20": r"AI\s*1\.20|agenda item\s*1\.20|1\.20\b|UAS.*C2|drone.*command|unmanned.*aircraft.*spectrum|C2.*link.*UAS",
         }
 
         triage_rows = []
@@ -6211,6 +6220,7 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             })
 
         # ── Filter controls ────────────────────────────────────────────────────
+        # Build detected sets from processed documents
         all_ai  = sorted({r["Agenda Item"] for r in triage_rows if r["Agenda Item"] not in ("—","")})
         all_faa = sorted({
             ent.strip()
@@ -6218,6 +6228,51 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             for ent in r["FAA Systems"].split(",")
             if ent.strip() not in ("—","")
         })
+
+        # ── WP-to-AI mapping: what agenda items are associated with each WP ──
+        WP_AI_MAP = {
+            "WP 5D (IMT/Mobile)":                          ["AI 1.7"],
+            "WP 5B (Maritime/Radiodetermination)":          ["AI 1.8", "AI 1.18", "AI 1.20"],
+            "WP 4C (MSS / DC-MSS-IMT)":                    ["AI 1.13"],
+            "WP 7B (Space Radiocommunication / Lunar SRS)": ["AI 1.15"],
+            "WP 7C (EESS / Space Weather Sensors)":         ["AI 1.17", "AI 1.19"],
+        }
+        ALL_AI_OPTIONS = ["AI 1.7","AI 1.8","AI 1.13","AI 1.15","AI 1.17","AI 1.18","AI 1.19","AI 1.20"]
+        ALL_AI_LABELS  = {
+            "AI 1.7":  "AI 1.7  — IMT / Radio Altimeter & WAIC (WP 5D)",
+            "AI 1.8":  "AI 1.8  — RLS 231.5–700 GHz (WP 5B)",
+            "AI 1.13": "AI 1.13 — MSS / DC-MSS-IMT (WP 4C)",
+            "AI 1.15": "AI 1.15 — Lunar SRS (WP 7B)",
+            "AI 1.17": "AI 1.17 — EESS Space Weather (WP 7C)",
+            "AI 1.18": "AI 1.18 — Appendix 17 / VDES (WP 5B)",
+            "AI 1.19": "AI 1.19 — EESS Passive in RA Band (WP 7C)",
+            "AI 1.20": "AI 1.20 — UAS C2 Links (WP 5B/5A)",
+        }
+
+        # WP-associated AIs pre-selected as defaults; detected AIs added if found
+        wp_suggested_ais = WP_AI_MAP.get(working_party, [])
+        detected_ais_in_docs = set()
+        for r in triage_rows:
+            for ai in r["Agenda Item"].split(", "):
+                if ai.strip() and ai.strip() != "—":
+                    detected_ais_in_docs.add(ai.strip())
+
+        # Build filter option list: all 8 AIs, annotated
+        ai_option_labels = []
+        for ai in ALL_AI_OPTIONS:
+            label = ALL_AI_LABELS.get(ai, ai)
+            badges = []
+            if ai in wp_suggested_ais:    badges.append("⭐ WP-linked")
+            if ai in detected_ais_in_docs: badges.append("🔍 detected")
+            if badges:
+                label = f"{ai}  [{', '.join(badges)}] — {ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()}"
+            ai_option_labels.append(ai)
+
+        # Default selection: WP-linked AIs that were actually detected in docs
+        # If none detected, still pre-select the WP-linked ones so filter is ready to use
+        default_ai_filter = [ai for ai in wp_suggested_ais if ai in detected_ais_in_docs]
+        if not default_ai_filter:
+            default_ai_filter = []   # don't force filter if nothing detected yet
 
         fcol1, fcol2, fcol3 = st.columns([1, 2, 2])
         with fcol1:
@@ -6228,11 +6283,16 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 key="batch_verdict_filter",
             )
         with fcol2:
+            # Show all 8 AIs with WP-linked badges so users know which to filter
             ai_filter = st.multiselect(
-                "Filter by Agenda Item",
-                options=all_ai if all_ai else ["— none detected —"],
-                default=[],
+                f"Filter by Agenda Item  (⭐ = associated with {working_party.split('(')[0].strip()})",
+                options=ai_option_labels,
+                format_func=lambda x: ALL_AI_LABELS.get(x, x) + (
+                    "  ⭐" if x in wp_suggested_ais else "") + (
+                    "  🔍" if x in detected_ais_in_docs else ""),
+                default=default_ai_filter,
                 key="batch_ai_filter",
+                help=f"⭐ = agenda items associated with {working_party}  |  🔍 = detected in processed documents"
             )
         with fcol3:
             faa_filter = st.multiselect(
@@ -6242,7 +6302,16 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 key="batch_faa_filter",
             )
 
-        # Apply filters
+        # Show WP → AI association callout
+        if wp_suggested_ais:
+            _ai_desc_parts = [f"**{ai}** ({ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()})"
+                              for ai in wp_suggested_ais]
+            st.caption(
+                f"📌 **{working_party.split('(')[0].strip()} is associated with:** "
+                + " · ".join(_ai_desc_parts)
+            )
+
+        # Apply filters — match on AI code prefix (handles "AI 1.7" within "AI 1.7, AI 1.8")
         def row_matches(r):
             if verdict_filter and not any(v in r["Verdict"] for v in verdict_filter):
                 return False
