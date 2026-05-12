@@ -5831,35 +5831,29 @@ Once configured, the analyzer will work every time you visit the app.
             pending   = [f for f in batch_files_uploaded
                          if f.name not in st.session_state.batch_processed_names]
             n_pending = len(pending)
-            next_chunk = pending[:CHUNK_SIZE]
 
             # Status metrics
-            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1, mc2, mc3 = st.columns(3)
             mc1.metric("Files uploaded",    n_total)
             mc2.metric("Already processed", n_done)
             mc3.metric("Remaining",         n_pending)
-            mc4.metric("Next chunk size",   len(next_chunk))
 
             if n_pending == 0:
                 ok(f"✅ All {n_total} files have been processed. Use the filter and download below, or clear results to reprocess.")
             else:
-                est_lo = len(next_chunk) * 20 // 60
-                est_hi = len(next_chunk) * 35 // 60
-                time_str = f"~{max(1,est_lo)}–{max(2,est_hi)} min" if est_lo != est_hi else f"~{max(1,est_lo)} min"
+                est_lo = n_pending * 20 // 60
+                est_hi = n_pending * 35 // 60
+                time_str = f"~{max(1,est_lo)}–{max(2,est_hi)} min"
                 _depth_label = analysis_depth if 'analysis_depth' in dir() else "Quick"
                 st.info(
-                    f"📋 **{n_pending} files remaining.** "
-                    f"Next run will process **{len(next_chunk)} files** ({time_str} at "
+                    f"📋 **{n_pending} files ready to analyze** ({time_str} total at "
                     f"{'Quick' if _depth_label.startswith('Quick') else 'Standard'} depth). "
                     + (f"**{n_done} already processed** — results preserved below." if n_done else "")
+                    + " Click **Run Batch Analysis** to process all remaining files automatically."
                 )
-                with st.expander(f"Next chunk — {len(next_chunk)} files"):
-                    for f in next_chunk:
+                with st.expander(f"Files to be processed — {n_pending} documents"):
+                    for f in pending:
                         st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
-                if n_pending > CHUNK_SIZE:
-                    with st.expander(f"Remaining after this chunk — {n_pending - CHUNK_SIZE} files"):
-                        for f in pending[CHUNK_SIZE:]:
-                            st.caption(f"  📄 {f.name}  ({f.size/1024:.0f} KB)")
 
             # Clear button
             if st.session_state.batch_accumulated:
@@ -5869,7 +5863,7 @@ Once configured, the analyzer will work every time you visit the app.
                     st.session_state.batch_processed_names = set()
                     st.rerun()
 
-            batch_files = next_chunk  # only next chunk goes to the run button
+            batch_files = pending   # ALL remaining files, not just a chunk
 
         else:
             # Show accumulated results from prior runs even without new upload
@@ -6390,10 +6384,12 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
 
         batch_results = []  # list of dicts
 
+        n_total_batch = len(batch_files_uploaded) if batch_files_uploaded else len(batch_files)
         for idx, f in enumerate(batch_files):
             fname = f.name
-            status_text.text(f"Analyzing {idx+1}/{len(batch_files)}: {fname}...")
-            progress_bar.progress((idx) / len(batch_files))
+            n_already = len(st.session_state.batch_processed_names)
+            status_text.text(f"Analyzing {idx+1}/{len(batch_files)}: {fname}…  (total so far: {n_already + idx} of {n_total_batch} uploaded)")
+            progress_bar.progress((idx) / max(len(batch_files), 1))
 
             text_b, tc_b = extract_text_from_file(f)
             if not text_b:
@@ -6443,6 +6439,8 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                     "_openai":   result_b.get("openai", ""),
                     "_gemini":   result_b.get("gemini", ""),
                 })
+                # Mark as processed immediately so partial runs are recoverable
+                st.session_state.batch_processed_names.add(fname)
                 # Write to Neo4j
                 _neo4j_b = _neo4j_driver()
                 if _neo4j_b:
@@ -6461,17 +6459,19 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                     "_claude": "", "_openai": "", "_gemini": "",
                 })
 
+                st.session_state.batch_processed_names.add(fname)
+
         progress_bar.progress(1.0)
-        chunk_done = len([r for r in batch_results if not r["error"]])
-        chunk_err  = len([r for r in batch_results if r["error"]])
+        n_done_this_run = len([r for r in batch_results if not r["error"]])
+        n_err_this_run  = len([r for r in batch_results if r["error"]])
         status_text.text(
-            f"✅ Chunk complete — {chunk_done} analyzed"
-            + (f", {chunk_err} error(s)" if chunk_err else "")
+            f"✅ Done — {n_done_this_run} document{'s' if n_done_this_run != 1 else ''} analyzed"
+            + (f", {n_err_this_run} error(s)" if n_err_this_run else "")
         )
 
         # ── Accumulate results into session state ─────────────────────────────
         for r in batch_results:
-            if r["file"] not in st.session_state.batch_processed_names:
+            if r["file"] not in {x["file"] for x in st.session_state.batch_accumulated}:
                 st.session_state.batch_accumulated.append(r)
                 st.session_state.batch_processed_names.add(r["file"])
 
@@ -6484,14 +6484,11 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             if f.name not in st.session_state.batch_processed_names
         ])
 
-        acc_col1, acc_col2 = st.columns(2)
-        with acc_col1:
-            ok(f"📂 {n_acc} total results accumulated across all runs.")
-        with acc_col2:
-            if n_pending_after > 0:
-                st.info(f"⏭️ {n_pending_after} files still pending — click **Run Batch Analysis** again to process the next chunk.")
-            else:
-                ok("✅ All uploaded files processed.")
+        if n_pending_after > 0:
+            # Shouldn't happen with new logic — but guard just in case
+            st.warning(f"⏭️ {n_pending_after} files still pending. Click **Run Batch Analysis** again to process them.")
+        else:
+            ok(f"✅ All {n_acc} documents processed.")
 
         # ── Triage summary table ──────────────────────────────────────────────
         st.markdown("---")
