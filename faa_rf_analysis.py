@@ -6238,10 +6238,11 @@ One sentence.
 ## D) Draft U.S. Response (PATH 3 only — omit for US contributions or not-relevant documents)
 One paragraph, 100–150 words. Ready-to-use US floor intervention citing specific RR articles and ITU-R Recommendations. State the US position and key technical objection in ITU-R meeting language.'''}"""
 
-            # ── Claude analysis (always runs) ──────────────────────────────
+            # Token budget — Quick gets fewer tokens for faster responses
+            _is_quick = "Quick" in (analysis_depth if 'analysis_depth' in dir() else "Quick")
             claude_resp = client_obj.messages.create(
                 model="claude-sonnet-4-5",
-                max_tokens=3500,
+                max_tokens=1200 if _is_quick else 3500,
                 messages=[{"role": "user", "content": um}],
                 system=sys_prompt,
             )
@@ -6373,9 +6374,16 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         wp_profile_b     = WP_ANALYSIS_PROFILES.get(wp_profile_key_b) if wp_profile_key_b else None
         wp_framework_b   = f"Working Party: {working_party}. Apply appropriate analysis framework." if not wp_profile_b else f"Working Party: {working_party} — {wp_profile_b['primary_threat']}"
         faa_bands_b      = "\n".join([f"- {n}: {b['f_low_mhz']}–{b['f_high_mhz']} MHz ({b['allocation']}), I/N {b['in_threshold_db']} dB" for n,b in FAA_BANDS.items()])
-        depth_b = {"Quick assessment (key risks + recommended US position)": "OUTPUT FORMAT: Concise — 2–3 bullets per section.",
-                   "Standard analysis (full policy brief with citations)": "OUTPUT FORMAT: Standard structured analysis.",
-                   "Deep dive (comprehensive brief + draft response contribution outline)": "OUTPUT FORMAT: Full detail."}[analysis_depth]
+        depth_b = {
+            "Quick assessment (key risks + recommended US position)":
+                "OUTPUT FORMAT: Ultra-concise triage — 1 bullet max per section. "
+                "Frequency table first (max 3 rows). Verdict in one sentence. "
+                "Section B: top 1 risk only. Section C: top 1 action only. No Section D/E draft response.",
+            "Standard analysis (full policy brief with citations)":
+                "OUTPUT FORMAT: Standard structured analysis.",
+            "Deep dive (comprehensive brief + draft response contribution outline)":
+                "OUTPUT FORMAT: Full detail.",
+        }[analysis_depth]
         sys_prompt_batch = f"You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings.\n{wp_framework_b}\nFAA PROTECTED BANDS:\n{faa_bands_b}\nACCURACY RULE: Never fabricate citations or frequency values. If uncertain, say 'Cannot confirm.'"
 
         client_b = anthropic.Anthropic(api_key=api_key)
@@ -6510,10 +6518,11 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 # NOTE: intentionally NOT adding to batch_processed_names
                 # so the next run will retry this document
 
-            # Brief pause between documents to respect API rate limits
+            # Brief pause between documents — reduced to 0.5s (API call itself takes 10-15s,
+            # so 0.5s is sufficient to avoid burst limits without wasting time)
             if idx < len(batch_files) - 1:
                 import time as _time2
-                _time2.sleep(2)   # 2s gap — prevents hitting burst rate limits
+                _time2.sleep(0.5)
 
         progress_bar.progress(1.0)
         n_done_this_run = len([r for r in batch_results if not r["error"]])
@@ -6688,11 +6697,17 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 label = f"{ai}  [{', '.join(badges)}] — {ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()}"
             ai_option_labels.append(ai)
 
-        # Default selection: WP-linked AIs that were actually detected in docs
-        # If none detected, still pre-select the WP-linked ones so filter is ready to use
-        default_ai_filter = [ai for ai in wp_suggested_ais if ai in detected_ais_in_docs]
-        if not default_ai_filter:
-            default_ai_filter = []   # don't force filter if nothing detected yet
+        # Clear stale filter keys from previous WP runs so they don't filter out new results
+        for _stale_key in ("batch_ai_filter", "batch_verdict_filter", "batch_faa_filter"):
+            if _stale_key in st.session_state:
+                # Reset if WP changed since last run
+                if st.session_state.get("_last_filter_wp") != working_party:
+                    del st.session_state[_stale_key]
+        st.session_state["_last_filter_wp"] = working_party
+
+        # Default selection: always empty — user chooses what to filter
+        # (pre-selecting causes documents to be hidden silently)
+        default_ai_filter = []
 
         fcol1, fcol2, fcol3 = st.columns([1, 2, 2])
         with fcol1:
@@ -6703,16 +6718,17 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 key="batch_verdict_filter",
             )
         with fcol2:
-            # Show all 8 AIs with WP-linked badges so users know which to filter
+            # Annotate options but never pre-select
             ai_filter = st.multiselect(
-                f"Filter by Agenda Item  (⭐ = associated with {working_party.split('(')[0].strip()})",
+                f"Filter by Agenda Item  (⭐ = linked to {working_party.split('(')[0].strip()})",
                 options=ai_option_labels,
                 format_func=lambda x: ALL_AI_LABELS.get(x, x) + (
                     "  ⭐" if x in wp_suggested_ais else "") + (
                     "  🔍" if x in detected_ais_in_docs else ""),
                 default=default_ai_filter,
                 key="batch_ai_filter",
-                help=f"⭐ = agenda items associated with {working_party}  |  🔍 = detected in processed documents"
+                placeholder="All agenda items — select to filter",
+                help=f"⭐ = agenda items associated with {working_party}  |  🔍 = detected in processed documents. Leave blank to see ALL documents."
             )
         with fcol3:
             faa_filter = st.multiselect(
@@ -6720,6 +6736,7 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 options=all_faa if all_faa else ["— none detected —"],
                 default=[],
                 key="batch_faa_filter",
+                placeholder="All systems — select to filter",
             )
 
         # Show WP → AI association callout
@@ -6745,6 +6762,20 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         n_total    = len(triage_rows)
         n_filtered = len(filtered)
         n_review   = sum(1 for r in filtered if "HUMAN REVIEW" in r["Verdict"])
+
+        # Show filter status clearly
+        if ai_filter or verdict_filter or faa_filter:
+            active = []
+            if verdict_filter: active.append(f"Verdict: {', '.join(verdict_filter)}")
+            if ai_filter:      active.append(f"AI: {', '.join(ai_filter)}")
+            if faa_filter:     active.append(f"FAA: {', '.join(faa_filter)}")
+            st.warning(
+                f"🔽 **Filters active — showing {n_filtered} of {n_total} documents.** "
+                f"Filters: {' | '.join(active)}. "
+                f"Clear all filters above to see all {n_total} results."
+            )
+        else:
+            st.success(f"📋 Showing all **{n_total} documents** — no filters active.")
 
         # Filter stats
         sf1, sf2, sf3, sf4 = st.columns(4)
