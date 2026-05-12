@@ -6553,367 +6553,367 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         else:
             ok(f"✅ All {n_acc} documents processed.")
 
-        # ── Triage summary table ──────────────────────────────────────────────
-        st.markdown("---")
-        st.subheader("🗂️ Triage Summary")
-        ex("Filter by Agenda Item or FAA system to quickly isolate documents that matter to a specific concern. The triage table and filtered results update instantly.")
+    # ── Triage summary table ──────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🗂️ Triage Summary")
+    ex("Filter by Agenda Item or FAA system to quickly isolate documents that matter to a specific concern. The triage table and filtered results update instantly.")
 
-        import re as _re_b
+    import re as _re_b
 
-        # ── Known FAA entity aliases for matching ──────────────────────────────
-        FAA_ENTITY_PATTERNS = {
-            "Radio Altimeter (RA)":     r"radio alt(?:imeter)?|RA\b|WAICS|4[,.]?2.+4[,.]?4",
-            "WAIC":                     r"\bWAIC\b|wireless avionics|intra.commun",
-            "DME / TACAN":              r"DME|TACAN|distance measur|960.+1215|1215.+960",
-            "GPS / GNSS L1":            r"GPS L1|GNSS L1|1559.+1610|1575",
-            "GNSS L5 / ARNS":           r"GNSS L5|GPS L5|L5\b|1164.+1215",
-            "ADS-B / Mode-S":           r"ADS-?B|Mode-?S|1090",
-            "ASR (Airport Radar)":      r"ASR\b|airport surv|2700.+2900|2900.+2700",
-            "ARSR (En-Route Radar)":    r"ARSR\b|en.?route.+radar|air route surv",
-            "ILS / VOR":                r"ILS\b|VOR\b|localizer|glide slope|108.+118",
-            "L-band AMS(R)S":           r"AMS\(R\)S|L.band.+sat|1525.+1559|1559.+1525",
-            "MLS":                      r"\bMLS\b|microwave landing",
-            "ARNS 5 GHz":               r"ARNS.+5|5[,.]?0.+5[,.]?15|5350.+5470",
-            "Weather Radar":            r"weather radar|airborne.+radar|9[,.]?0.+9[,.]?5",
-        }
+    # ── Known FAA entity aliases for matching ──────────────────────────────
+    FAA_ENTITY_PATTERNS = {
+        "Radio Altimeter (RA)":     r"radio alt(?:imeter)?|RA\b|WAICS|4[,.]?2.+4[,.]?4",
+        "WAIC":                     r"\bWAIC\b|wireless avionics|intra.commun",
+        "DME / TACAN":              r"DME|TACAN|distance measur|960.+1215|1215.+960",
+        "GPS / GNSS L1":            r"GPS L1|GNSS L1|1559.+1610|1575",
+        "GNSS L5 / ARNS":           r"GNSS L5|GPS L5|L5\b|1164.+1215",
+        "ADS-B / Mode-S":           r"ADS-?B|Mode-?S|1090",
+        "ASR (Airport Radar)":      r"ASR\b|airport surv|2700.+2900|2900.+2700",
+        "ARSR (En-Route Radar)":    r"ARSR\b|en.?route.+radar|air route surv",
+        "ILS / VOR":                r"ILS\b|VOR\b|localizer|glide slope|108.+118",
+        "L-band AMS(R)S":           r"AMS\(R\)S|L.band.+sat|1525.+1559|1559.+1525",
+        "MLS":                      r"\bMLS\b|microwave landing",
+        "ARNS 5 GHz":               r"ARNS.+5|5[,.]?0.+5[,.]?15|5350.+5470",
+        "Weather Radar":            r"weather radar|airborne.+radar|9[,.]?0.+9[,.]?5",
+    }
 
-        # ── Known Agenda Item patterns ─────────────────────────────────────────
-        AI_PATTERNS = {
-            "AI 1.7":  r"AI\s*1\.7|agenda item\s*1\.7|1\.7\b.*IMT|IMT.*4[,.]?4|4[,.]?8.*GHz",
-            "AI 1.8":  r"AI\s*1\.8\b|agenda item\s*1\.8\b|1\.8\b.*RLS|radiolocation.*231|231.*700.*GHz",
-            "AI 1.13": r"AI\s*1\.13|agenda item\s*1\.13|1\.13\b|MSS.+694|DC.MSS|925.+960|1475.+1518|2620.+2690",
-            "AI 1.15": r"AI\s*1\.15|agenda item\s*1\.15|1\.15\b|lunar|SRS.*space.+space",
-            "AI 1.17": r"AI\s*1\.17|agenda item\s*1\.17|1\.17\b|space weather|EESS.*passive.*27|27.*28.*GHz",
-            "AI 1.18": r"AI\s*1\.18|agenda item\s*1\.18|1\.18\b|appendix\s*17|VDES|maritime.+VHF|156.+174",
-            "AI 1.19": r"AI\s*1\.19|agenda item\s*1\.19|1\.19\b|EESS.*4[,.]?2|4[,.]?2.*EESS|passive.*4[,.]?4",
-            "AI 1.20": r"AI\s*1\.20|agenda item\s*1\.20|1\.20\b|UAS.*C2|drone.*command|unmanned.*aircraft.*spectrum|C2.*link.*UAS",
-        }
+    # ── Known Agenda Item patterns ─────────────────────────────────────────
+    AI_PATTERNS = {
+        "AI 1.7":  r"AI\s*1\.7|agenda item\s*1\.7|1\.7\b.*IMT|IMT.*4[,.]?4|4[,.]?8.*GHz",
+        "AI 1.8":  r"AI\s*1\.8\b|agenda item\s*1\.8\b|1\.8\b.*RLS|radiolocation.*231|231.*700.*GHz",
+        "AI 1.13": r"AI\s*1\.13|agenda item\s*1\.13|1\.13\b|MSS.+694|DC.MSS|925.+960|1475.+1518|2620.+2690",
+        "AI 1.15": r"AI\s*1\.15|agenda item\s*1\.15|1\.15\b|lunar|SRS.*space.+space",
+        "AI 1.17": r"AI\s*1\.17|agenda item\s*1\.17|1\.17\b|space weather|EESS.*passive.*27|27.*28.*GHz",
+        "AI 1.18": r"AI\s*1\.18|agenda item\s*1\.18|1\.18\b|appendix\s*17|VDES|maritime.+VHF|156.+174",
+        "AI 1.19": r"AI\s*1\.19|agenda item\s*1\.19|1\.19\b|EESS.*4[,.]?2|4[,.]?2.*EESS|passive.*4[,.]?4",
+        "AI 1.20": r"AI\s*1\.20|agenda item\s*1\.20|1\.20\b|UAS.*C2|drone.*command|unmanned.*aircraft.*spectrum|C2.*link.*UAS",
+    }
 
-        triage_rows = []
-        for res in batch_results:
-            if res["error"]:
-                triage_rows.append({
-                    "File": res["file"], "Verdict": "ERROR", "Doc Status": "—",
-                    "Proposed Freq": "—", "Agenda Item": "—", "FAA Systems": "—",
-                    "_analysis": res["analysis"], "_error": True,
-                    "_synthesis": "", "_synthesis_models": [],
-                    "_claude": "", "_openai": "", "_gemini": "",
-                })
-                continue
-
-            text = res["analysis"]
-
-            # Verdict
-            vm = _re_b.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', text)
-            verdict = vm.group(1).strip() if vm else "SEE ANALYSIS"
-
-            # Doc status
-            sm = _re_b.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', text, _re_b.IGNORECASE)
-            status = sm.group(1).upper() if sm else "—"
-
-            # Proposed frequency — extract all freq mentions from table rows
-            freq_matches = _re_b.findall(
-                r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))[^|]*\|',
-                text, _re_b.IGNORECASE
-            )
-            freq_str = "; ".join(dict.fromkeys(f.strip() for f in freq_matches[:3])) or "—"
-
-            # Agenda item — match from analysis text
-            ai_hits = []
-            for ai_label, pattern in AI_PATTERNS.items():
-                if _re_b.search(pattern, text, _re_b.IGNORECASE):
-                    ai_hits.append(ai_label)
-            ai_str = ", ".join(ai_hits) if ai_hits else "—"
-
-            # FAA entities — scan for mentions
-            faa_hits = []
-            for entity, pattern in FAA_ENTITY_PATTERNS.items():
-                if _re_b.search(pattern, text, _re_b.IGNORECASE):
-                    faa_hits.append(entity)
-            faa_str = ", ".join(faa_hits) if faa_hits else "—"
-
+    triage_rows = []
+    for res in batch_results:
+        if res["error"]:
             triage_rows.append({
-                "File":         res["file"],
-                "Verdict":      verdict,
-                "Doc Status":   status,
-                "Proposed Freq":freq_str[:50],
-                "Agenda Item":  ai_str,
-                "FAA Systems":  faa_str,
-                "_analysis":    text,
-                "_error":       False,
-                "_synthesis":        res.get("_synthesis", ""),
-                "_synthesis_models": res.get("_synthesis_models", []),
-                "_claude":           res.get("_claude", ""),
-                "_openai":           res.get("_openai", ""),
-                "_gemini":           res.get("_gemini", ""),
+                "File": res["file"], "Verdict": "ERROR", "Doc Status": "—",
+                "Proposed Freq": "—", "Agenda Item": "—", "FAA Systems": "—",
+                "_analysis": res["analysis"], "_error": True,
+                "_synthesis": "", "_synthesis_models": [],
+                "_claude": "", "_openai": "", "_gemini": "",
             })
+            continue
 
-        # ── Filter controls ────────────────────────────────────────────────────
-        # Build detected sets from processed documents
-        all_ai  = sorted({r["Agenda Item"] for r in triage_rows if r["Agenda Item"] not in ("—","")})
-        all_faa = sorted({
-            ent.strip()
-            for r in triage_rows
-            for ent in r["FAA Systems"].split(",")
-            if ent.strip() not in ("—","")
+        text = res["analysis"]
+
+        # Verdict
+        vm = _re_b.search(r'REVIEW VERDICT[:\s]+([A-Z ]+(?:HUMAN REVIEW|NOT RELEVANT|CLARIFICATION))', text)
+        verdict = vm.group(1).strip() if vm else "SEE ANALYSIS"
+
+        # Doc status
+        sm = _re_b.search(r'STATUS[:\s]+(NEW DOCUMENT|REVISION|UNCLEAR)', text, _re_b.IGNORECASE)
+        status = sm.group(1).upper() if sm else "—"
+
+        # Proposed frequency — extract all freq mentions from table rows
+        freq_matches = _re_b.findall(
+            r'\|\s*(\d[\d,\s]*(?:\.\d+)?(?:–|-)\d[\d,\s]*(?:\.\d+)?\s*(?:MHz|GHz))[^|]*\|',
+            text, _re_b.IGNORECASE
+        )
+        freq_str = "; ".join(dict.fromkeys(f.strip() for f in freq_matches[:3])) or "—"
+
+        # Agenda item — match from analysis text
+        ai_hits = []
+        for ai_label, pattern in AI_PATTERNS.items():
+            if _re_b.search(pattern, text, _re_b.IGNORECASE):
+                ai_hits.append(ai_label)
+        ai_str = ", ".join(ai_hits) if ai_hits else "—"
+
+        # FAA entities — scan for mentions
+        faa_hits = []
+        for entity, pattern in FAA_ENTITY_PATTERNS.items():
+            if _re_b.search(pattern, text, _re_b.IGNORECASE):
+                faa_hits.append(entity)
+        faa_str = ", ".join(faa_hits) if faa_hits else "—"
+
+        triage_rows.append({
+            "File":         res["file"],
+            "Verdict":      verdict,
+            "Doc Status":   status,
+            "Proposed Freq":freq_str[:50],
+            "Agenda Item":  ai_str,
+            "FAA Systems":  faa_str,
+            "_analysis":    text,
+            "_error":       False,
+            "_synthesis":        res.get("_synthesis", ""),
+            "_synthesis_models": res.get("_synthesis_models", []),
+            "_claude":           res.get("_claude", ""),
+            "_openai":           res.get("_openai", ""),
+            "_gemini":           res.get("_gemini", ""),
         })
 
-        # ── WP-to-AI mapping: what agenda items are associated with each WP ──
-        WP_AI_MAP = {
-            "WP 5D (IMT/Mobile)":                          ["AI 1.7"],
-            "WP 5B (Maritime/Radiodetermination)":          ["AI 1.8", "AI 1.18", "AI 1.20"],
-            "WP 4C (MSS / DC-MSS-IMT)":                    ["AI 1.13"],
-            "WP 7B (Space Radiocommunication / Lunar SRS)": ["AI 1.15"],
-            "WP 7C (EESS / Space Weather Sensors)":         ["AI 1.17", "AI 1.19"],
-        }
-        ALL_AI_OPTIONS = ["AI 1.7","AI 1.8","AI 1.13","AI 1.15","AI 1.17","AI 1.18","AI 1.19","AI 1.20"]
-        ALL_AI_LABELS  = {
-            "AI 1.7":  "AI 1.7  — IMT / Radio Altimeter & WAIC (WP 5D)",
-            "AI 1.8":  "AI 1.8  — RLS 231.5–700 GHz (WP 5B)",
-            "AI 1.13": "AI 1.13 — MSS / DC-MSS-IMT (WP 4C)",
-            "AI 1.15": "AI 1.15 — Lunar SRS (WP 7B)",
-            "AI 1.17": "AI 1.17 — EESS Space Weather (WP 7C)",
-            "AI 1.18": "AI 1.18 — Appendix 17 / VDES (WP 5B)",
-            "AI 1.19": "AI 1.19 — EESS Passive in RA Band (WP 7C)",
-            "AI 1.20": "AI 1.20 — UAS C2 Links (WP 5B/5A)",
-        }
+    # ── Filter controls ────────────────────────────────────────────────────
+    # Build detected sets from processed documents
+    all_ai  = sorted({r["Agenda Item"] for r in triage_rows if r["Agenda Item"] not in ("—","")})
+    all_faa = sorted({
+        ent.strip()
+        for r in triage_rows
+        for ent in r["FAA Systems"].split(",")
+        if ent.strip() not in ("—","")
+    })
 
-        # WP-associated AIs pre-selected as defaults; detected AIs added if found
-        wp_suggested_ais = WP_AI_MAP.get(working_party, [])
-        detected_ais_in_docs = set()
-        for r in triage_rows:
-            for ai in r["Agenda Item"].split(", "):
-                if ai.strip() and ai.strip() != "—":
-                    detected_ais_in_docs.add(ai.strip())
+    # ── WP-to-AI mapping: what agenda items are associated with each WP ──
+    WP_AI_MAP = {
+        "WP 5D (IMT/Mobile)":                          ["AI 1.7"],
+        "WP 5B (Maritime/Radiodetermination)":          ["AI 1.8", "AI 1.18", "AI 1.20"],
+        "WP 4C (MSS / DC-MSS-IMT)":                    ["AI 1.13"],
+        "WP 7B (Space Radiocommunication / Lunar SRS)": ["AI 1.15"],
+        "WP 7C (EESS / Space Weather Sensors)":         ["AI 1.17", "AI 1.19"],
+    }
+    ALL_AI_OPTIONS = ["AI 1.7","AI 1.8","AI 1.13","AI 1.15","AI 1.17","AI 1.18","AI 1.19","AI 1.20"]
+    ALL_AI_LABELS  = {
+        "AI 1.7":  "AI 1.7  — IMT / Radio Altimeter & WAIC (WP 5D)",
+        "AI 1.8":  "AI 1.8  — RLS 231.5–700 GHz (WP 5B)",
+        "AI 1.13": "AI 1.13 — MSS / DC-MSS-IMT (WP 4C)",
+        "AI 1.15": "AI 1.15 — Lunar SRS (WP 7B)",
+        "AI 1.17": "AI 1.17 — EESS Space Weather (WP 7C)",
+        "AI 1.18": "AI 1.18 — Appendix 17 / VDES (WP 5B)",
+        "AI 1.19": "AI 1.19 — EESS Passive in RA Band (WP 7C)",
+        "AI 1.20": "AI 1.20 — UAS C2 Links (WP 5B/5A)",
+    }
 
-        # Build filter option list: all 8 AIs, annotated
-        ai_option_labels = []
-        for ai in ALL_AI_OPTIONS:
-            label = ALL_AI_LABELS.get(ai, ai)
-            badges = []
-            if ai in wp_suggested_ais:    badges.append("⭐ WP-linked")
-            if ai in detected_ais_in_docs: badges.append("🔍 detected")
-            if badges:
-                label = f"{ai}  [{', '.join(badges)}] — {ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()}"
-            ai_option_labels.append(ai)
+    # WP-associated AIs pre-selected as defaults; detected AIs added if found
+    wp_suggested_ais = WP_AI_MAP.get(working_party, [])
+    detected_ais_in_docs = set()
+    for r in triage_rows:
+        for ai in r["Agenda Item"].split(", "):
+            if ai.strip() and ai.strip() != "—":
+                detected_ais_in_docs.add(ai.strip())
 
-        # Clear stale filter keys from previous WP runs so they don't filter out new results
-        for _stale_key in ("batch_ai_filter", "batch_verdict_filter", "batch_faa_filter"):
-            if _stale_key in st.session_state:
-                # Reset if WP changed since last run
-                if st.session_state.get("_last_filter_wp") != working_party:
-                    del st.session_state[_stale_key]
-        st.session_state["_last_filter_wp"] = working_party
+    # Build filter option list: all 8 AIs, annotated
+    ai_option_labels = []
+    for ai in ALL_AI_OPTIONS:
+        label = ALL_AI_LABELS.get(ai, ai)
+        badges = []
+        if ai in wp_suggested_ais:    badges.append("⭐ WP-linked")
+        if ai in detected_ais_in_docs: badges.append("🔍 detected")
+        if badges:
+            label = f"{ai}  [{', '.join(badges)}] — {ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()}"
+        ai_option_labels.append(ai)
 
-        # Default selection: always empty — user chooses what to filter
-        # (pre-selecting causes documents to be hidden silently)
-        default_ai_filter = []
+    # Clear stale filter keys from previous WP runs so they don't filter out new results
+    for _stale_key in ("batch_ai_filter", "batch_verdict_filter", "batch_faa_filter"):
+        if _stale_key in st.session_state:
+            # Reset if WP changed since last run
+            if st.session_state.get("_last_filter_wp") != working_party:
+                del st.session_state[_stale_key]
+    st.session_state["_last_filter_wp"] = working_party
 
-        fcol1, fcol2, fcol3 = st.columns([1, 2, 2])
-        with fcol1:
-            verdict_filter = st.multiselect(
-                "Filter by Verdict",
-                ["REQUIRES HUMAN REVIEW", "FLAG FOR CLARIFICATION", "LIKELY NOT RELEVANT", "ERROR"],
-                default=[],
-                key="batch_verdict_filter",
-            )
-        with fcol2:
-            # Annotate options but never pre-select
-            ai_filter = st.multiselect(
-                f"Filter by Agenda Item  (⭐ = linked to {working_party.split('(')[0].strip()})",
-                options=ai_option_labels,
-                format_func=lambda x: ALL_AI_LABELS.get(x, x) + (
-                    "  ⭐" if x in wp_suggested_ais else "") + (
-                    "  🔍" if x in detected_ais_in_docs else ""),
-                default=default_ai_filter,
-                key="batch_ai_filter",
-                placeholder="All agenda items — select to filter",
-                help=f"⭐ = agenda items associated with {working_party}  |  🔍 = detected in processed documents. Leave blank to see ALL documents."
-            )
-        with fcol3:
-            faa_filter = st.multiselect(
-                "Filter by FAA System",
-                options=all_faa if all_faa else ["— none detected —"],
-                default=[],
-                key="batch_faa_filter",
-                placeholder="All systems — select to filter",
-            )
+    # Default selection: always empty — user chooses what to filter
+    # (pre-selecting causes documents to be hidden silently)
+    default_ai_filter = []
 
-        # Show WP → AI association callout
-        if wp_suggested_ais:
-            _ai_desc_parts = [f"**{ai}** ({ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()})"
-                              for ai in wp_suggested_ais]
-            st.caption(
-                f"📌 **{working_party.split('(')[0].strip()} is associated with:** "
-                + " · ".join(_ai_desc_parts)
-            )
+    fcol1, fcol2, fcol3 = st.columns([1, 2, 2])
+    with fcol1:
+        verdict_filter = st.multiselect(
+            "Filter by Verdict",
+            ["REQUIRES HUMAN REVIEW", "FLAG FOR CLARIFICATION", "LIKELY NOT RELEVANT", "ERROR"],
+            default=[],
+            key="batch_verdict_filter",
+        )
+    with fcol2:
+        # Annotate options but never pre-select
+        ai_filter = st.multiselect(
+            f"Filter by Agenda Item  (⭐ = linked to {working_party.split('(')[0].strip()})",
+            options=ai_option_labels,
+            format_func=lambda x: ALL_AI_LABELS.get(x, x) + (
+                "  ⭐" if x in wp_suggested_ais else "") + (
+                "  🔍" if x in detected_ais_in_docs else ""),
+            default=default_ai_filter,
+            key="batch_ai_filter",
+            placeholder="All agenda items — select to filter",
+            help=f"⭐ = agenda items associated with {working_party}  |  🔍 = detected in processed documents. Leave blank to see ALL documents."
+        )
+    with fcol3:
+        faa_filter = st.multiselect(
+            "Filter by FAA System",
+            options=all_faa if all_faa else ["— none detected —"],
+            default=[],
+            key="batch_faa_filter",
+            placeholder="All systems — select to filter",
+        )
 
-        # Apply filters — match on AI code prefix (handles "AI 1.7" within "AI 1.7, AI 1.8")
-        def row_matches(r):
-            if verdict_filter and not any(v in r["Verdict"] for v in verdict_filter):
-                return False
-            if ai_filter and not any(ai in r["Agenda Item"] for ai in ai_filter):
-                return False
-            if faa_filter and not any(faa in r["FAA Systems"] for faa in faa_filter):
-                return False
-            return True
+    # Show WP → AI association callout
+    if wp_suggested_ais:
+        _ai_desc_parts = [f"**{ai}** ({ALL_AI_LABELS.get(ai,'').split('—',1)[-1].strip()})"
+                          for ai in wp_suggested_ais]
+        st.caption(
+            f"📌 **{working_party.split('(')[0].strip()} is associated with:** "
+            + " · ".join(_ai_desc_parts)
+        )
 
-        filtered = [r for r in triage_rows if row_matches(r)]
-        n_total    = len(triage_rows)
-        n_filtered = len(filtered)
-        n_review   = sum(1 for r in filtered if "HUMAN REVIEW" in r["Verdict"])
+    # Apply filters — match on AI code prefix (handles "AI 1.7" within "AI 1.7, AI 1.8")
+    def row_matches(r):
+        if verdict_filter and not any(v in r["Verdict"] for v in verdict_filter):
+            return False
+        if ai_filter and not any(ai in r["Agenda Item"] for ai in ai_filter):
+            return False
+        if faa_filter and not any(faa in r["FAA Systems"] for faa in faa_filter):
+            return False
+        return True
 
-        # Show filter status clearly
-        if ai_filter or verdict_filter or faa_filter:
-            active = []
-            if verdict_filter: active.append(f"Verdict: {', '.join(verdict_filter)}")
-            if ai_filter:      active.append(f"AI: {', '.join(ai_filter)}")
-            if faa_filter:     active.append(f"FAA: {', '.join(faa_filter)}")
-            st.warning(
-                f"🔽 **Filters active — showing {n_filtered} of {n_total} documents.** "
-                f"Filters: {' | '.join(active)}. "
-                f"Clear all filters above to see all {n_total} results."
-            )
-        else:
-            st.success(f"📋 Showing all **{n_total} documents** — no filters active.")
+    filtered = [r for r in triage_rows if row_matches(r)]
+    n_total    = len(triage_rows)
+    n_filtered = len(filtered)
+    n_review   = sum(1 for r in filtered if "HUMAN REVIEW" in r["Verdict"])
 
-        # Filter stats
-        sf1, sf2, sf3, sf4 = st.columns(4)
-        sf1.metric("Total documents",      n_total)
-        sf2.metric("Matching filters",     n_filtered)
-        sf3.metric("Requires human review", n_review,
-                   delta=f"{n_review}/{n_filtered}" if n_filtered else None)
-        sf4.metric("Not relevant",
-                   sum(1 for r in filtered if "NOT RELEVANT" in r["Verdict"]))
+    # Show filter status clearly
+    if ai_filter or verdict_filter or faa_filter:
+        active = []
+        if verdict_filter: active.append(f"Verdict: {', '.join(verdict_filter)}")
+        if ai_filter:      active.append(f"AI: {', '.join(ai_filter)}")
+        if faa_filter:     active.append(f"FAA: {', '.join(faa_filter)}")
+        st.warning(
+            f"🔽 **Filters active — showing {n_filtered} of {n_total} documents.** "
+            f"Filters: {' | '.join(active)}. "
+            f"Clear all filters above to see all {n_total} results."
+        )
+    else:
+        st.success(f"📋 Showing all **{n_total} documents** — no filters active.")
 
-        # ── Triage table (filtered) ────────────────────────────────────────────
-        display_cols = ["File","Verdict","Doc Status","Proposed Freq","Agenda Item","FAA Systems"]
-        triage_df = pd.DataFrame([{k: r[k] for k in display_cols} for r in filtered])
+    # Filter stats
+    sf1, sf2, sf3, sf4 = st.columns(4)
+    sf1.metric("Total documents",      n_total)
+    sf2.metric("Matching filters",     n_filtered)
+    sf3.metric("Requires human review", n_review,
+               delta=f"{n_review}/{n_filtered}" if n_filtered else None)
+    sf4.metric("Not relevant",
+               sum(1 for r in filtered if "NOT RELEVANT" in r["Verdict"]))
 
-        def color_verdict(val):
-            v = str(val)
-            if "HUMAN REVIEW" in v:   return "background-color:#3a1a1a;color:#ff8888;font-weight:bold"
-            if "NOT RELEVANT"  in v:  return "background-color:#1a3a1a;color:#88ff88"
-            if "CLARIFICATION" in v:  return "background-color:#3a3a1a;color:#ffff88"
-            if v == "ERROR":          return "background-color:#2a1a2a;color:#ff88ff"
-            return ""
+    # ── Triage table (filtered) ────────────────────────────────────────────
+    display_cols = ["File","Verdict","Doc Status","Proposed Freq","Agenda Item","FAA Systems"]
+    triage_df = pd.DataFrame([{k: r[k] for k in display_cols} for r in filtered])
 
-        if not triage_df.empty:
-            st.dataframe(
-                triage_df.style.map(color_verdict, subset=["Verdict"]),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.info("No documents match the selected filters.")
+    def color_verdict(val):
+        v = str(val)
+        if "HUMAN REVIEW" in v:   return "background-color:#3a1a1a;color:#ff8888;font-weight:bold"
+        if "NOT RELEVANT"  in v:  return "background-color:#1a3a1a;color:#88ff88"
+        if "CLARIFICATION" in v:  return "background-color:#3a3a1a;color:#ffff88"
+        if v == "ERROR":          return "background-color:#2a1a2a;color:#ff88ff"
+        return ""
 
-        # ── Individual results (filtered) ─────────────────────────────────────
-        st.markdown("---")
-        active_filters = []
-        if verdict_filter: active_filters.append(f"Verdict: {', '.join(verdict_filter)}")
-        if ai_filter:      active_filters.append(f"AI: {', '.join(ai_filter)}")
-        if faa_filter:     active_filters.append(f"FAA system: {', '.join(faa_filter)}")
-        filter_desc = f" — Filtered: {', '.join(active_filters)}" if active_filters else f" — All {n_total} documents"
-        st.subheader(f"📋 Full Analysis ({n_filtered} document{'s' if n_filtered != 1 else ''}){filter_desc}")
+    if not triage_df.empty:
+        st.dataframe(
+            triage_df.style.map(color_verdict, subset=["Verdict"]),
+            use_container_width=True, hide_index=True
+        )
+    else:
+        st.info("No documents match the selected filters.")
 
-        for res in filtered:
-            icon = "🔴" if "HUMAN REVIEW" in res["Verdict"] \
-                   else ("🟢" if "NOT RELEVANT" in res["Verdict"] \
-                   else ("⚠️" if "CLARIFICATION" in res["Verdict"] else "⚪"))
-            ai_tag  = f" [{res['Agenda Item']}]"  if res["Agenda Item"]  != "—" else ""
-            faa_tag = f" [{res['FAA Systems'][:40]}]" if res["FAA Systems"] != "—" else ""
-            label   = f"{icon} {res['File']}{ai_tag}{faa_tag}"
-            with st.expander(label):
-                # Show synthesis banner if available
-                _syn = res.get("_synthesis", "")
-                _syn_models = res.get("_synthesis_models", [])
-                if _syn:
-                    st.markdown(
-                        f"<div style='background:#1a2a1a;border-left:4px solid #00cc66;"
-                        f"padding:8px 12px;border-radius:6px;margin:0 0 10px 0'>"
-                        f"<b style='color:#00cc66;'>🔬 MULTI-LLM SYNTHESIS</b> "
-                        f"<small style='color:#aaa;'>({', '.join(_syn_models)})</small></div>",
-                        unsafe_allow_html=True
-                    )
-                    st.markdown(_syn)
-                    st.markdown("---")
-                    # Individual model outputs
-                    if st.session_state.get("show_indiv", False):
-                        for _m_label, _m_key in [
-                            ("Claude (Sonnet)", "_claude"),
-                            ("OpenAI (GPT-5.4)", "_openai"),
-                            ("Gemini (2.5 Pro)", "_gemini"),
-                        ]:
-                            _mt = res.get(_m_key, "")
-                            if _mt:
-                                with st.expander(f"📄 {_m_label} — Full Analysis"):
-                                    st.markdown(_mt)
-                    st.markdown("##### Claude Primary Analysis")
+    # ── Individual results (filtered) ─────────────────────────────────────
+    st.markdown("---")
+    active_filters = []
+    if verdict_filter: active_filters.append(f"Verdict: {', '.join(verdict_filter)}")
+    if ai_filter:      active_filters.append(f"AI: {', '.join(ai_filter)}")
+    if faa_filter:     active_filters.append(f"FAA system: {', '.join(faa_filter)}")
+    filter_desc = f" — Filtered: {', '.join(active_filters)}" if active_filters else f" — All {n_total} documents"
+    st.subheader(f"📋 Full Analysis ({n_filtered} document{'s' if n_filtered != 1 else ''}){filter_desc}")
 
-                st.markdown(res["_analysis"])
+    for res in filtered:
+        icon = "🔴" if "HUMAN REVIEW" in res["Verdict"] \
+               else ("🟢" if "NOT RELEVANT" in res["Verdict"] \
+               else ("⚠️" if "CLARIFICATION" in res["Verdict"] else "⚪"))
+        ai_tag  = f" [{res['Agenda Item']}]"  if res["Agenda Item"]  != "—" else ""
+        faa_tag = f" [{res['FAA Systems'][:40]}]" if res["FAA Systems"] != "—" else ""
+        label   = f"{icon} {res['File']}{ai_tag}{faa_tag}"
+        with st.expander(label):
+            # Show synthesis banner if available
+            _syn = res.get("_synthesis", "")
+            _syn_models = res.get("_synthesis_models", [])
+            if _syn:
+                st.markdown(
+                    f"<div style='background:#1a2a1a;border-left:4px solid #00cc66;"
+                    f"padding:8px 12px;border-radius:6px;margin:0 0 10px 0'>"
+                    f"<b style='color:#00cc66;'>🔬 MULTI-LLM SYNTHESIS</b> "
+                    f"<small style='color:#aaa;'>({', '.join(_syn_models)})</small></div>",
+                    unsafe_allow_html=True
+                )
+                st.markdown(_syn)
+                st.markdown("---")
+                # Individual model outputs
+                if st.session_state.get("show_indiv", False):
+                    for _m_label, _m_key in [
+                        ("Claude (Sonnet)", "_claude"),
+                        ("OpenAI (GPT-5.4)", "_openai"),
+                        ("Gemini (2.5 Pro)", "_gemini"),
+                    ]:
+                        _mt = res.get(_m_key, "")
+                        if _mt:
+                            with st.expander(f"📄 {_m_label} — Full Analysis"):
+                                st.markdown(_mt)
+                st.markdown("##### Claude Primary Analysis")
 
-        # ── Downloads: Word + Excel ────────────────────────────────────────────
-        st.markdown("---")
-        n_label = f"{n_filtered} document{'s' if n_filtered != 1 else ''}"
-        filter_note = f" (filtered: {', '.join(active_filters)})" if active_filters else f" — all {n_total} docs"
-        st.subheader(f"📥 Download Reports — {n_label}{filter_note}")
+            st.markdown(res["_analysis"])
+
+    # ── Downloads: Word + Excel ────────────────────────────────────────────
+    st.markdown("---")
+    n_label = f"{n_filtered} document{'s' if n_filtered != 1 else ''}"
+    filter_note = f" (filtered: {', '.join(active_filters)})" if active_filters else f" — all {n_total} docs"
+    st.subheader(f"📥 Download Reports — {n_label}{filter_note}")
+
+    try:
+        from datetime import date as _bdate2
+        import re as _brc2
+        def _bc2(s, n=20): return _brc2.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
+
+        filtered_triage = [{k: r[k] for k in display_cols} for r in filtered]
+        filtered_batch  = [{
+            "file":      r["File"],
+            "analysis":  r["_analysis"],
+            "tc":        "",
+            "error":     r["_error"],
+            "synthesis": r.get("_synthesis", ""),
+            "synthesis_models": r.get("_synthesis_models", []),
+        } for r in filtered]
+
+        filter_tag = ""
+        if ai_filter:  filter_tag += "_" + "_".join(_bc2(a,8) for a in ai_filter)
+        if faa_filter: filter_tag += "_" + "_".join(_bc2(f,8) for f in faa_filter)
+        base_name = f"FAA_Batch_{_bc2(working_party,10)}_{n_filtered}docs{filter_tag}_{_bdate2.today()}"
+
+        # Generate and persist to session state
+        try:
+            st.session_state["batch_docx_bytes"]    = _make_batch_docx(filtered_batch, filtered_triage, working_party, analysis_depth)
+            st.session_state["batch_docx_filename"] = f"{base_name}.docx"
+            st.session_state["batch_docx_label"]    = f"📄 Word — Full Detailed Report ({n_label}) (.docx)"
+        except Exception as _we:
+            st.session_state.pop("batch_docx_bytes", None)
+            st.error(f"❌ Word error: {_we}")
 
         try:
-            from datetime import date as _bdate2
-            import re as _brc2
-            def _bc2(s, n=20): return _brc2.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
+            _xlsx_rows = []
+            for r in filtered:
+                _row = _extract_analysis_fields(
+                    r.get("_analysis",""),
+                    {"doc_number": r.get("File",""), "working_party": working_party,
+                     "submitting_admin": r.get("Source / Admin",""),
+                     "agenda_item": r.get("Agenda Item",""), "analysis_depth": analysis_depth}
+                )
+                # Inject cross-check synthesis if present
+                _syn = r.get("_synthesis","")
+                _syn_models = r.get("_synthesis_models",[])
+                if _syn:
+                    _row["Cross-Check Synthesis"] = _syn[:400]
+                    _row["Cross-Check Models"]    = ", ".join(_syn_models)
+                _xlsx_rows.append(_row)
+            st.session_state["batch_xlsx_bytes"]    = _make_summary_xlsx(_xlsx_rows)
+            st.session_state["batch_xlsx_filename"] = f"{base_name}_summary.xlsx"
+            st.session_state["batch_xlsx_label"]    = f"📊 Excel — Summary Table ({n_label}) (.xlsx)"
+        except Exception as _xe:
+            st.session_state.pop("batch_xlsx_bytes", None)
+            st.error(f"❌ Excel error: {_xe}")
 
-            filtered_triage = [{k: r[k] for k in display_cols} for r in filtered]
-            filtered_batch  = [{
-                "file":      r["File"],
-                "analysis":  r["_analysis"],
-                "tc":        "",
-                "error":     r["_error"],
-                "synthesis": r.get("_synthesis", ""),
-                "synthesis_models": r.get("_synthesis_models", []),
-            } for r in filtered]
+    except Exception as be:
+        st.error(f"❌ Report generation error: {be}")
+        import traceback; st.code(traceback.format_exc())
 
-            filter_tag = ""
-            if ai_filter:  filter_tag += "_" + "_".join(_bc2(a,8) for a in ai_filter)
-            if faa_filter: filter_tag += "_" + "_".join(_bc2(f,8) for f in faa_filter)
-            base_name = f"FAA_Batch_{_bc2(working_party,10)}_{n_filtered}docs{filter_tag}_{_bdate2.today()}"
-
-            # Generate and persist to session state
-            try:
-                st.session_state["batch_docx_bytes"]    = _make_batch_docx(filtered_batch, filtered_triage, working_party, analysis_depth)
-                st.session_state["batch_docx_filename"] = f"{base_name}.docx"
-                st.session_state["batch_docx_label"]    = f"📄 Word — Full Detailed Report ({n_label}) (.docx)"
-            except Exception as _we:
-                st.session_state.pop("batch_docx_bytes", None)
-                st.error(f"❌ Word error: {_we}")
-
-            try:
-                _xlsx_rows = []
-                for r in filtered:
-                    _row = _extract_analysis_fields(
-                        r.get("_analysis",""),
-                        {"doc_number": r.get("File",""), "working_party": working_party,
-                         "submitting_admin": r.get("Source / Admin",""),
-                         "agenda_item": r.get("Agenda Item",""), "analysis_depth": analysis_depth}
-                    )
-                    # Inject cross-check synthesis if present
-                    _syn = r.get("_synthesis","")
-                    _syn_models = r.get("_synthesis_models",[])
-                    if _syn:
-                        _row["Cross-Check Synthesis"] = _syn[:400]
-                        _row["Cross-Check Models"]    = ", ".join(_syn_models)
-                    _xlsx_rows.append(_row)
-                st.session_state["batch_xlsx_bytes"]    = _make_summary_xlsx(_xlsx_rows)
-                st.session_state["batch_xlsx_filename"] = f"{base_name}_summary.xlsx"
-                st.session_state["batch_xlsx_label"]    = f"📊 Excel — Summary Table ({n_label}) (.xlsx)"
-            except Exception as _xe:
-                st.session_state.pop("batch_xlsx_bytes", None)
-                st.error(f"❌ Excel error: {_xe}")
-
-        except Exception as be:
-            st.error(f"❌ Report generation error: {be}")
-            import traceback; st.code(traceback.format_exc())
-
-    # ── Persistent batch download buttons — survive reruns and filter changes ─
+    # ── Persistent batch download buttons ────────────────────────────────────
     if st.session_state.get("batch_docx_bytes") or st.session_state.get("batch_xlsx_bytes"):
         st.markdown("---")
         st.subheader("📥 Downloads — Last Generated Report")
@@ -6926,9 +6926,7 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                     data=st.session_state["batch_docx_bytes"],
                     file_name=st.session_state.get("batch_docx_filename","FAA_Batch.docx"),
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    type="primary",
-                    use_container_width=True,
-                    key="persist_batch_docx",
+                    type="primary", use_container_width=True, key="persist_batch_docx",
                 )
         with _bdl2:
             if st.session_state.get("batch_xlsx_bytes"):
@@ -6937,8 +6935,7 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                     data=st.session_state["batch_xlsx_bytes"],
                     file_name=st.session_state.get("batch_xlsx_filename","FAA_Batch_Summary.xlsx"),
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="persist_batch_xlsx",
+                    use_container_width=True, key="persist_batch_xlsx",
                 )
         if st.button("🗑️ Clear batch downloads", key="clear_batch_dl", type="secondary"):
             for k in ("batch_docx_bytes","batch_docx_filename","batch_docx_label",
@@ -6946,18 +6943,25 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 st.session_state.pop(k, None)
             st.rerun()
 
-    # ── Show accumulated results between runs (without re-running analysis) ──
-    elif (not batch_btn) and st.session_state.get("batch_accumulated") and batch_mode_active:
+    # ── Show accumulated results when batch was NOT just run ──────────────────
+    # This path fires whenever the user is viewing the tab without having clicked Run
+    if (not batch_btn) and st.session_state.get("batch_accumulated") and batch_mode_active:
         batch_results = st.session_state.batch_accumulated
         st.markdown("---")
         st.subheader(f"🗂️ Accumulated Results — {len(batch_results)} document(s)")
-        ex("Results from previous batch run(s). Upload more files and click Run to continue processing. All results persist until you click Clear.")
+        ex("Results from previous batch run(s). Upload more files and click Run to add more. All results persist until you clear them.")
+        import re as _re_b
+        _show_batch_triage = True
+    elif batch_btn and 'batch_results' in dir():
+        _show_batch_triage = True
+    else:
+        _show_batch_triage = False
 
-        import re as _re_b  # needed for triage extraction below
-        # Fall through to triage/filter display — reuse the same code path
-        # by setting batch_results and proceeding normally
-
-    if single_btn and contrib_input.strip():
+    # ── Triage display — runs after batch run OR when viewing accumulated results ──
+    if st.session_state.get("batch_accumulated") and batch_mode_active and \
+       ('_show_batch_triage' not in dir() or _show_batch_triage):
+        if 'batch_results' not in dir() or not batch_results:
+            batch_results = st.session_state.get("batch_accumulated", [])
 
         # ── Resolve WP profile ──────────────────────────────────────────────
         wp_profile_key = WP_PROFILE_MAP.get(working_party)
