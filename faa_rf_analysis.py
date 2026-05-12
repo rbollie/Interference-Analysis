@@ -2513,6 +2513,7 @@ st.sidebar.markdown("---")
 
 tab_names = [
     "🤖 Contribution Analyzer",
+    "⚡ Simplified Analysis",
     "📋 Contribution Summary",
     "📓 Meeting Notes",
     "🔬 Contribution Code Analyzer",
@@ -3743,6 +3744,374 @@ elif selected_tab == "🎲 Monte Carlo":
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 6 — CONTRIBUTION SUMMARY
+# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB — SIMPLIFIED ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+elif selected_tab == "⚡ Simplified Analysis":
+    st.title("⚡ Simplified Analysis")
+    st.caption("Quick WP-aligned triage matrix — mirrors the USDel/FAA Analysis format. "
+               "Upload one document or a batch; get structured matrix rows ready for copy-paste into the official matrix.")
+
+    # ── WP + Analysis depth ───────────────────────────────────────────────────
+    sa_col1, sa_col2 = st.columns([1.2, 1])
+    with sa_col1:
+        sa_wp = st.selectbox("Working Party", [
+            "WP 5D (IMT/Mobile)",
+            "WP 5B (Maritime/Radiodetermination)",
+            "WP 4C (MSS / DC-MSS-IMT)",
+            "WP 7B (Space Radiocommunication / Lunar SRS)",
+            "WP 7C (EESS / Space Weather Sensors)",
+        ], key="sa_wp")
+    with sa_col2:
+        sa_depth = st.selectbox("Analysis Depth", [
+            "Quick (30 sec) — triage row only",
+            "Standard (60 sec) — triage + short FAA commentary",
+        ], key="sa_depth")
+
+    # WP → associated agenda items
+    SA_WP_AI = {
+        "WP 5D (IMT/Mobile)":                          ["AI 1.7"],
+        "WP 5B (Maritime/Radiodetermination)":          ["AI 1.8","AI 1.18","AI 1.20"],
+        "WP 4C (MSS / DC-MSS-IMT)":                    ["AI 1.13"],
+        "WP 7B (Space Radiocommunication / Lunar SRS)": ["AI 1.15"],
+        "WP 7C (EESS / Space Weather Sensors)":         ["AI 1.17","AI 1.19"],
+    }
+    sa_expected_ais = SA_WP_AI.get(sa_wp, [])
+    st.caption(f"📌 Associated agenda items for {sa_wp.split('(')[0].strip()}: **{', '.join(sa_expected_ais)}**")
+
+    st.markdown("---")
+
+    # ── Upload mode ───────────────────────────────────────────────────────────
+    sa_mode = st.radio("Input mode", ["Single document", "Bulk upload (multiple files)"],
+                       horizontal=True, key="sa_mode")
+
+    sa_files = []
+    if sa_mode == "Single document":
+        f = st.file_uploader("Upload document (PDF or Word)", type=["pdf","docx","doc","txt"],
+                             key="sa_single_file")
+        if f:
+            sa_files = [f]
+    else:
+        sa_files = st.file_uploader("Upload documents (PDF or Word, select multiple)",
+                                    type=["pdf","docx","doc","txt"],
+                                    accept_multiple_files=True, key="sa_bulk_files") or []
+
+    sa_run = st.button("⚡ Run Simplified Analysis",
+                       type="primary",
+                       disabled=not sa_files,
+                       use_container_width=False,
+                       key="sa_run_btn")
+
+    # ── System prompt ─────────────────────────────────────────────────────────
+    SA_SYSTEM = (
+        f"You are an expert RF engineer supporting FAA/NTIA at ITU-R {sa_wp} proceedings. "
+        f"The working party's associated WRC-27 agenda items are: {', '.join(sa_expected_ais)}. "
+        "Analyze the following ITU-R contribution and produce a structured triage row "
+        "in the exact JSON format requested. Be concise and technically precise. "
+        "If data is not in the document, use null or 'Unknown' — do not fabricate."
+    )
+
+    def _sa_prompt(text, fname):
+        return f"""Analyze this ITU-R contribution and return ONLY valid JSON (no markdown, no preamble):
+
+Document filename: {fname}
+Working Party: {sa_wp}
+Expected agenda items: {', '.join(sa_expected_ais)}
+
+CONTRIBUTION TEXT:
+{text[:10000]}
+
+Return this exact JSON structure:
+{{
+  "doc_number": "extracted doc number or null",
+  "title": "document title (short, max 120 chars)",
+  "source": "submitting administration or organization",
+  "agenda_items_in_doc": ["list of AI references found e.g. AI 1.7"],
+  "is_us_document": true or false,
+  "short_summary": "2-3 sentence plain English summary of what this document proposes",
+  "freq_allocation_of_focus": "frequency band(s) explicitly discussed (MHz/GHz), or 'None specified'",
+  "faa_services_adjacent": "FAA aviation services in or adjacent to the discussed frequency (e.g. Radio Altimeter 4.2-4.4 GHz), or 'None identified'",
+  "compatibility_analyzed": "Yes / Partial / No / Not applicable",
+  "compatibility_detail": "brief description of what compatibility analysis was done, or 'None'",
+  "flag_for_review": "REVIEW" or "MONITOR" or "NO ACTION",
+  "flag_reason": "one sentence reason for the flag",
+  "faa_comments": "1-3 bullet points of recommended FAA comments or actions, or 'No FAA action needed'",
+  "us_position_alignment": "Supports / Neutral / Concerns / Opposes",
+  "doc_type": "Liaison statement / Technical study / Working document / Draft recommendation / Other"
+}}"""
+
+    # ── Run analysis ──────────────────────────────────────────────────────────
+    if sa_run and sa_files:
+        sa_rows = []
+        sa_progress = st.progress(0, text="Starting analysis…")
+
+        for idx, f in enumerate(sa_files):
+            sa_progress.progress((idx) / len(sa_files),
+                                 text=f"Analyzing {idx+1}/{len(sa_files)}: {f.name}…")
+            try:
+                text_b, _ = extract_text_from_file(f)
+                if not text_b:
+                    sa_rows.append({"_error": True, "_file": f.name,
+                                    "_msg": "Could not extract text"})
+                    continue
+
+                # Auto-detect WP override
+                _sa_detected_wp, _, _ = _detect_wp_from_text(text_b[:3000], f.name)
+                effective_sa_wp = _sa_detected_wp if _sa_detected_wp else sa_wp
+
+                client_sa = anthropic.Anthropic(api_key=api_key)
+                resp = client_sa.messages.create(
+                    model="claude-sonnet-4-5",
+                    max_tokens=1500,
+                    messages=[{"role":"user","content":_sa_prompt(text_b, f.name)}],
+                    system=SA_SYSTEM,
+                )
+                raw = resp.content[0].text.strip()
+                # Strip any markdown fences
+                raw = raw.replace("```json","").replace("```","").strip()
+                import json as _json
+                data = _json.loads(raw)
+                data["_file"] = f.name
+                data["_error"] = False
+                data["_detected_wp"] = effective_sa_wp
+                sa_rows.append(data)
+            except Exception as e:
+                sa_rows.append({"_error": True, "_file": f.name, "_msg": str(e)})
+
+        sa_progress.progress(1.0, text="✅ Complete")
+        st.session_state["sa_rows"] = sa_rows
+        st.session_state["sa_wp_used"] = sa_wp
+
+    # ── Display results ───────────────────────────────────────────────────────
+    if st.session_state.get("sa_rows"):
+        sa_rows   = st.session_state["sa_rows"]
+        sa_wp_out = st.session_state.get("sa_wp_used", sa_wp)
+
+        # Summary counts
+        n_total   = len(sa_rows)
+        n_ok      = sum(1 for r in sa_rows if not r.get("_error"))
+        n_review  = sum(1 for r in sa_rows if r.get("flag_for_review") == "REVIEW")
+        n_monitor = sum(1 for r in sa_rows if r.get("flag_for_review") == "MONITOR")
+        n_none    = sum(1 for r in sa_rows if r.get("flag_for_review") == "NO ACTION")
+        n_us      = sum(1 for r in sa_rows if r.get("is_us_document") == True)
+
+        m1,m2,m3,m4,m5 = st.columns(5)
+        m1.metric("Total", n_total)
+        m2.metric("🔴 Review", n_review)
+        m3.metric("🟡 Monitor", n_monitor)
+        m4.metric("🟢 No Action", n_none)
+        m5.metric("🇺🇸 US Docs", n_us)
+
+        st.markdown("---")
+        st.subheader("📊 Analysis Matrix")
+
+        # Matrix table
+        FLAG_ICONS = {"REVIEW":"🔴","MONITOR":"🟡","NO ACTION":"🟢"}
+        ALIGN_ICONS = {"Supports":"✅","Neutral":"⬜","Concerns":"⚠️","Opposes":"❌"}
+
+        # Build display DataFrame
+        import pandas as pd
+        display_rows = []
+        for r in sa_rows:
+            if r.get("_error"):
+                display_rows.append({
+                    "Doc / File": r["_file"], "Title": "❌ Error", "Source": "—",
+                    "AI Items": "—", "US Doc?": "—", "Short Summary": r.get("_msg",""),
+                    "Freq of Focus": "—", "FAA Services Adjacent": "—",
+                    "Compatibility Analyzed?": "—", "Flag": "—", "Flag Reason": "—",
+                    "US Alignment": "—", "Doc Type": "—",
+                })
+            else:
+                ais = r.get("agenda_items_in_doc", [])
+                flag = r.get("flag_for_review","—")
+                align = r.get("us_position_alignment","—")
+                display_rows.append({
+                    "Doc / File":               r.get("doc_number") or r["_file"],
+                    "Title":                    r.get("title","—")[:80],
+                    "Source":                   r.get("source","—"),
+                    "AI Items":                 ", ".join(ais) if ais else "—",
+                    "US Doc?":                  "🇺🇸 Yes" if r.get("is_us_document") else "No",
+                    "Short Summary":            r.get("short_summary","—"),
+                    "Freq of Focus":            r.get("freq_allocation_of_focus","—"),
+                    "FAA Services Adjacent":    r.get("faa_services_adjacent","—"),
+                    "Compatibility Analyzed?":  r.get("compatibility_analyzed","—"),
+                    "Flag":                     f"{FLAG_ICONS.get(flag,'⬜')} {flag}",
+                    "Flag Reason":              r.get("flag_reason","—"),
+                    "US Alignment":             f"{ALIGN_ICONS.get(align,'')} {align}",
+                    "Doc Type":                 r.get("doc_type","—"),
+                })
+
+        df = pd.DataFrame(display_rows)
+        st.dataframe(df, use_container_width=True, hide_index=True,
+                     height=min(80 + 45 * len(display_rows), 600))
+
+        # Expandable detail cards
+        st.markdown("---")
+        st.subheader("📄 Detail View")
+        for r in sa_rows:
+            if r.get("_error"):
+                st.warning(f"❌ {r['_file']} — {r.get('_msg','Error')}")
+                continue
+            flag  = r.get("flag_for_review","—")
+            icon  = FLAG_ICONS.get(flag,"⬜")
+            ai_s  = ", ".join(r.get("agenda_items_in_doc",[])) or "—"
+            label = f"{icon} {r.get('doc_number') or r['_file']} — {r.get('title','')[:60]}"
+            with st.expander(label, expanded=(flag == "REVIEW")):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    st.markdown(f"**Source:** {r.get('source','—')}")
+                    st.markdown(f"**Agenda Items:** {ai_s}")
+                    st.markdown(f"**US Document:** {'Yes 🇺🇸' if r.get('is_us_document') else 'No'}")
+                    st.markdown(f"**Doc Type:** {r.get('doc_type','—')}")
+                    st.markdown(f"**Detected WP:** {r.get('_detected_wp','—')}")
+                with dc2:
+                    st.markdown(f"**Freq of Focus:** {r.get('freq_allocation_of_focus','—')}")
+                    st.markdown(f"**FAA Services Adjacent:** {r.get('faa_services_adjacent','—')}")
+                    st.markdown(f"**Compatibility Analyzed?:** {r.get('compatibility_analyzed','—')} — {r.get('compatibility_detail','')}")
+                    st.markdown(f"**US Alignment:** {r.get('us_position_alignment','—')}")
+
+                st.markdown(f"**Summary:** {r.get('short_summary','—')}")
+
+                _fc = r.get("faa_comments","—")
+                if _fc and _fc != "No FAA action needed":
+                    st.markdown(f"**FAA Comments / Actions:**")
+                    st.info(_fc)
+
+                # Flag
+                _flag_color = {"REVIEW":"#c00000","MONITOR":"#ff9900","NO ACTION":"#375623"}.get(flag,"#555")
+                st.markdown(
+                    f"<div style='border-left:4px solid {_flag_color};padding:6px 12px;"
+                    f"background:rgba(0,0,0,0.15);border-radius:4px;margin-top:8px'>"
+                    f"<b style='color:{_flag_color}'>{icon} {flag}</b> — {r.get('flag_reason','')}</div>",
+                    unsafe_allow_html=True
+                )
+
+        # ── Excel export ──────────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📥 Export Matrix")
+
+        try:
+            import io as _io, openpyxl as _xl
+            from openpyxl.styles import (Font as _F, PatternFill as _PF,
+                                         Alignment as _Al, Border as _Bd, Side as _Sd)
+
+            wb = _xl.Workbook()
+            ws = wb.active
+            ws.title = "Simplified Analysis"
+
+            def _xfill(hex_c): return _PF(fill_type="solid", fgColor=hex_c)
+            def _xborder():
+                s = _Sd(style="thin", color="DDDDDD")
+                return _Bd(left=s, right=s, top=s, bottom=s)
+
+            # ── Section headers (matching screenshot structure) ────────────────
+            # USDel Matrix columns (A–H) = salmon/pink, FAA Analysis columns (I–N) = green
+            USDEL_COLS = ["Doc Number (doc link)","Title","Source",
+                          "Agenda Item (AI) if specified","Is US Document?",
+                          "Short Summary","Freq Allocation of Focus","Doc Type"]
+            FAA_COLS   = ["AI Items Mentioned in Doc","FAA Services in/Adjacent",
+                          "Compatibility Analyzed?","Compatibility Detail",
+                          "Flag for Review","Flag Reason",
+                          "FAA Comments / Recommended Actions","US Alignment"]
+
+            n_usdel = len(USDEL_COLS)
+            n_faa   = len(FAA_COLS)
+
+            # Row 1: section banners
+            ws.merge_cells(f"A1:{chr(64+n_usdel)}1")
+            c1 = ws["A1"]; c1.value = "Columns for USDel Matrix"
+            c1.font = _F(bold=True, color="FFFFFF", size=11)
+            c1.fill = _xfill("C55A11")   # orange-brown
+            c1.alignment = _Al(horizontal="center")
+
+            ws.merge_cells(f"{chr(64+n_usdel+1)}1:{chr(64+n_usdel+n_faa)}1")
+            c2 = ws[f"{chr(64+n_usdel+1)}1"]; c2.value = "Columns for FAA Analysis"
+            c2.font = _F(bold=True, color="FFFFFF", size=11)
+            c2.fill = _xfill("375623")   # dark green
+            c2.alignment = _Al(horizontal="center")
+
+            # Row 2: column headers
+            all_cols = USDEL_COLS + FAA_COLS
+            col_widths = [18,35,20,18,10,60,30,22, 25,35,15,40,12,35,50,18]
+            for ci, (hdr, w) in enumerate(zip(all_cols, col_widths), 1):
+                cell = ws.cell(row=2, column=ci, value=hdr)
+                cell.font  = _F(bold=True, color="FFFFFF",
+                                size=9 if ci > n_usdel else 9)
+                cell.fill  = _xfill("8B4513" if ci <= n_usdel else "145A32")
+                cell.alignment = _Al(wrap_text=True, vertical="center", horizontal="center")
+                cell.border = _xborder()
+                ws.column_dimensions[chr(64+ci)].width = w
+            ws.row_dimensions[2].height = 40
+
+            # Data rows
+            ROW_FILLS = {"REVIEW": "FCE4D6", "MONITOR": "FFF2CC", "NO ACTION": "E2EFDA"}
+            for ri, r in enumerate(sa_rows, 3):
+                if r.get("_error"):
+                    ws.cell(row=ri, column=1, value=r["_file"])
+                    ws.cell(row=ri, column=6, value=f"ERROR: {r.get('_msg','')}")
+                    continue
+                ais = r.get("agenda_items_in_doc",[])
+                flag = r.get("flag_for_review","—")
+                row_bg = ROW_FILLS.get(flag, None)
+
+                vals = [
+                    r.get("doc_number") or r.get("_file",""),
+                    r.get("title",""),
+                    r.get("source",""),
+                    ", ".join(ais),
+                    "Yes" if r.get("is_us_document") else "No",
+                    r.get("short_summary",""),
+                    r.get("freq_allocation_of_focus",""),
+                    r.get("doc_type",""),
+                    # FAA columns
+                    ", ".join(ais),
+                    r.get("faa_services_adjacent",""),
+                    r.get("compatibility_analyzed",""),
+                    r.get("compatibility_detail",""),
+                    flag,
+                    r.get("flag_reason",""),
+                    r.get("faa_comments",""),
+                    r.get("us_position_alignment",""),
+                ]
+                for ci, val in enumerate(vals, 1):
+                    cell = ws.cell(row=ri, column=ci, value=str(val) if val else "")
+                    cell.alignment = _Al(wrap_text=True, vertical="top")
+                    cell.font   = _F(size=9)
+                    cell.border = _xborder()
+                    if row_bg:
+                        cell.fill = _xfill(row_bg)
+                ws.row_dimensions[ri].height = 55
+
+            ws.freeze_panes = "A3"
+            ws.auto_filter.ref = f"A2:{chr(64+len(all_cols))}2"
+
+            buf = _io.BytesIO()
+            wb.save(buf)
+            xlsx_bytes = buf.getvalue()
+
+            from datetime import date as _xd
+            _wp_short = sa_wp.split("(")[0].strip().replace(" ","_")
+            st.session_state["sa_xlsx_bytes"]    = xlsx_bytes
+            st.session_state["sa_xlsx_filename"] = f"FAA_Simplified_{_wp_short}_{len(sa_rows)}docs_{_xd.today()}.xlsx"
+
+        except Exception as xe:
+            st.error(f"Excel generation error: {xe}")
+
+        if st.session_state.get("sa_xlsx_bytes"):
+            st.download_button(
+                label=f"📊 Download Simplified Matrix (.xlsx) — {len(sa_rows)} documents",
+                data=st.session_state["sa_xlsx_bytes"],
+                file_name=st.session_state.get("sa_xlsx_filename","FAA_Simplified.xlsx"),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary", use_container_width=False,
+                key="sa_xlsx_dl",
+            )
+        if st.button("🗑️ Clear results", key="sa_clear"):
+            for k in ("sa_rows","sa_wp_used","sa_xlsx_bytes","sa_xlsx_filename"):
+                st.session_state.pop(k, None)
+            st.rerun()
+
 # ─────────────────────────────────────────────────────────────────────────────
 elif selected_tab == "📋 Contribution Summary":
     st.title("📋 ITU-R Contribution Summary Generator")
