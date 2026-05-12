@@ -6124,6 +6124,11 @@ between two or more administrations</b> without prejudice to other administratio
             text = ""
             tc_sum = ""
             try:
+                # Always seek to start — Streamlit file cursors persist across reruns
+                try:
+                    uploaded_f.seek(0)
+                except Exception:
+                    pass
                 raw = uploaded_f.read()
                 if ft == "txt":
                     text = raw.decode("utf-8", errors="replace")
@@ -6388,18 +6393,27 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         for idx, f in enumerate(batch_files):
             fname = f.name
             n_already = len(st.session_state.batch_processed_names)
-            status_text.text(f"Analyzing {idx+1}/{len(batch_files)}: {fname}…  (total so far: {n_already + idx} of {n_total_batch} uploaded)")
-            progress_bar.progress((idx) / max(len(batch_files), 1))
+            status_text.text(f"Analyzing {idx+1}/{len(batch_files)}: {fname}…  ({n_already + idx} of {n_total_batch} total)")
+            progress_bar.progress(idx / max(len(batch_files), 1))
+
+            # ── CRITICAL: seek to start before reading ─────────────────────────
+            # Streamlit file objects keep their read cursor between reruns.
+            # Without this seek, read() returns empty bytes on the 2nd+ call.
+            try:
+                f.seek(0)
+            except Exception:
+                pass   # some file-like objects don't support seek — proceed anyway
 
             text_b, tc_b = extract_text_from_file(f)
             if not text_b:
                 batch_results.append({
                     "file": fname, "text": "", "tc": tc_b,
-                    "analysis": f"⚠️ Could not extract text from {fname}",
+                    "analysis": f"⚠️ Could not extract text from {fname} — file may be empty, password-protected, or in an unsupported format.",
                     "error": True, "_analysis": f"⚠️ Could not extract text from {fname}",
                     "_error": True, "_synthesis": "", "_synthesis_models": [],
                     "_claude": "", "_openai": "", "_gemini": "",
                 })
+                # DO NOT add to processed — let user retry after checking the file
                 continue
 
             # ── Per-document WP auto-detection ────────────────────────────────
@@ -6419,10 +6433,41 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                 _sys_doc = sys_prompt_batch
 
             analysis_questions_b = analysis_questions if 'analysis_questions' in dir() else ""
-            try:
-                result_b = run_single_analysis(text_b, tc_b, fname, client_b, _sys_doc, analysis_questions_b, depth_b)
-                # run_single_analysis now returns a dict
-                analysis_text_b  = result_b["primary"]   # Claude + synthesis (or Claude alone)
+
+            # ── Retry loop with back-off ──────────────────────────────────────
+            MAX_RETRIES = 3
+            retry_delays = [10, 30, 60]   # seconds between retries
+            last_err = None
+            result_b = None
+
+            for attempt in range(MAX_RETRIES):
+                try:
+                    result_b = run_single_analysis(text_b, tc_b, fname, client_b,
+                                                   _sys_doc, analysis_questions_b, depth_b)
+                    last_err = None
+                    break   # success
+                except Exception as e:
+                    last_err = e
+                    err_str = str(e).lower()
+                    is_rate_limit = any(x in err_str for x in
+                        ["rate limit", "overloaded", "529", "too many", "capacity"])
+                    is_auth = "authentication" in err_str or "api key" in err_str
+
+                    if is_auth:
+                        # Auth error — don't retry
+                        break
+
+                    if attempt < MAX_RETRIES - 1:
+                        wait_s = retry_delays[attempt] if is_rate_limit else 5
+                        status_text.text(
+                            f"⏳ {fname}: {'Rate limit' if is_rate_limit else 'API error'} "
+                            f"(attempt {attempt+1}/{MAX_RETRIES}) — waiting {wait_s}s before retry…"
+                        )
+                        import time as _time
+                        _time.sleep(wait_s)
+
+            if result_b is not None:
+                analysis_text_b  = result_b["primary"]
                 synthesis_b      = result_b.get("synthesis", "")
                 synthesis_models = result_b.get("synthesis_models", [])
                 batch_results.append({
@@ -6439,7 +6484,7 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                     "_openai":   result_b.get("openai", ""),
                     "_gemini":   result_b.get("gemini", ""),
                 })
-                # Mark as processed immediately so partial runs are recoverable
+                # Mark processed only on success
                 st.session_state.batch_processed_names.add(fname)
                 # Write to Neo4j
                 _neo4j_b = _neo4j_driver()
@@ -6450,16 +6495,25 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
                              "tc_summary": tc_b}, text_b)
                         _neo4j_b.close()
                     except Exception: pass
-            except Exception as e:
+            else:
+                # All retries exhausted — record error but DO NOT mark as processed
+                # so next run will retry this document
+                err_msg = str(last_err) if last_err else "Unknown error"
                 batch_results.append({
                     "file": fname, "text": text_b, "tc": tc_b,
-                    "analysis": f"❌ API error: {e}", "_analysis": f"❌ API error: {e}",
+                    "analysis": f"❌ Failed after {MAX_RETRIES} attempts: {err_msg}",
+                    "_analysis": f"❌ Failed after {MAX_RETRIES} attempts: {err_msg}",
                     "error": True, "_error": True,
                     "_synthesis": "", "_synthesis_models": [],
                     "_claude": "", "_openai": "", "_gemini": "",
                 })
+                # NOTE: intentionally NOT adding to batch_processed_names
+                # so the next run will retry this document
 
-                st.session_state.batch_processed_names.add(fname)
+            # Brief pause between documents to respect API rate limits
+            if idx < len(batch_files) - 1:
+                import time as _time2
+                _time2.sleep(2)   # 2s gap — prevents hitting burst rate limits
 
         progress_bar.progress(1.0)
         n_done_this_run = len([r for r in batch_results if not r["error"]])
