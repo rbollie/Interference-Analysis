@@ -6589,6 +6589,10 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
         "AI 1.20": r"AI\s*1\.20|agenda item\s*1\.20|1\.20\b|UAS.*C2|drone.*command|unmanned.*aircraft.*spectrum|C2.*link.*UAS",
     }
 
+    # Ensure batch_results is always defined before the triage loop
+    if 'batch_results' not in dir():
+        batch_results = st.session_state.get("batch_accumulated", [])
+
     triage_rows = []
     for res in batch_results:
         if res["error"]:
