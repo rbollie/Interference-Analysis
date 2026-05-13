@@ -8055,28 +8055,50 @@ Intermodulation / spurious response
                 if not safe_name.strip("_"):
                     safe_name = f"analysis_{_dl.today()}"
 
-                # Generate and persist bytes in session state so buttons survive page reruns
-                try:
-                    st.session_state["single_docx_bytes"]    = _make_analysis_docx(analysis_text, docx_meta)
-                    st.session_state["single_docx_filename"] = f"FAA_Analysis_{safe_name}.docx"
-                except Exception as _de:
-                    st.session_state.pop("single_docx_bytes", None)
-                    st.warning(f"⚠️ Word generation failed: {_de}")
-
-                try:
-                    _xlsx_row = _extract_analysis_fields(analysis_text, docx_meta)
-                    st.session_state["single_xlsx_bytes"]    = _make_summary_xlsx([_xlsx_row])
-                    st.session_state["single_xlsx_filename"] = f"FAA_Summary_{safe_name}.xlsx"
-                except Exception as _xe:
-                    st.session_state.pop("single_xlsx_bytes", None)
-                    st.warning(f"⚠️ Excel generation failed: {_xe}")
-
             except anthropic.AuthenticationError:
                 st.error("❌ Invalid API key. Check your Streamlit secrets configuration.")
             except anthropic.RateLimitError:
                 st.error("❌ API rate limit reached. Wait a moment and try again.")
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"❌ Analysis error: {str(e)}")
+
+        # ── Generate downloads from analysis_text (outside the API try-block) ─────
+        # Runs whenever analysis_text is available — handles reruns correctly
+        _analysis_for_dl = st.session_state.get("qa_analysis_text", "")
+        _meta_for_dl     = st.session_state.get("qa_doc_meta", docx_meta if 'docx_meta' in dir() else {})
+
+        if _analysis_for_dl and not st.session_state.get("single_docx_bytes"):
+            # Generate Word doc
+            try:
+                from datetime import date as _dl2
+                import re as _rc2
+                def _clean2(s, n=20): return _rc2.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
+                _safe2 = "_".join(filter(None, [
+                    _clean2(_meta_for_dl.get("doc_number"),20),
+                    _clean2(_meta_for_dl.get("submitting_admin"),15),
+                    _clean2(working_party,10), str(_dl2.today()),
+                ])) or f"analysis_{_dl2.today()}"
+                st.session_state["single_docx_bytes"]    = _make_analysis_docx(_analysis_for_dl, _meta_for_dl)
+                st.session_state["single_docx_filename"] = f"FAA_Analysis_{_safe2}.docx"
+            except Exception as _de:
+                st.warning(f"⚠️ Word generation failed: {_de}")
+
+        if _analysis_for_dl and not st.session_state.get("single_xlsx_bytes"):
+            # Generate Excel row
+            try:
+                _xlsx_row = _extract_analysis_fields(_analysis_for_dl, _meta_for_dl)
+                from datetime import date as _dl3
+                import re as _rc3
+                def _clean3(s, n=20): return _rc3.sub(r'[^A-Za-z0-9_-]','_',str(s or ''))[:n].strip('_')
+                _safe3 = "_".join(filter(None, [
+                    _clean3(_meta_for_dl.get("doc_number"),20),
+                    _clean3(_meta_for_dl.get("submitting_admin"),15),
+                    _clean3(working_party,10), str(_dl3.today()),
+                ])) or f"summary_{_dl3.today()}"
+                st.session_state["single_xlsx_bytes"]    = _make_summary_xlsx([_xlsx_row])
+                st.session_state["single_xlsx_filename"] = f"FAA_Summary_{_safe3}.xlsx"
+            except Exception as _xe:
+                st.warning(f"⚠️ Excel generation failed: {_xe}")
 
     # ── Persistent single-analysis download buttons ───────────────────────────
     # Always rendered when bytes exist — survives reruns, filter changes, Q&A interactions
