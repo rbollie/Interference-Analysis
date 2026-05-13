@@ -1151,90 +1151,56 @@ def _extract_analysis_fields(analysis_text, meta=None):
     summary = _rx.sub(r'__?(.+?)__?', r'\1', summary)
     summary = _rx.sub(r'#+\s*', '', summary).strip()[:200]
 
-    # ── US stance ─────────────────────────────────────────────────────────────
-    # Search F section first, then US Position label, then full text
-    _stance_areas = []
-    _sf = _rx.search(r'(?:##\s*F\)|Recommended Actions?)[^\n]*\n([\s\S]{0,600}?)(?:\n##|\Z)',
-                     t, _rx.IGNORECASE)
-    if _sf: _stance_areas.append(_sf.group(1))
-    _sp = _rx.search(r'(?:Recommended US Position|US Position|US\s+Stance)[:\s#*]*([\s\S]{0,300}?)(?:\n##|\n\d+\.|\Z)',
-                     t, _rx.IGNORECASE)
-    if _sp: _stance_areas.append(_sp.group(1))
-    _stance_areas.append(t)
-    stance = "—"
-    for _area in _stance_areas:
-        for kw in ("Oppose","Support","Propose amendments","Neutral",
-                   "Flag for clarification","Monitor","Abstain"):
-            # Use full word boundary on both sides to avoid matching "Proposed" as "Propose"
-            _kw_pat = r'\b' + _rx.escape(kw) + r'\b'
-            if _rx.search(_kw_pat, _area, _rx.IGNORECASE):
-                stance = kw; break
-        if stance != "—": break
-
     # ── Severity ─────────────────────────────────────────────────────────────
-    # Explicit: look for "Severity: High/Medium/Low" anywhere in text
     for sev in ("High", "Medium", "Low"):
         if _rx.search(rf'Severity[:\|*\s]+{sev}', t, _rx.IGNORECASE):
             severity = sev; break
     else:
-        # Infer from relationship and verdict when no explicit severity stated
         if relationship == "IN-BAND" and "REQUIRES HUMAN REVIEW" in verdict:
             severity = "High"
         elif relationship == "ADJACENT" and "REQUIRES HUMAN REVIEW" in verdict:
             severity = "Medium"
-        elif "REQUIRES HUMAN REVIEW" in verdict and faa_systems != "—":
+        elif "REQUIRES HUMAN REVIEW" in verdict and faa_systems != "Unknown":
             severity = "Medium"
         else:
             severity = "—"
 
     # ── Methodology ──────────────────────────────────────────────────────────
-    # Check Section E content and broader keywords
-    _sec_e = _rx.search(
-        r'##\s*E\)[^\n]*\n([\s\S]{0,800}?)(?:\n##|\Z)', t, _rx.IGNORECASE)
+    _sec_e     = _rx.search(r'##\s*E\)[^\n]*\n([\s\S]{0,800}?)(?:\n##|\Z)', t, _rx.IGNORECASE)
     _meth_text = (_sec_e.group(1) if _sec_e else "") + " " + t
-
-    if _rx.search(r'Non-compliant|non.compliance|WRONG|FUNDAMENTAL ERROR|FLAG.*ERROR'
+    if _rx.search(r'Non-compliant|non.compliance|WRONG|FUNDAMENTAL ERROR'
                   r'|absent|omit|missing.*requir|not.*analyz|not.*provid', _meth_text, _rx.IGNORECASE):
         methodology = "Non-compliant"
     elif _rx.search(r'No methodology|no study provided|methodology.*absent'
-                    r'|no.*study.*present|study.*not.*found|no.*analysis.*provid', _meth_text, _rx.IGNORECASE):
+                    r'|no.*study.*present|study.*not.*found', _meth_text, _rx.IGNORECASE):
         methodology = "No study"
     elif _rx.search(r'Compliant|methodology.*sound|appears.*compliant'
                     r'|correct.*model|appropriate.*method|properly.*appli', _meth_text, _rx.IGNORECASE):
         methodology = "Compliant"
     elif _sec_e:
-        # Section E exists — infer from presence of P.452/M.1642/P.619 citations
-        if _rx.search(r'P\.452|P\.528|P\.619|M\.1642|SM\.2028', _meth_text, _rx.IGNORECASE):
-            methodology = "Compliant"  # cited methodology = at minimum attempting compliance
-        else:
-            methodology = "Non-compliant"
+        methodology = "Compliant" if _rx.search(
+            r'P\.452|P\.528|P\.619|M\.1642|SM\.2028', _meth_text, _rx.IGNORECASE) else "Non-compliant"
     else:
         methodology = "—"
 
-    # ── Top action ────────────────────────────────────────────────────────────
-    action_block = _rx.search(
-        r'(?:##\s*F\)|Recommended Actions?)[^\n]*\n([\s\S]{0,600}?)(?:\n##|\Z)',
-        t, _rx.IGNORECASE)
-    if action_block:
-        first_action = _rx.search(r'(?:1\.|\*\*Action\*\*:?)\s*([^\n]{10,120})',
-                                   action_block.group(1), _rx.IGNORECASE)
-        top_action = first_action.group(1).strip()[:120] if first_action else action_block.group(1)[:120]
-    else:
-        top_action = "—"
-    # Strip markdown from all text fields
+    # ── Helper: strip markdown + word-boundary truncation (defined here for use in stance + fields) ──
     def _strip_md(s, max_len=200):
-        s = _rx.sub(r'\*+', '', s)
+        s = _rx.sub(r'\*+', '', str(s or ''))
         s = _rx.sub(r'__?(.+?)__?', r'\1', s)
         s = _rx.sub(r'#+\s*', '', s)
-        # Strip common label prefixes
         s = _rx.sub(r'^(?:Title|Summary|Purpose|Description)[:\s]+', '', s, flags=_rx.IGNORECASE)
-        s = _rx.sub(r'\s+', ' ', s)
-        return s.strip()[:max_len] if s.strip() else "—"
-    top_action = _strip_md(top_action, 120)
-    summary    = _strip_md(summary, 200)
-    admin      = _strip_md(admin, 60)
+        s = _rx.sub(r'\s+', ' ', s).strip()
+        if not s:
+            return "—"
+        if len(s) <= max_len:
+            return s
+        truncated = s[:max_len]
+        last_space = truncated.rfind(' ')
+        if last_space > max_len * 0.7:
+            truncated = truncated[:last_space]
+        return truncated.rstrip('.,;:') + '…'
 
-    # ── Review track (routing path) ───────────────────────────────────────────
+    # ── Review track (routing path) — MUST be set before stance derivation ─────
     if _rx.search(r'US contribution|PATH 1|United States|NTIA|FCC', t, _rx.IGNORECASE) and \
        _rx.search(r'summary only|US contribution.*summary', t, _rx.IGNORECASE):
         review_track = "U.S. contribution"
@@ -1254,36 +1220,157 @@ def _extract_analysis_fields(analysis_text, meta=None):
             r'(?:IN-BAND|ADJACENT)[^\n]{0,20}(FAA[^\n]{0,100})',
         ], "Band overlap or adjacency detected with FAA protected band.")[:200]
 
-    # Fill stance for special paths (must be after review_track is set)
+    # ── US Stance + Nuanced Stance ───────────────────────────────────────────
+    # Single unified derivation — both must come from the same source of truth
+    # to prevent contradictions between "Stance" and "US Stance" columns.
+    #
+    # Priority order:
+    #   1. Special path (US contribution / NOT RELEVANT) — override everything
+    #   2. Explicit stance label in Section F ("Recommended US Position: Oppose")
+    #   3. Inferred from severity + relationship + methodology
+    #   4. Default: Neutral
+
+    # ── Step 1: Identify the relevant text areas ──────────────────────────────
+    # Search Section F first (most authoritative), then full text
+    _section_f = _rx.search(
+        r'##\s*F\)[^\n]*\n([\s\S]{0,800}?)(?:\n##|\Z)', t, _rx.IGNORECASE)
+    _f_text = _section_f.group(1) if _section_f else ""
+    _full   = t
+
+    # ── Step 2: Extract raw stance keyword from Section F ONLY ───────────────
+    # Use negative lookahead to avoid false matches like "does not oppose"
+    def _extract_stance_kw(area):
+        """Extract stance keyword, excluding negations like 'does not oppose'."""
+        STANCE_ORDER = [
+            "Oppose",
+            "Support",
+            "Propose amendments",
+            "Flag for clarification",
+            "Monitor",
+            "Neutral",
+        ]
+        for kw in STANCE_ORDER:
+            # Pattern: word boundary + keyword, NOT preceded by "not", "without", "unless"
+            neg_pat = rf'(?:not|without|unless|never)\s+{_rx.escape(kw)}'
+            pos_pat = rf'(?<!not\s)(?<!without\s)(?<!unless\s)\b{_rx.escape(kw)}\b'
+            # Check negated first
+            if _rx.search(neg_pat, area, _rx.IGNORECASE):
+                continue   # negated — skip this keyword
+            if _rx.search(pos_pat, area, _rx.IGNORECASE):
+                return kw
+        return None
+
+    # Try Section F first, fall back to full text
+    _raw_stance_f    = _extract_stance_kw(_f_text)
+    _raw_stance_full = _extract_stance_kw(_full) if not _raw_stance_f else _raw_stance_f
+
+    # ── Step 3: Infer stance from objective signals ───────────────────────────
+    def _infer_stance(sev, rel, meth, verdict_text, full_text):
+        """Derive stance from objective evidence — no keyword ambiguity."""
+        has_high_risk  = sev == "High"
+        has_med_risk   = sev == "Medium"
+        is_relevant    = "REQUIRES HUMAN REVIEW" in verdict_text or "FLAG FOR" in verdict_text
+        non_compliant  = meth == "Non-compliant"
+        in_band        = rel == "IN-BAND"
+        adjacent       = rel == "ADJACENT"
+        has_faa_impact = _rx.search(r'FAA.{0,50}(impact|risk|concern|affected|threat)',
+                                    full_text, _rx.IGNORECASE) is not None
+        protective_doc = _rx.search(r'protective|supports.*protection|no harmful interference',
+                                    full_text, _rx.IGNORECASE) is not None
+
+        if not is_relevant:
+            return "Monitor"
+        if has_high_risk and (in_band or adjacent) and (non_compliant or has_faa_impact):
+            return "Oppose"
+        if has_high_risk or (non_compliant and is_relevant):
+            return "Oppose"
+        if has_med_risk and non_compliant:
+            return "Propose amendments"
+        if has_med_risk or (adjacent and is_relevant):
+            return "Propose amendments"
+        if protective_doc:
+            return "Support"
+        if is_relevant:
+            return "Flag for clarification"
+        return "Neutral"
+
+    # ── Step 4: Reconcile explicit vs inferred ────────────────────────────────
+    # Use explicit if found in Section F; use inferred if Section F has no keyword
+    # or if the two signals strongly disagree (severity contradicts keyword)
+    _inferred_stance = _infer_stance(severity, relationship, methodology, verdict, t)
+
     if review_track == "U.S. contribution":
         stance = "N/A — U.S. contribution"
-    elif stance == "—" and _rx.search(r'NOT RELEVANT|no further analysis', t, _rx.IGNORECASE):
-        stance = "Monitor"
-
-    # ── Stance (nuanced 4-way taxonomy) ──────────────────────────────────────
-    # risky / mixed / protective / neutral_but_check
-    if review_track == "U.S. contribution":
-        nuanced_stance = "neutral_but_check"   # US docs: no adversarial stance
+        nuanced_stance = "neutral_but_check"
     elif review_track == "Screened out after FAA relevance review":
+        stance = "Monitor"
         nuanced_stance = "neutral_but_check"
-    elif severity == "High" or stance == "Oppose":
-        nuanced_stance = "risky"
-    elif _rx.search(r'protective|supports.*FAA|FAA.*protection criteria.*met', t, _rx.IGNORECASE):
-        if severity in ("Medium","High") or _rx.search(r'Non-compliant|missing|unresolved', t, _rx.IGNORECASE):
-            nuanced_stance = "mixed"
-        else:
-            nuanced_stance = "protective"
-    elif stance in ("Propose amendments","Flag for clarification") or severity == "Medium":
-        nuanced_stance = "mixed"
     else:
-        nuanced_stance = "neutral_but_check"
+        # Reconcile: Section F keyword wins unless it contradicts high severity
+        if _raw_stance_f:
+            # If Section F says "Support" but severity is High — trust severity
+            if _raw_stance_f == "Support" and severity == "High":
+                stance = _inferred_stance
+            # If Section F says "Neutral" but relationship is IN-BAND with High severity
+            elif _raw_stance_f in ("Neutral","Monitor") and severity == "High" and relationship == "IN-BAND":
+                stance = "Oppose"
+            else:
+                stance = _raw_stance_f
+        elif _raw_stance_full:
+            # Full-text match is less reliable — use inferred as sanity check
+            if _raw_stance_full == "Oppose" and severity in ("—", "Low") and relationship == "NOT RELEVANT":
+                stance = _inferred_stance
+            elif _raw_stance_full in ("Neutral","Monitor") and severity == "High":
+                stance = _inferred_stance
+            else:
+                stance = _raw_stance_full
+        else:
+            stance = _inferred_stance
 
-    # Stance justification
-    _stance_just_m = _rx.search(
-        r'(?:Recommended US Position|US Position|## F\))[^\n]*\n([\s\S]{0,400}?)(?:\n##|\Z)',
+        # ── Nuanced stance — always derived from the FINAL stance + context ──
+        # Never derived independently (that was the source of contradictions)
+        if stance == "Oppose":
+            nuanced_stance = "risky"
+        elif stance == "Support":
+            # Support is only "protective" if no methodology issues; else "mixed"
+            if methodology == "Non-compliant" or severity in ("High","Medium"):
+                nuanced_stance = "mixed"
+            else:
+                nuanced_stance = "protective"
+        elif stance in ("Propose amendments", "Flag for clarification"):
+            nuanced_stance = "mixed"
+        elif stance == "Monitor":
+            nuanced_stance = "neutral_but_check"
+        else:
+            nuanced_stance = "neutral_but_check"
+
+    # ── Step 5: Stance justification — must reflect the final stance ──────────
+    # Pull from Section F and validate it does not contradict
+    _sjust_raw = _f_text.strip()[:400] if _f_text else ""
+    if not _sjust_raw:
+        _sjust_raw = f"Stance derived from: severity={severity}, relationship={relationship}, methodology={methodology}."
+    stance_justification = _strip_md(_sjust_raw, 300)
+
+    # Append a note if the stance was inferred (not from explicit keyword)
+    if not _raw_stance_f and stance != "N/A — U.S. contribution":
+        stance_justification += f" [Inferred from: severity={severity}, rel={relationship}]"
+
+    # ── Top action ────────────────────────────────────────────────────────────
+    action_block = _rx.search(
+        r'(?:##\s*F\)|Recommended Actions?)[^\n]*\n([\s\S]{0,600}?)(?:\n##|\Z)',
         t, _rx.IGNORECASE)
-    stance_justification = _strip_md(
-        _stance_just_m.group(1) if _stance_just_m else stance, 250)
+    if action_block:
+        first_action = _rx.search(r'(?:1\.|\*\*Action\*\*:?)\s*([^\n]{10,120})',
+                                   action_block.group(1), _rx.IGNORECASE)
+        top_action = first_action.group(1).strip()[:120] if first_action else action_block.group(1)[:120]
+    else:
+        top_action = "—"
+    top_action = _strip_md(top_action, 120)
+    summary    = _strip_md(summary, 200)
+    admin      = _strip_md(admin, 60)
+
+    # Fill stance for NOT RELEVANT path (after review_track is set above)
+    # This is now handled inside the stance block — no duplicate needed here.
 
     # ── Track change fields ────────────────────────────────────────────────────
     if doc_status == "REVISION" and _rx.search(r'TRACK CHANGES[:\s]+\d+ insert', t, _rx.IGNORECASE):
@@ -5708,27 +5795,68 @@ Once configured, the analyzer will work every time you visit the app.
                                 buf = io.BytesIO(raw_bytes)
                                 with _zf.ZipFile(buf) as z:
                                     xml_bytes = z.read("word/document.xml")
-                                root = _ET.fromstring(xml_bytes)
+                                    # Also read comments.xml — separate ZIP entry
+                                    comments_raw = []
+                                    for cfile in ("word/comments.xml", "word/commentsExtended.xml"):
+                                        try:
+                                            comments_raw.append(z.read(cfile).decode("utf-8", errors="replace"))
+                                        except Exception:
+                                            pass
+
+                                root    = _ET.fromstring(xml_bytes)
                                 xml_str = xml_bytes.decode("utf-8", errors="replace")
+
+                                # Detect track changes — ins/del tags AND rPrChange/pPrChange
                                 has_ins = f'{{{W}}}ins' in xml_str
                                 has_del = f'{{{W}}}del' in xml_str
-                                has_tc  = has_ins or has_del
+                                has_rpr = 'rPrChange' in xml_str or 'pPrChange' in xml_str
+                                has_tc  = has_ins or has_del or has_rpr
+
                                 insertions, deletions = [], []
                                 authors = set()
+
                                 for elem in root.iter(f'{{{W}}}ins'):
-                                    text = "".join(t.text or "" for t in elem.iter(f'{{{W}}}t'))
+                                    text   = "".join(t.text or "" for t in elem.iter(f'{{{W}}}t'))
                                     author = elem.get(f'{{{W}}}author', '')
                                     date   = (elem.get(f'{{{W}}}date') or '')[:10]
                                     if text.strip():
                                         insertions.append({'author': author, 'date': date, 'text': text.strip()})
                                         if author: authors.add(author)
+
                                 for elem in root.iter(f'{{{W}}}del'):
-                                    text = "".join(t.text or "" for t in elem.iter(f'{{{W}}}delText'))
+                                    text   = "".join(t.text or "" for t in elem.iter(f'{{{W}}}delText'))
                                     author = elem.get(f'{{{W}}}author', '')
                                     date   = (elem.get(f'{{{W}}}date') or '')[:10]
                                     if text.strip():
                                         deletions.append({'author': author, 'date': date, 'text': text.strip()})
                                         if author: authors.add(author)
+
+                                # Extract comments from comments.xml
+                                comment_list = []
+                                for com_xml in comments_raw:
+                                    try:
+                                        com_root = _ET.fromstring(com_xml)
+                                        for com in com_root.iter(f'{{{W}}}comment'):
+                                            author_c = com.get(f'{{{W}}}author', 'Unknown')
+                                            date_c   = (com.get(f'{{{W}}}date') or '')[:10]
+                                            txt_c    = " ".join(
+                                                (x.text or "") for x in com.iter(f'{{{W}}}t')
+                                            ).strip()
+                                            if txt_c:
+                                                comment_list.append({
+                                                    'author': author_c,
+                                                    'date':   date_c,
+                                                    'text':   txt_c[:300]
+                                                })
+                                                if author_c: authors.add(author_c)
+                                    except Exception:
+                                        pass
+
+                                # Mark has_tc if comments found
+                                if comment_list:
+                                    has_tc = True
+
+                                # Build clean paragraph text (include deleted text as [DELETED:...])
                                 clean_paras = []
                                 for para in root.iter(f'{{{W}}}p'):
                                     parts = []
@@ -5737,25 +5865,40 @@ Once configured, the analyzer will work every time you visit the app.
                                             parts.append(('keep', elem.text or ''))
                                         elif elem.tag == f'{{{W}}}delText':
                                             parts.append(('del', elem.text or ''))
-                                    text = "".join(t for kind, t in parts if kind == 'keep').strip()
-                                    if text: clean_paras.append(text)
+                                    kept = "".join(t for kind, t in parts if kind == 'keep').strip()
+                                    if kept: clean_paras.append(kept)
                                 clean_text = "\n".join(clean_paras)
+
+                                # Build summary
                                 if not has_tc:
-                                    summary = "TRACK CHANGES: None detected."
+                                    summary = "TRACK CHANGES: None detected in Word XML (document.xml, comments.xml)."
                                 else:
                                     author_str = ", ".join(sorted(authors)) if authors else "unknown"
-                                    lines = [f"TRACK CHANGES: {len(insertions)} insertions, {len(deletions)} deletions. Editors: {author_str}", "", "INSERTED:"]
+                                    lines = [
+                                        f"TRACK CHANGES DETECTED: {len(insertions)} insertion(s), "
+                                        f"{len(deletions)} deletion(s), {len(comment_list)} comment(s). "
+                                        f"Editors/Commenters: {author_str}",
+                                        "",
+                                        "INSERTED TEXT:"
+                                    ]
                                     for idx, item in enumerate(insertions[:30], 1):
                                         a = f" [{item['author']}]" if item['author'] else ""
                                         lines.append(f"  +[{idx}]{a}: {item['text'][:250]}")
-                                    lines += ["", "DELETED:"]
+                                    lines += ["", "DELETED TEXT:"]
                                     for idx, item in enumerate(deletions[:30], 1):
                                         a = f" [{item['author']}]" if item['author'] else ""
                                         lines.append(f"  -[{idx}]{a}: {item['text'][:250]}")
+                                    if comment_list:
+                                        lines += ["", "COMMENTS:"]
+                                        for idx, item in enumerate(comment_list[:20], 1):
+                                            a = f" [{item['author']}, {item['date']}]" if item['author'] else ""
+                                            lines.append(f"  [{idx}]{a}: {item['text']}")
                                     summary = "\n".join(lines)
+
                                 return clean_text, summary, has_tc, len(insertions), len(deletions)
-                            except Exception:
-                                return None, "", False, 0, 0
+
+                            except Exception as _tc_err:
+                                return None, f"TRACK CHANGES: Extraction error — {str(_tc_err)[:120]}", False, 0, 0
 
                         tc_clean, tc_summary_single, has_tc, n_ins, n_del = extract_track_changes(docx_bytes)
                         if not contrib_from_file:
@@ -6153,35 +6296,101 @@ between two or more administrations</b> without prejudice to other administratio
                 elif ft in ("docx", "doc"):
                     import zipfile as _zf2
                     from xml.etree import ElementTree as _ET2
-                    W2 = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+                    W2  = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+                    W14 = 'http://schemas.microsoft.com/office/word/2010/wordml'
                     try:
                         buf2 = io.BytesIO(raw)
                         with _zf2.ZipFile(buf2) as z2:
                             xml2 = z2.read("word/document.xml")
-                        root2 = _ET2.fromstring(xml2)
-                        xml_str2 = xml2.decode("utf-8", errors="replace")
-                        has_tc2 = f'{{{W2}}}ins' in xml_str2 or f'{{{W2}}}del' in xml_str2
-                        ins2, del2 = [], []
+
+                            # ── Read comments.xml (separate file) ──────────────
+                            comments_raw = []
+                            for cfile in ("word/comments.xml", "word/commentsExtended.xml"):
+                                try:
+                                    comments_raw.append(z2.read(cfile).decode("utf-8", errors="replace"))
+                                except Exception:
+                                    pass
+
+                        root2   = _ET2.fromstring(xml2)
+                        xml_str = xml2.decode("utf-8", errors="replace")
+
+                        # ── Detect track changes ────────────────────────────────
+                        # Both w:ins / w:del AND rsidDel / rPrChange attributes indicate TC
+                        has_ins = f'{{{W2}}}ins' in xml_str
+                        has_del = f'{{{W2}}}del' in xml_str
+                        has_rpr = 'rPrChange' in xml_str or 'pPrChange' in xml_str
+                        has_tc2 = has_ins or has_del or has_rpr
+
+                        # ── Extract inserted text ───────────────────────────────
+                        ins2 = []
                         for elem in root2.iter(f'{{{W2}}}ins'):
                             t = "".join(x.text or "" for x in elem.iter(f'{{{W2}}}t'))
-                            if t.strip(): ins2.append(t.strip())
+                            if t.strip(): ins2.append(t.strip()[:120])
+
+                        # ── Extract deleted text ────────────────────────────────
+                        del2 = []
                         for elem in root2.iter(f'{{{W2}}}del'):
+                            # w:delText is the correct tag for deleted runs
                             t = "".join(x.text or "" for x in elem.iter(f'{{{W2}}}delText'))
-                            if t.strip(): del2.append(t.strip())
+                            if t.strip(): del2.append(t.strip()[:120])
+
+                        # ── Extract comments ────────────────────────────────────
+                        comments2 = []
+                        for com_xml in comments_raw:
+                            try:
+                                com_root = _ET2.fromstring(com_xml)
+                                for com in com_root.iter(f'{{{W2}}}comment'):
+                                    author = com.get(f'{{{W2}}}author', 'Unknown')
+                                    date   = com.get(f'{{{W2}}}date', '')[:10]
+                                    txt    = " ".join(
+                                        (x.text or "") for x in com.iter(f'{{{W2}}}t')
+                                    ).strip()
+                                    if txt:
+                                        comments2.append(f"[{author} {date}]: {txt[:200]}")
+                            except Exception:
+                                pass
+
+                        # ── Extract paragraph text (include TC runs) ────────────
                         clean2 = []
                         for para in root2.iter(f'{{{W2}}}p'):
                             parts2 = []
                             for elem in para.iter():
+                                # Normal text
                                 if elem.tag == f'{{{W2}}}t':
                                     parts2.append(elem.text or '')
+                                # Deleted text — include with strikethrough marker so AI sees it
+                                elif elem.tag == f'{{{W2}}}delText':
+                                    t_del = elem.text or ''
+                                    if t_del.strip():
+                                        parts2.append(f'[DELETED:{t_del}]')
                             t2 = "".join(parts2).strip()
                             if t2: clean2.append(t2)
                         text = "\n".join(clean2)
+
+                        # ── Build tc_sum ────────────────────────────────────────
+                        tc_parts = []
                         if has_tc2:
-                            tc_sum = f"TRACK CHANGES: {len(ins2)} insertions, {len(del2)} deletions."
+                            n_ins = len(ins2)
+                            n_del = len(del2)
+                            n_com = len(comments2)
+                            tc_parts.append(f"TRACK CHANGES DETECTED: {n_ins} insertion(s), {n_del} deletion(s).")
+                            if n_com:
+                                tc_parts.append(f"COMMENTS: {n_com} comment(s) found.")
+                            if ins2[:3]:
+                                tc_parts.append("Key insertions: " + " | ".join(ins2[:3]))
+                            if del2[:3]:
+                                tc_parts.append("Key deletions: " + " | ".join(del2[:3]))
+                            if comments2[:3]:
+                                tc_parts.append("Comments: " + " || ".join(comments2[:3]))
+                            tc_sum = "\n".join(tc_parts)
                         else:
-                            tc_sum = "TRACK CHANGES: None detected."
-                    except Exception: pass
+                            tc_sum = "TRACK CHANGES: None detected in Word XML."
+
+                    except Exception as _tc_err:
+                        tc_sum = f"TRACK CHANGES: Extraction failed ({str(_tc_err)[:80]})."
+                        pass
+
+                    # Fallback to mammoth if no text extracted
                     if not text:
                         try:
                             import mammoth
@@ -6384,7 +6593,24 @@ One paragraph, 100–150 words. Ready-to-use US floor intervention citing specif
             "Deep dive (comprehensive brief + draft response contribution outline)":
                 "OUTPUT FORMAT: Full detail.",
         }[analysis_depth]
-        sys_prompt_batch = f"You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings.\n{wp_framework_b}\nFAA PROTECTED BANDS:\n{faa_bands_b}\nACCURACY RULE: Never fabricate citations or frequency values. If uncertain, say 'Cannot confirm.'"
+        sys_prompt_batch = f"""You are an expert RF engineer supporting FAA/NTIA in ITU-R proceedings.
+{wp_framework_b}
+
+FAA PROTECTED BANDS:
+{faa_bands_b}
+
+SOURCE-FIDELITY RULES — NON-NEGOTIABLE:
+1. FREQUENCIES: Only state bands EXPLICITLY written in the document. Copy exact notation.
+   Never infer or convert unless you show the arithmetic.
+2. FAA IMPACT: Only flag a FAA band as affected if the proposed frequency is stated AND
+   the mathematical gap/overlap to that FAA band can be computed from stated values.
+   Never flag a FAA system just because the WP label is related to it.
+3. NO FABRICATION: If a fact, number, or citation is not in the document, write exactly:
+   "Cannot confirm from document." Never invent dB values, propagation results, or document numbers.
+4. LABEL YOUR SOURCES: Prefix each claim with:
+   "Document states:" / "Calculated:" / "Analysis notes:" so the reader knows what's verified.
+5. CONCISE: One specific finding with evidence beats three vague claims.
+   Only include what the document actually discusses."""
 
         client_b = anthropic.Anthropic(api_key=api_key)
 
@@ -7100,6 +7326,31 @@ FAA PROTECTED FREQUENCY LIST — cross-check all contributions against these:
 WRC-27 ITEMS THREATENING FAA BANDS: AI 1.7 (WP 5D, IMT near RA 4.4–4.8 GHz), AI 1.13 (WP 4C, MSS near DME/AMS(R)S/ASR), AI 1.15 (WP 7B, lunar SRS), AI 1.17/1.19 (WP 7C, EESS passive).
 
 ═══════════════════════════════════════════════════════════════════
+SOURCE-FIDELITY RULES — MUST FOLLOW FOR EVERY FIELD
+═══════════════════════════════════════════════════════════════════
+
+RULE 1 — FREQUENCIES: Only state frequency bands that are EXPLICITLY written in the
+  document. If the document says "4.4–4.8 GHz", write exactly that. Do NOT infer,
+  deduce, or invent frequencies. If no frequency is stated, write "Not specified in document."
+
+RULE 2 — FAA BAND IMPACT: Only flag an FAA band as affected if:
+  (a) The proposed frequency is explicitly stated AND
+  (b) The mathematical overlap or gap to the FAA band is calculable from the stated values.
+  Never flag a FAA band as "affected" based on WP label or document title alone.
+
+RULE 3 — NO FABRICATION: If you cannot find or verify a specific fact, number, document
+  number, study result, or regulatory citation IN THE CONTRIBUTION TEXT, write exactly:
+  "Cannot confirm from document — requires manual verification."
+  NEVER invent dB values, propagation results, or interference conclusions.
+
+RULE 4 — CONCISENESS: Every finding must cite what the document ACTUALLY SAYS, in plain
+  language. Do not pad with generic ITU-R background. One specific finding > three vague ones.
+
+RULE 5 — DISTINGUISH: Clearly separate (a) what the document states, (b) what you
+  calculate from its stated values, and (c) what is your analytical inference.
+  Use prefixes: "Document states:", "Calculated:", "Analysis notes:"
+
+═══════════════════════════════════════════════════════════════════
 MANDATORY REVIEW CHECKLIST — APPLY TO EVERY CONTRIBUTION
 SCOPE RULE: Only flag deviations from the methodology REQUIRED by the applicable
 ITU-R Recommendations for this Working Party. Do NOT critique general engineering
@@ -7107,12 +7358,6 @@ design choices, system architecture, or implementation decisions that are outsid
 the ITU-R mandate. Every finding must cite the specific Recommendation or RR
 article that requires what the contribution is missing or violating.
 ═══════════════════════════════════════════════════════════════════
-
-ACCURACY RULE — NON-NEGOTIABLE:
-If you cannot find or verify a specific fact, frequency, document number, study result,
-or regulatory citation IN THE CONTRIBUTION TEXT PROVIDED, state "Cannot confirm from
-document — requires manual verification." NEVER invent frequencies, dB values, document
-references, or regulatory conclusions. It is better to flag a gap than to fabricate.
 
 COMPATIBILITY vs SHARING DISTINCTION (use correct term in output):
 - SHARING STUDY: Proposed service and FAA service are IN THE SAME BAND — they share spectrum.
@@ -7153,80 +7398,40 @@ To determine the path:
     as PATH 3 pending clarification."
 
 1. RELEVANCE SCREEN — FREQUENCY-FIRST (PATH 3 only)
-   Step 1: Extract ALL frequencies/bands from the document — exact low MHz, high MHz, and bandwidth.
-           State what the document actually says, verbatim if possible.
+   Step 1: COPY the EXACT frequency text from the document. Do not paraphrase or convert.
+           E.g.: Document states: "4 400–4 800 MHz (proposed IMT band)"
    Step 2: For each proposed band, identify the closest FAA protected band and calculate:
            - If proposed band overlaps FAA band: OVERLAP = min(prop_high, faa_high) − max(prop_low, faa_low) MHz
            - If proposed band is below FAA band:  GAP = FAA_low − prop_high  MHz
            - If proposed band is above FAA band:  GAP = prop_low − FAA_high  MHz
-           State the arithmetic result. Never write "adjacent" or "nearby" without the number.
+           Show the arithmetic. E.g.: "GAP = 4200 − 4400 = 0 MHz (touching at 4400 MHz)"
+           Never write "adjacent" or "nearby" without the calculated number.
    Step 3: State RELEVANCE VERDICT with the actual calculated overlap/gap.
-           Identify WRC-27 AI and study type (SHARING if overlap > 0, COMPATIBILITY if gap = 0 or small).
+           Only identify FAA systems whose bands are proven to overlap or be within 100 MHz.
+           Identify WRC-27 AI and study type (SHARING if overlap > 0, COMPATIBILITY if gap ≤ 100 MHz).
 
 2. AVIATION/FAA IMPACT ASSESSMENT
-   Only raise concerns that are grounded in a specific ITU-R requirement or RR provision.
-   For each concern, state the applicable rule:
+   Prefix each finding with whether it is: "Document states:" / "Calculated:" / "Analysis notes:"
+   Only raise concerns grounded in a specific ITU-R requirement. Cite the exact Recommendation.
    - OOB emissions → cite SM.1540/SM.1541 (250% BN boundary, 23 dB mask rule, RR 1.153)
    - Spurious emissions → cite RR Appendix 3 (43+10·log(P), 60/70 dBc limits)
    - Aggregate interference → cite SM.2028 (required methodology for aggregate studies)
-   - I/N exceedance → cite the specific protection level (ARSR −6 dB, ASR −10 dB, etc.)
-   - Aviation safety factor omission → cite M.1477 Annex 5 (+6 dB for precision approach)
-   - Blocking/desensitization omission → cite M.1642 §X or the applicable WP methodology doc
-   Do NOT raise concerns about parameters or scenarios that the applicable Recommendation
-   does not specifically require to be addressed.
 
-3. METHODOLOGY COMPLIANCE — per applicable ITU-R Recommendations only
-   Check ONLY whether the study follows the methodology mandated for this WP:
+3. METHODOLOGY COMPLIANCE
+   a) Propagation: P.452 (terrestrial) or P.528 (airborne victim) as required by M.1642?
+   b) OOB emissions: does the study address the 250% BN boundary per SM.1540/SM.1541?
+      Only flag if OOB products land in a FAA protected band.
+   c) Spurious: does it comply with RR Appendix 3? Only flag if spurious lands in FAA band.
+   d) Aviation safety factor: is the +6 dB applied where M.1477 requires it?
+   e) Aggregate: does SM.2028 apply? Flag only if aggregate study is claimed but methodology absent.
 
-   WP 5D (IMT/ARNS): Required methodology is ITU-R M.1642. Check:
-   - Propagation: M.1642 requires P.452 (terrestrial) or P.528 (airborne victim)
-   - Monte Carlo per SM.2028 if aggregate interference is claimed
-   - Protection criteria per M.1477 (I/N thresholds + 6 dB safety factor)
-   - Time percentage: 1% required for worst-case per SM.2028 — NOT 50%
+4. RECOMMENDED US POSITION — Oppose / Support / Propose amendments / Monitor
+   State which and give ONE specific technical reason grounded in the document text.
 
-   WP 4C (MSS/satellite): Required methodology is P.619 + S.1586 (epfd). Check:
-   - Propagation MUST be P.619 — P.452 is terrestrial-only and WRONG for satellite
-   - Metric MUST be epfd (constellation aggregate) — single-satellite pfd is insufficient
-   - ΔT/T for AMS(R)S — single-entry ≤6% per system protection table
-   - epfd for DME — ≤−121.5 dBW/m²/MHz per system protection table
+5. DRAFT RESPONSE LANGUAGE — ITU-R floor intervention language
+   Must cite specific RR articles and Recommendations. One paragraph maximum.
 
-   WP 7B (Space Research/Lunar): No established ITU-R methodology exists for Earth-Moon
-   to terrestrial ARNS. If the contribution proposes one, assess whether it is grounded
-   in existing ITU-R Recommendations. If no methodology is cited, flag the gap.
-
-   WP 7C (EESS passive): No interference methodology applies — passive sensors do not
-   transmit. Assess only allocation policy implications per the Radio Regulations.
-
-   WP 5B (Maritime/Radiodetermination): Required methodology is M.1849 for radar,
-   P.452/P.528 as applicable. Check protection criteria for co-channel ARNS systems.
-
-   Do NOT flag methodology choices that the applicable Recommendation does not prohibit
-   or that are within the discretion of the submitting administration.
-
-4. REGULATORY AND PROCEDURAL ISSUES
-   Only cite RR provisions that are directly applicable to the band and service:
-   - RR No. 4.10: harmful interference to safety-of-life — cite only if threshold is exceeded
-   - RR 5.444: ARNS protection at 960–1215 MHz — cite only for that band
-   - RR Appendix 3: spurious limits — cite only if spurious products are identified
-   - SM.1540/SM.1541: OOB domain — cite only if OOB boundary analysis is missing or wrong
-   Do NOT cite a regulation unless it is specifically applicable to the scenario in question.
-
-INTERFERENCE CLASSIFICATION (apply only if the study addresses the FAA band):
-- Harmful (RR 1.169) → triggers RR 4.10 → cite only if I/N threshold is exceeded
-- Permissible (RR 1.167) → within agreed criteria
-- Accepted (RR 1.168) → bilateral agreement only
-
-REGULATORY TOOLKIT (cite only what is applicable to this WP and scenario):
-- RR No. 4.10, 1.59, 5.444, Appendix 3
-- SM.1540/SM.1541 (OOB domain); SM.2028 (Monte Carlo); SM.329 (spurious measurement)
-- M.1642 (WP 5D/5B terrestrial IMT→ARNS); M.1477/M.1318/M.1904/M.1905 (GNSS)
-- P.619 + S.1586 (WP 4C satellite); P.452/P.528 (terrestrial/aeronautical propagation)
-- RTCA DO-155 (RA), DO-235B (GNSS), DO-260B (ADS-B), DO-189 (DME) — for victim parameters
-
-TONE: Technically rigorous, grounded only in applicable ITU-R requirements.
-Flag what the guidelines require. Do not expand the scope beyond the WP mandate.
-
-{depth_instruction}"""
+Use clear headers. Plain language. Flag "Cannot confirm" wherever you lack evidence."""
 
         # ── WP-specific analysis questions ──────────────────────────────────
         if wp_profile_key == "WP 7C (EESS / Space Weather Sensors)":
@@ -7391,14 +7596,23 @@ Use clear headers. Plain language. Flag NTIA/ICAO escalation needs."""
 
         user_message = f"""Analyze this ITU-R contribution using the mandatory review checklist and produce the structured output below.
 
+STEP 0 — READ THE DOCUMENT FIRST:
+Before writing anything, read the entire contribution text below. Note:
+- The EXACT frequency bands stated (copy the numbers as written, including notation like "1 610–1 626.5 MHz")
+- The submitting administration and document number (as written)
+- What the document is proposing or studying
+- What analysis or studies the document itself contains
+
+Do not import knowledge about what "WP 5B typically covers" to fill gaps. Only report what is in this document.
+
 DOCUMENT METADATA — EXTRACT FROM THE DOCUMENT TEXT:
-All metadata fields (document number, submitting administration, meeting/date, agenda item, document type) must be identified from the contribution text itself and stated clearly in Section A. Do not leave them blank.
+All metadata fields must come from the contribution text. Do not leave them blank or guess.
 - Working Party: {working_party}
-- All other fields: extract from the document text and state them in Section A of the output.
+- All other fields: extract from document text and state in Section A.
 
-{f"TRACK CHANGES (extracted from uploaded Word document — use for Section B):{chr(10)}{tc_summary_for_prompt}{chr(10)}" if tc_summary_for_prompt else "TRACK CHANGES: No Word document uploaded — if pasting text, note whether this is a revision."}
+{f"TRACK CHANGES (extracted from uploaded Word document — use for Section B):{chr(10)}{tc_summary_for_prompt}{chr(10)}" if tc_summary_for_prompt else "TRACK CHANGES: No Word document uploaded — if pasting text, note whether this appears to be a revision."}
 
-CONTRIBUTION TEXT (full document):
+CONTRIBUTION TEXT (full document — read this completely before writing your analysis):
 {contrib_input}
 
 {f"SPECIFIC FAA CONCERN TO PRIORITIZE: {user_concern}" if user_concern else ""}
